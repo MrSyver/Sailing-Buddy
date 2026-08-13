@@ -6,14 +6,14 @@
  * keine Kacheln und keine Netzverbindung gebraucht.
  */
 
-import { h, svg, render, copy, toast } from '../lib/dom.js';
+import { h, svg, render, copy, toast, fit } from '../lib/dom.js';
 import { settings, waypoints } from '../lib/storage.js';
 import { gps, GPS_STATUS_KEY } from '../lib/gps.js';
 import { t, locale, uiLang, num } from '../lib/i18n.js';
 import {
   solve, parsePositionPair, formatPosition, formatLat,
   formatLon, formatDecimal, formatSpoken, formatDuration,
-  toParts, fromParts,
+  toParts, fromParts, norm360,
 } from '../lib/geo.js';
 
 // Bleibt beim Reiterwechsel erhalten.
@@ -192,15 +192,11 @@ function targetInput() {
   const p = state.parts;
 
   /**
-   * Behält nur Ziffern und höchstens ein Dezimalzeichen. Damit ist es egal,
-   * ob jemand Punkt oder Komma tippt – und eingefügte Gradzeichen fallen
-   * einfach weg, statt die Eingabe unbrauchbar zu machen.
+   * Jedes Feld nimmt nur Ziffern. Grad, ganze Minuten und Nachkommastellen
+   * stehen getrennt – so gibt es kein Komma zu treffen und eingefügte
+   * Gradzeichen fallen weg, statt die Eingabe unbrauchbar zu machen.
    */
-  const clean = (raw) => {
-    const kept = raw.replace(/[^\d.,]/g, '').replace(/\./g, ',');
-    const [whole, ...rest] = kept.split(',');
-    return rest.length ? `${whole},${rest.join('')}` : whole;
-  };
+  const clean = (raw) => raw.replace(/\D/g, '');
 
   /** Ein Zahlenfeld – ruft die Zifferntastatur auf, sonst nichts. */
   const numField = (key, { max, label, hint, next }) => h('input.coord-input', {
@@ -214,12 +210,16 @@ function targetInput() {
     placeholder: hint,
     'aria-label': label,
     oninput: (e) => {
-      const cleaned = clean(e.target.value);
-      if (cleaned !== e.target.value) e.target.value = cleaned;
+      const raw = e.target.value;
+      const cleaned = clean(raw);
+      if (cleaned !== raw) e.target.value = cleaned;
       state.parts = { ...state.parts, [key]: cleaned };
       applyParts({ redraw: false });
-      // Ist die Gradzahl voll, von selbst ins Minutenfeld springen.
-      if (next && cleaned.length >= max) document.getElementById(next)?.focus();
+      // Ist das Feld voll, von selbst ins nächste springen. Ein getipptes
+      // Komma oder Punkt tut dasselbe – so lässt sich „31,234“ am Stück
+      // eintippen, obwohl es zwei Felder sind.
+      const jump = cleaned.length >= max || /[.,]/.test(raw);
+      if (next && jump) document.getElementById(next)?.focus();
     },
     onfocus: (e) => e.target.select(),
   });
@@ -236,7 +236,7 @@ function targetInput() {
     }, code)),
   );
 
-  const row = (label, degKey, minKey, hemiEl, degMax, degHint) => h('div.coord-row',
+  const row = (label, degKey, minKey, decKey, hemiEl, degMax, degHint, minHint) => h('div.coord-row',
     h('span.coord-label', label),
     h('div.coord-fields',
       numField(degKey, {
@@ -246,7 +246,15 @@ function targetInput() {
         next: `coord-${minKey}`,
       }),
       h('span.coord-unit', '°'),
-      numField(minKey, { max: 7, label: `${label} – ${t('pos.minutes')}`, hint: '31,234' }),
+      numField(minKey, {
+        max: 2,
+        label: `${label} – ${t('pos.minutes')}`,
+        hint: minHint,
+        next: `coord-${decKey}`,
+      }),
+      h('span.coord-unit.comma', ','),
+      // Eigenes Kästchen für die Nachkommastellen der Minuten.
+      numField(decKey, { max: 3, label: `${label} – ${t('pos.decimals')}`, hint: '234' }),
       h('span.coord-unit', '′'),
     ),
     hemiEl,
@@ -256,8 +264,8 @@ function targetInput() {
     h('h2', t('pos.target')),
     h('p.small.muted', { style: { margin: '0 0 12px' } }, t('pos.targetHintSimple')),
 
-    row(t('pos.latitude'), 'latDeg', 'latMin', hemi('latHemi', 'N', 'S'), 2, '54'),
-    row(t('pos.longitude'), 'lonDeg', 'lonMin', hemi('lonHemi', 'E', 'W'), 3, '011'),
+    row(t('pos.latitude'), 'latDeg', 'latMin', 'latDec', hemi('latHemi', 'N', 'S'), 2, '54', '31'),
+    row(t('pos.longitude'), 'lonDeg', 'lonMin', 'lonDec', hemi('lonHemi', 'E', 'W'), 3, '011', '22'),
 
     h('p.small.coord-error', {
       style: {
@@ -404,49 +412,49 @@ function result(nav, opts) {
     h('h2', state.targetName ? t('pos.toNamed', { name: state.targetName }) : t('pos.toTarget')),
 
     h('div.readout',
-      h('div.cell.hero',
-        h('div.label', t('pos.distance')),
-        h('div.value', num(distance, distance < 10 ? 2 : 1), h('span.unit', 'sm')),
-        h('div.sub', metres(distance)),
-      ),
-      h('div.cell.hero',
-        h('div.label', t('pos.trueCourse')),
-        h('div.value', deg3(bearing), h('span.unit', '°')),
-        h('div.sub', t('pos.trueCourseSub')),
-      ),
+      heroCell(t('pos.distance'), num(distance, distance < 10 ? 2 : 1), 'sm', metres(distance)),
+      heroCell(t('pos.trueCourse'), deg3(bearing), '°', t('pos.trueCourseSub')),
     ),
 
     compassRose(bearing, opts.heading, relative),
 
+    // Nordorientiert oder mitdrehend – auf einem krängenden Schiff ist die
+    // mitdrehende Ansicht leichter zu lesen, weil oben immer voraus ist.
+    h('div.seg', { style: { 'margin-top': '10px' } },
+      h('button', {
+        type: 'button',
+        'aria-pressed': String(!settings.get('compassCourseUp')),
+        onclick: () => { settings.set('compassCourseUp', false); draw(); },
+      }, t('pos.northUp')),
+      h('button', {
+        type: 'button',
+        disabled: opts.heading === null || opts.heading === undefined,
+        'aria-pressed': String(Boolean(settings.get('compassCourseUp'))),
+        onclick: () => { settings.set('compassCourseUp', true); draw(); },
+      }, t('pos.courseUp')),
+    ),
+    (opts.heading === null || opts.heading === undefined)
+      && h('p.small.muted', { style: { margin: '7px 0 0' } }, t('pos.courseUpNeedsHeading')),
+
     h('div.readout', { style: { 'margin-top': '12px' } },
-      hasVar && h('div.cell',
-        h('div.label', t('pos.magnetic')),
-        h('div.value', deg3(courses.magnetic), h('span.unit', '°')),
-        h('div.sub', t('pos.magneticSub', { v: fmtSigned(opts.variation) })),
-      ),
-      hasDev && h('div.cell',
-        h('div.label', t('pos.compass')),
-        h('div.value', deg3(courses.compass), h('span.unit', '°')),
-        h('div.sub', t('pos.compassSub', { v: fmtSigned(opts.deviation) })),
-      ),
-      h('div.cell',
-        h('div.label', t('pos.reciprocal')),
-        h('div.value', deg3(reciprocal), h('span.unit', '°')),
-        h('div.sub', t('pos.reciprocalSub')),
-      ),
+      hasVar && cell(t('pos.magnetic'), deg3(courses.magnetic), '°',
+        t('pos.magneticSub', { v: fmtSigned(opts.variation) })),
+      hasDev && cell(t('pos.compass'), deg3(courses.compass), '°',
+        t('pos.compassSub', { v: fmtSigned(opts.deviation) })),
+      cell(t('pos.reciprocal'), deg3(reciprocal), '°', t('pos.reciprocalSub')),
       h('div.cell',
         h('div.label', t('pos.eta')),
-        h('div.value', { style: { 'font-size': '1.4rem' } }, formatDuration(eta)),
+        h('div.value.mid', formatDuration(eta)),
         h('div.sub', opts.speed ? t('pos.etaAt', { v: num(opts.speed) }) : t('pos.etaNoSpeed')),
       ),
       relative && h('div.cell.wide',
         h('div.label', t('pos.relative')),
-        h('div.value', { style: { 'font-size': '1.4rem' } }, relativeText(relative)),
+        h('div.value.mid', relativeText(relative)),
         h('div.sub', t('pos.relativeSub')),
       ),
       eta && h('div.cell.wide',
         h('div.label', t('pos.arrival')),
-        h('div.value', { style: { 'font-size': '1.4rem' } },
+        h('div.value.mid',
           new Date(Date.now() + eta * 1000).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' }),
           t('pos.clock') && h('span.unit', t('pos.clock'))),
       ),
@@ -498,7 +506,16 @@ function fmtSigned(v) {
 function cell(label, value, unit, sub) {
   return h('div.cell',
     h('div.label', label),
-    h('div.value', value, unit && h('span.unit', unit)),
+    h(`div.value${fit(value)}`, value, unit && h('span.unit', unit)),
+    sub && h('div.sub', sub),
+  );
+}
+
+/** Die beiden großen Kacheln oben: Entfernung und rechtweisender Kurs. */
+function heroCell(label, value, unit, sub) {
+  return h('div.cell.hero',
+    h('div.label', label),
+    h(`div.value${fit(value)}`, value, unit && h('span.unit', unit)),
     sub && h('div.sub', sub),
   );
 }
@@ -508,6 +525,12 @@ function cell(label, value, unit, sub) {
 function compassRose(bearing, heading, relative) {
   const C = 100;
   const R = 86;
+  const hasHeading = heading !== null && heading !== undefined;
+  // Mitdrehend: Die Rose wird um den eigenen Kurs zurückgedreht, damit oben
+  // immer die eigene Fahrtrichtung liegt.
+  const courseUp = Boolean(settings.get('compassCourseUp')) && hasHeading;
+  const turn = courseUp ? -heading : 0;
+
   const el = svg('svg.compass', {
     viewBox: '0 0 200 200',
     role: 'img',
@@ -516,11 +539,15 @@ function compassRose(bearing, heading, relative) {
 
   el.appendChild(svg('circle', { class: 'ring', cx: C, cy: C, r: R }));
 
+  // Alles, was sich mitdreht, kommt in eine gemeinsame Gruppe.
+  const rose = svg('g', { transform: `rotate(${turn} ${C} ${C})` });
+  el.appendChild(rose);
+
   for (let a = 0; a < 360; a += 10) {
     const major = a % 30 === 0;
     const rad = (a - 90) * Math.PI / 180;
     const r1 = R - (major ? 12 : 6);
-    el.appendChild(svg('line', {
+    rose.appendChild(svg('line', {
       class: major ? 'tick major' : 'tick',
       x1: C + r1 * Math.cos(rad), y1: C + r1 * Math.sin(rad),
       x2: C + R * Math.cos(rad), y2: C + R * Math.sin(rad),
@@ -531,16 +558,20 @@ function compassRose(bearing, heading, relative) {
   const east = uiLang() === 'en' ? 'E' : 'O';
   [['N', 0], [east, 90], ['S', 180], ['W', 270]].forEach(([label, a]) => {
     const rad = (a - 90) * Math.PI / 180;
-    el.appendChild(svg('text', {
+    const x = C + (R - 24) * Math.cos(rad);
+    const y = C + (R - 24) * Math.sin(rad) + 3;
+    rose.appendChild(svg('text', {
       class: 'card-label',
-      x: C + (R - 24) * Math.cos(rad),
-      y: C + (R - 24) * Math.sin(rad) + 3,
+      x, y,
       'text-anchor': 'middle',
+      // Die Beschriftung soll lesbar bleiben, also wieder zurückdrehen.
+      transform: turn ? `rotate(${-turn} ${x} ${y - 3})` : null,
     }, label));
   });
 
-  // Kurs über Grund als gestrichelte Linie
-  if (heading !== null && heading !== undefined) {
+  // Eigener Kurs: nordorientiert als gestrichelte Linie, mitdrehend liegt er
+  // fest oben und wird als Bugsymbol gezeichnet.
+  if (hasHeading && !courseUp) {
     const rad = (heading - 90) * Math.PI / 180;
     el.appendChild(svg('line', {
       class: 'heading',
@@ -549,18 +580,23 @@ function compassRose(bearing, heading, relative) {
       y2: C + (R - 16) * Math.sin(rad),
     }));
   }
+  if (courseUp) {
+    el.appendChild(svg('polygon', { class: 'own-ship', points: '100,44 94,60 106,60' }));
+    el.appendChild(svg('line', { class: 'heading', x1: C, y1: 60, x2: C, y2: C }));
+  }
 
-  // Zeiger zum Ziel
+  // Zeiger zum Ziel – mitdrehend zeigt er die Seitenpeilung.
   el.appendChild(svg('polygon', {
     class: 'needle',
     points: '100,10 91,34 100,29 109,34',
-    transform: `rotate(${bearing} ${C} ${C})`,
+    transform: `rotate(${norm360(bearing + turn)} ${C} ${C})`,
   }));
 
   el.appendChild(svg('text', {
     class: 'center-text', x: C, y: C + 4, 'font-size': '30',
   }, `${deg3(bearing)}°`));
-  el.appendChild(svg('text', { class: 'center-sub', x: C, y: C + 20 }, t('pos.compassTrue')));
+  el.appendChild(svg('text', { class: 'center-sub', x: C, y: C + 20 },
+    courseUp ? t('pos.courseUpShort') : t('pos.compassTrue')));
 
   if (relative) {
     el.appendChild(svg('text', { class: 'center-sub', x: C, y: C + 36 }, relativeText(relative)));
@@ -590,8 +626,11 @@ function waypointList(fix, opts) {
     ),
     ...list.map((wp) => {
       const nav = fix ? solve(fix, wp, opts) : null;
+      const isTarget = state.target
+        && Math.abs(state.target.lat - wp.lat) < 1e-9
+        && Math.abs(state.target.lon - wp.lon) < 1e-9;
       return h('div.wp-item',
-        h('div.grow', { style: { cursor: 'pointer' }, onclick: () => useWaypoint(wp) },
+        h('div.grow',
           h('div.wp-name', wp.kind === 'mob' ? `⚑ ${wp.name}` : wp.name),
           h('div.wp-pos', formatPosition(wp, 2)),
         ),
@@ -599,6 +638,12 @@ function waypointList(fix, opts) {
           `${num(nav.distance, nav.distance < 10 ? 2 : 1)} sm`,
           h('small', `${deg3(nav.bearing)}°`),
         ),
+        // Ein Klick genügt, um die gemerkte Position wieder als Ziel zu setzen.
+        h('button.btn.small', {
+          type: 'button',
+          disabled: isTarget,
+          onclick: () => useWaypoint(wp),
+        }, isTarget ? t('pos.isTarget') : t('pos.useAsTarget')),
         h('button.btn.small', {
           type: 'button',
           'aria-label': `${wp.name} – ${t('common.delete')}`,

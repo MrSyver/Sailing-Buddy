@@ -7,9 +7,12 @@ import { t, UI_LANGS, uiLang, locale } from '../lib/i18n.js';
 import {
   offlineState, onOfflineChange, checkReadiness, refreshOfflineCopy, formatBytes,
 } from '../lib/offline.js';
+import { chartsTab } from './charts.js';
 
 let container = null;
 let offOffline = null;
+// Bleibt beim Wechsel zwischen den Reitern erhalten.
+let tab = 'allgemein';
 
 export function view(root) {
   container = h('div');
@@ -28,12 +31,30 @@ function draw() {
   if (!container) return;
   const s = settings.all();
   render(container,
-    offlineCard(),
-    boatCard(s),
-    displayCard(s),
-    backupCard(),
-    aboutCard(),
+    // Die Karten bekommen einen eigenen Reiter: Sie haben mit den
+    // Schiffsdaten nichts zu tun und brauchen viel Platz.
+    h('div.seg', { style: { 'margin-bottom': '14px' } },
+      tabBtn('allgemein', t('set.tab.general')),
+      tabBtn('karten', t('set.tab.charts')),
+    ),
+    tab === 'karten'
+      ? chartsTab()
+      : h('div',
+        offlineCard(),
+        boatCard(s),
+        displayCard(s),
+        backupCard(),
+        aboutCard(),
+      ),
   );
+}
+
+function tabBtn(key, label) {
+  return h('button', {
+    type: 'button',
+    'aria-pressed': String(tab === key),
+    onclick: () => { tab = key; draw(); window.scrollTo(0, 0); },
+  }, label);
 }
 
 // ------------------------------------------------------ Offline-Bereitschaft

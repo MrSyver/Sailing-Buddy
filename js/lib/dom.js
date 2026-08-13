@@ -67,6 +67,19 @@ export function group(label, control, hint = null) {
   return h('div.field', h('span', label), control, hint && h('span.hint', hint));
 }
 
+/**
+ * Klassenzusatz für große Zahlen in den Kacheln der Anzeige.
+ *
+ * Eine Entfernung von 1.234,56 sm ist in der vollen Schriftgröße breiter als
+ * die Kachel. Statt sie abzuschneiden oder umzubrechen, wird sie ab einer
+ * gewissen Länge kleiner gesetzt – ablesbar bleibt sie in jedem Fall.
+ */
+export function fit(value) {
+  const n = String(value ?? '').length;
+  if (n <= 6) return '';
+  return n <= 9 ? '.long' : '.xlong';
+}
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /**

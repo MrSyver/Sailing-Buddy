@@ -165,10 +165,12 @@ test('solve liefert eine vollständige Lösung', () => {
 test('Koordinaten in Einzelfelder zerlegen', () => {
   const p = toParts({ lat: 54.520566, lon: 11.372416 });
   assert.equal(p.latDeg, '54');
-  assert.equal(p.latMin, '31.234');
+  assert.equal(p.latMin, '31');
+  assert.equal(p.latDec, '234', 'Nachkommastellen stehen im eigenen Feld');
   assert.equal(p.latHemi, 'N');
   assert.equal(p.lonDeg, '011');
-  assert.equal(p.lonMin, '22.345');
+  assert.equal(p.lonMin, '22');
+  assert.equal(p.lonDec, '345');
   assert.equal(p.lonHemi, 'E');
 
   const s = toParts({ lat: -33.868333, lon: -70.5 });
@@ -177,34 +179,53 @@ test('Koordinaten in Einzelfelder zerlegen', () => {
   assert.equal(s.lonDeg, '070');
 
   assert.equal(toParts(null).latHemi, 'N', 'Vorbelegung ohne Position');
+  assert.equal(toParts(null).latDec, '', 'Vorbelegung ohne Position');
 });
 
 test('Einzelfelder wieder zu einer Position zusammensetzen', () => {
-  const pos = fromParts({ latDeg: '54', latMin: '31.234', latHemi: 'N', lonDeg: '11', lonMin: '22.345', lonHemi: 'E' });
+  const pos = fromParts({
+    latDeg: '54', latMin: '31', latDec: '234', latHemi: 'N',
+    lonDeg: '11', lonMin: '22', lonDec: '345', lonHemi: 'E',
+  });
   close(pos.lat, 54.520566, 1e-5);
   close(pos.lon, 11.372416, 1e-5);
 
-  // Dezimalkomma ist genauso zulässig wie der Punkt.
-  const komma = fromParts({ latDeg: '54', latMin: '31,234', latHemi: 'N', lonDeg: '11', lonMin: '22,345', lonHemi: 'E' });
-  close(komma.lat, 54.520566, 1e-5);
+  // Aus eingefügtem Text kleben die Nachkommastellen noch am Minutenfeld.
+  const zusammen = fromParts({
+    latDeg: '54', latMin: '31.234', latHemi: 'N', lonDeg: '11', lonMin: '22,345', lonHemi: 'E',
+  });
+  close(zusammen.lat, 54.520566, 1e-5);
+  close(zusammen.lon, 11.372416, 1e-5);
 
   // Ohne Minuten wird schlicht mit 0 gerechnet.
   close(fromParts({ latDeg: '54', latMin: '', latHemi: 'N', lonDeg: '11', lonMin: '', lonHemi: 'E' }).lat, 54, 1e-9);
 
+  // Nur Nachkommastellen, ohne ganze Minuten.
+  close(fromParts({
+    latDeg: '54', latMin: '', latDec: '5', latHemi: 'N', lonDeg: '11', lonMin: '', lonHemi: 'E',
+  }).lat, 54 + 0.5 / 60, 1e-9);
+
   // Südliche Breite und westliche Länge werden negativ.
-  const sw = fromParts({ latDeg: '33', latMin: '52.1', latHemi: 'S', lonDeg: '70', lonMin: '30', lonHemi: 'W' });
+  const sw = fromParts({
+    latDeg: '33', latMin: '52', latDec: '1', latHemi: 'S',
+    lonDeg: '70', lonMin: '30', lonHemi: 'W',
+  });
   close(sw.lat, -33.868333, 1e-5);
   close(sw.lon, -70.5, 1e-9);
 });
 
 test('Einzelfelder: unmögliche Eingaben liefern null', () => {
-  const base = { latDeg: '54', latMin: '31.2', latHemi: 'N', lonDeg: '11', lonMin: '22.3', lonHemi: 'E' };
+  const base = {
+    latDeg: '54', latMin: '31', latDec: '2', latHemi: 'N',
+    lonDeg: '11', lonMin: '22', lonDec: '3', lonHemi: 'E',
+  };
   assert.equal(fromParts({ ...base, latDeg: '' }), null, 'Breite fehlt');
   assert.equal(fromParts({ ...base, lonDeg: '' }), null, 'Länge fehlt');
   assert.equal(fromParts({ ...base, latDeg: '95' }), null, 'Breite über 90°');
   assert.equal(fromParts({ ...base, lonDeg: '190' }), null, 'Länge über 180°');
   assert.equal(fromParts({ ...base, latMin: '60' }), null, 'Minuten nicht kleiner 60');
   assert.equal(fromParts({ ...base, latMin: 'abc' }), null, 'keine Zahl');
+  assert.equal(fromParts({ ...base, latDec: 'x' }), null, 'Nachkommastellen sind keine Zahl');
   assert.equal(fromParts({ ...base, latDeg: '-5' }), null, 'Vorzeichen gehört in die Himmelsrichtung');
   assert.equal(fromParts(null), null);
 });

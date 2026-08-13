@@ -90,7 +90,8 @@ const browser = await chromium.launch({
 const context = await browser.newContext({
   viewport: { width: 390, height: 844 },       // iPhone-Format
   deviceScaleFactor: 3,
-  isMobile: true,
+  // isMobile würde eine Browserleiste mitemulieren; die Berührungsbedienung
+  // bleibt über hasTouch erhalten.
   hasTouch: true,
   locale: 'de-DE',
   permissions: ['geolocation', 'microphone'],
@@ -120,6 +121,12 @@ await page.goto(base, { waitUntil: 'networkidle' });
 if (SHOTS) await mkdir(SHOT_DIR, { recursive: true });
 const shot = async (name) => {
   if (SHOTS) await page.screenshot({ path: join(SHOT_DIR, `${name}.png`) });
+};
+
+/** Reiter wechseln. Vorher nach oben – bei langen Seiten hakt sonst der Klick. */
+const goTab = async (index) => {
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.locator('nav.tabs button').nth(index).click();
 };
 
 // --- Einrichtung -----------------------------------------------------------
@@ -196,6 +203,15 @@ const lineSize = await page.locator('.script .line').first().evaluate(
 check('Position ist größer gesetzt als der übrige Text', posSize > lineSize,
   `Position ${posSize}px, übrige Zeilen ${lineSize}px`);
 
+// Position im Funkspruch zwischen Zahlen und Sprechweise umschalten.
+check('Position steht zunächst als Zahlen',
+  /54°3\d,\d{3}' N/.test(await page.locator('.script .position').innerText()));
+await page.getByRole('button', { name: 'Ausgeschrieben' }).click();
+const spokenLine = await page.locator('.script .position').innerText();
+check('Position ausgeschrieben im Funkspruch',
+  spokenLine.includes('Grad') && spokenLine.includes('Nord'), spokenLine);
+await page.getByRole('button', { name: 'Als Zahlen' }).click();
+
 // Sprache der Funksprüche umschalten – die Oberfläche bleibt deutsch.
 await page.getByRole('button', { name: 'English' }).first().click();
 const scriptEn = await page.locator('.script').innerText();
@@ -227,7 +243,7 @@ await page.waitForTimeout(400);
 check('Aufnahme wieder löschbar', await page.locator('.rec-item').count() === 0);
 
 // --- Positionsmodul --------------------------------------------------------
-await page.locator('nav.tabs button').nth(1).click();
+await goTab(1);
 await page.waitForSelector('.posline');
 check('Eigene Position wird angezeigt', (await page.locator('.posline').innerText()).includes('54°'));
 const ownSize = await page.locator('.posline').evaluate(
@@ -238,7 +254,8 @@ check('Eigene Position ist groß gesetzt', ownSize >= 26, `${ownSize}px`);
 await page.locator('#coord-latDeg').fill('54');
 await page.locator('#coord-latMin').fill('26');
 await page.locator('#coord-lonDeg').fill('11');
-await page.locator('#coord-lonMin').fill('11.4');
+await page.locator('#coord-lonMin').fill('11');
+await page.locator('#coord-lonDec').fill('4');
 await page.waitForSelector('.compass');
 check('Kopfzeilen-Symbol ist sichtbar',
   await page.locator('.topbar .icon-btn svg').evaluate((el) => el.getBoundingClientRect().width) > 10);
@@ -253,11 +270,21 @@ const bearing = await page.locator('.compass .center-text').textContent();
 check('Kurs im Kompass', bearing === '097°', bearing);
 await shot('04-position');
 
-// Buchstaben werden gar nicht erst angenommen.
-await page.locator('#coord-latMin').fill('abc26,5');
+// Buchstaben werden gar nicht erst angenommen, und das volle Minutenfeld
+// reicht von selbst ins Kästchen für die Nachkommastellen weiter.
+await page.locator('#coord-latMin').fill('a2');
 check('Nur Ziffern landen im Feld',
-  (await page.locator('#coord-latMin').inputValue()) === '26,5',
+  (await page.locator('#coord-latMin').inputValue()) === '2',
   await page.locator('#coord-latMin').inputValue());
+await page.locator('#coord-latMin').fill('26');
+const jumped = await page.evaluate(() => document.activeElement?.id);
+check('Volles Minutenfeld springt weiter', jumped === 'coord-latDec', jumped);
+await page.locator('#coord-latDec').fill('5');
+check('Nachkommastellen haben ein eigenes Kästchen',
+  (await page.locator('.coord-check').innerText()).includes('26.5')
+  || (await page.locator('.coord-check').innerText()).includes("26,5"),
+  await page.locator('.coord-check').innerText());
+await page.locator('#coord-latDec').fill('');
 
 // Unmögliche Werte werden gemeldet.
 await page.locator('#coord-latDeg').fill('95');
@@ -288,41 +315,134 @@ check('MOB-Position zeigt die Koordinaten', /54°30/.test(mobRow), mobRow.replac
 
 // Anderes Ziel setzen, dann MOB wieder übernehmen.
 await page.locator('#coord-latMin').fill('26');
-check('MOB lässt sich wieder als Ziel setzen',
-  await page.getByRole('button', { name: '→ Als Ziel' }).count() === 1);
-await page.getByRole('button', { name: '→ Als Ziel' }).click();
+// Die MOB-Position steht unter der Taste und zusätzlich in der Liste der
+// gemerkten Positionen – beide bieten das Übernehmen an.
+const asTarget = await page.getByRole('button', { name: '→ Als Ziel' }).count();
+check('MOB lässt sich wieder als Ziel setzen', asTarget >= 1, `${asTarget} Knöpfe`);
+await page.locator('.mob-row').getByRole('button', { name: '→ Als Ziel' }).click();
 check('MOB ist jetzt das Ziel',
-  await page.getByRole('button', { name: '✓ Ist Ziel' }).count() === 1);
+  await page.getByRole('button', { name: '✓ Ist Ziel' }).count() >= 1);
+
+// Auch gemerkte Positionen aus der Liste lassen sich mit einem Klick setzen.
+check('Gemerkte Position hat einen Übernehmen-Knopf',
+  await page.locator('.wp-item').getByRole('button', { name: /Ist Ziel|Als Ziel/ }).count() >= 1);
+
+// --- Karte -----------------------------------------------------------------
+// Sechs Reiter auf einem schmalen Gerät: Kein Wort darf abgeschnitten werden.
+const tabFit = await page.locator('nav.tabs button').evaluateAll((els) => els.map((el) => {
+  const span = el.querySelector('span');
+  return { text: span.textContent, over: span.scrollWidth - (el.clientWidth - 2) };
+}));
+const cut = tabFit.filter((x) => x.over > 0);
+check('Kein Reiterwort wird abgeschnitten', cut.length === 0,
+  cut.map((x) => `${x.text} +${x.over}px`).join(', '));
+
+await goTab(2);
+await page.waitForSelector('.chart');
+check('Karte ist ein eigener Bereich',
+  (await page.locator('.topbar h1').innerText()).includes('Karte'));
+
+// Die eigene und die gemerkte MOB-Position stehen beide darauf.
+const chartMarks = await page.locator('.chart-mark').count();
+check('Eigene und gemerkte Positionen auf der Karte', chartMarks >= 2,
+  `${chartMarks} Punkte`);
+check('Eigene Position ist als solche gekennzeichnet',
+  await page.locator('.chart-mark.own').count() === 1);
+check('MOB-Position ist auf der Karte', await page.locator('.chart-mark.mob').count() >= 1);
+check('Die Liste nennt Entfernung und Kurs',
+  await page.locator('.wp-dist').count() >= 1);
+
+// Das Kartenbild ist ausdrücklich zuschaltbar und ohne Kacheln ehrlich.
+check('Ohne Knopfdruck kein Kartenbild', await page.locator('.chart-tiles').count() === 0);
+await page.getByRole('button', { name: /Seekarte einblenden/ }).click();
+await page.waitForTimeout(500);
+check('Fehlendes Kartenmaterial wird benannt',
+  (await page.locator('main').innerText()).includes('Kein Kartenmaterial'));
+await page.getByRole('button', { name: /Seekarte ausblenden/ }).click();
+await shot('04b-karte');
 
 // --- Nachtfahrt ------------------------------------------------------------
-await page.locator('nav.tabs button').nth(2).click();
+await goTab(3);
 await page.waitForSelector('.light-card');
 const cardsAll = await page.locator('.light-card').count();
 check('Lichterliste gefüllt', cardsAll > 10, `${cardsAll} Einträge`);
+
+// Ansichten: Aus welcher Richtung sieht man welche Laternen? Die erste Karte
+// ist das Maschinenfahrzeug – von vorn Topplicht und beide Seitenlichter,
+// von achtern nur das Hecklicht.
+const firstCard = page.locator('.light-card').first();
+const lightColors = () => firstCard.locator('.light-view circle')
+  .evaluateAll((els) => els.map((el) => el.getAttribute('fill')));
+const RED = '#ff453a';
+const GREEN = '#32d74b';
+
+const bowColors = await lightColors();
+check('Von vorn sind beide Seitenlichter zu sehen',
+  bowColors.includes(RED) && bowColors.includes(GREEN), bowColors.join(' '));
+
+await firstCard.locator('.aspect-seg button[data-aspect="stern"]').click();
+const sternColors = await lightColors();
+check('Von achtern keine Seitenlichter',
+  !sternColors.includes(RED) && !sternColors.includes(GREEN), sternColors.join(' '));
+check('Von achtern bleibt weniger übrig', sternColors.length < bowColors.length,
+  `vorn ${bowColors.length}, achtern ${sternColors.length}`);
+
+await firstCard.locator('.aspect-seg button[data-aspect="beam"]').click();
+const beamColors = await lightColors();
+check('Querab nur das grüne Seitenlicht',
+  beamColors.includes(GREEN) && !beamColors.includes(RED), beamColors.join(' '));
+check('Die Ansicht wird auch in Worten erklärt',
+  (await firstCard.locator('.aspect-caption').innerText()).length > 20);
+await shot('05e-ansichten');
+
+await firstCard.locator('.aspect-seg button[data-aspect="bow"]').click();
 
 // Lichtersuche: Auswahl grenzt ein, Unmögliches verschwindet.
 await page.getByRole('button', { name: /Lichter suchen/ }).click();
 await page.waitForSelector('.sheet');
 const facetsBefore = await page.locator('.facet').count();
-await page.getByRole('button', { name: /^Rot/ }).first().click();
-await page.getByRole('button', { name: /Zwei Rundumlichter übereinander/ }).click();
+await page.locator('.facet[data-facet="r"]').click();
+await page.locator('.facet[data-facet="stack2"]').click();
 const facetsAfter = await page.locator('.facet').count();
 check('Unmögliche Merkmale fallen weg', facetsAfter < facetsBefore,
   `vorher ${facetsBefore}, nachher ${facetsAfter}`);
+
+// Seezeichen müssen in derselben Suche auftauchen – nachts weiß man ja
+// gerade nicht, ob da ein Schiff fährt oder eine Tonne liegt.
+await page.locator('.sheet').getByRole('button', { name: /zurücksetzen/ }).click();
+await page.locator('.facet[data-facet="w"]').click();
+await page.locator('.facet[data-facet="quick"]').click();
+await page.locator('.facet[data-facet="longflash"]').click();
+const cardinalHit = Number(await page.locator('.sheet-result .n').innerText());
+check('Suche findet auch Seezeichen', cardinalHit === 1, `${cardinalHit} Treffer`);
+await page.locator('.sheet').getByRole('button', { name: 'Anzeigen' }).click();
+await page.waitForSelector('.buoy-light');
+check('Gefundenes Seezeichen ist das Südzeichen',
+  (await page.locator('main').innerText()).includes('Südzeichen'));
+await shot('05d-suche-tonne');
+
+await page.getByRole('button', { name: /Lichter suchen/ }).click();
+await page.waitForSelector('.sheet');
+await page.locator('.sheet').getByRole('button', { name: /zurücksetzen/ }).click();
+await page.locator('.facet[data-facet="r"]').click();
+await page.locator('.facet[data-facet="stack2"]').click();
 
 const resultCount = Number(await page.locator('.sheet-result .n').innerText());
 check('Suchmaske zeigt die Trefferzahl', resultCount > 0 && resultCount < cardsAll,
   `${resultCount} von ${cardsAll}`);
 await shot('05-lichtersuche');
 
-await page.getByRole('button', { name: 'Anzeigen' }).click();
+await page.locator('.sheet').getByRole('button', { name: 'Anzeigen' }).click();
 await page.waitForSelector('.light-card');
 const cardsFiltered = await page.locator('.light-card').count();
 check('Suche grenzt die Liste ein', cardsFiltered === resultCount,
   `${cardsFiltered} angezeigt, ${resultCount} erwartet`);
 await shot('05b-lights');
 
-await page.getByRole('button', { name: /zurücksetzen/ }).first().click();
+await page.locator('.chip', { hasText: 'zurücksetzen' }).click();
+check('Filter lässt sich im Reiter zurücksetzen',
+  await page.locator('.light-card').count() === cardsAll,
+  `${await page.locator('.light-card').count()} von ${cardsAll}`);
 await page.getByRole('button', { name: 'Schall' }).click();
 await page.waitForSelector('.sound-symbol');
 check('Schallsignale gelistet', await page.locator('.sound-item').count() > 5);
@@ -343,6 +463,51 @@ await shot('05c-tonnen');
 await page.getByRole('button', { name: 'Grundlagen' }).click();
 check('Grundlagen zeigen die Tragweiten',
   await page.getByText('Tragweiten', { exact: false }).count() > 0);
+
+// --- Logbuch ---------------------------------------------------------------
+await goTab(4);
+await page.waitForSelector('main');
+check('Logbuch ist ein eigener Bereich',
+  (await page.locator('.topbar h1').innerText()).includes('Logbuch'));
+check('Ohne Eintrag steht ein Hinweis',
+  (await page.locator('main').innerText()).includes('Noch kein Eintrag'));
+
+// Eintrag von Hand
+await page.locator('#main input').first().fill('Wind SW 4, 1. Reff');
+await page.getByRole('button', { name: /Position jetzt eintragen/ }).click();
+await page.waitForSelector('.log-item');
+const logText = await page.locator('.log-item').first().innerText();
+check('Eintrag angelegt', logText.includes('54°30'), logText.replace(/\n/g, ' | '));
+check('Bemerkung übernommen', logText.includes('Wind SW 4'));
+
+// Zweiter Eintrag, damit eine Spur entsteht
+await page.getByRole('button', { name: /Position jetzt eintragen/ }).click();
+await page.waitForSelector('.track-plot');
+check('Spur wird gezeichnet', await page.locator('.track-plot').count() === 1);
+check('Linie zwischen den Positionen',
+  await page.locator('.track-plot .plot-line').count() === 1);
+check('Positionen als Punkte', await page.locator('.track-plot .plot-dot').count() >= 2);
+
+// Takt einstellen
+await page.getByRole('button', { name: '10 min', exact: true }).click();
+check('Takt ist einstellbar',
+  (await page.locator('main').innerText()).includes('Alle 10 min'),
+  '');
+check('Takt bleibt gespeichert',
+  await page.evaluate(() => JSON.parse(localStorage.getItem('sailing-buddy-log')).intervalMinutes) === 10);
+await shot('06-logbuch');
+
+// Der eingestellte Takt legt sofort einen Eintrag an – erst danach zählen.
+const logBefore = await page.locator('.log-item').count();
+page.once('dialog', (d) => d.accept());
+await page.locator('.log-item').first().getByRole('button', { name: 'Eintrag löschen' }).click();
+await page.waitForTimeout(300);
+check('Eintrag wieder löschbar',
+  await page.locator('.log-item').count() === logBefore - 1,
+  `vorher ${logBefore}, nachher ${await page.locator('.log-item').count()}`);
+check('Automatischer Eintrag wurde angelegt', logBefore >= 3, `${logBefore} Einträge`);
+
+await goTab(3);
 
 // --- Nachtmodus ------------------------------------------------------------
 await page.locator('.topbar .icon-btn').click();
@@ -399,8 +564,52 @@ const filled = await page.evaluate(() => {
 check('Nachtmodus ohne leuchtende Flächen', filled.length === 0, filled.join(' | '));
 await shot('06-night-mode');
 
+// --- Einstellungen: Reiter „Karten“ ----------------------------------------
+// Zurück auf ein helles Schema, damit die folgenden Prüfungen nicht am
+// Nachtmodus hängen.
+await goTab(5);
+await page.waitForSelector('.card');
+await page.getByRole('button', { name: 'Karten', exact: true }).click();
+await page.waitForTimeout(200);
+check('Karten haben einen eigenen Reiter in den Einstellungen',
+  (await page.locator('main').innerText()).includes('Seegebiet ins Gerät holen'));
+check('Noch kein Seegebiet geladen',
+  (await page.locator('main').innerText()).includes('Noch kein Seegebiet geladen'));
+
+// Umkreis: Die Menge muss vor dem Herunterladen dastehen, nicht danach.
+const tilesShown = await page.locator('.readout .cell').first().innerText();
+check('Kachelmenge wird vorher angezeigt', /\d/.test(tilesShown.replace(/\D/g, '')),
+  tilesShown.replace(/\n/g, ' | '));
+
+// Feinere Stufe heißt mehr Kacheln – sonst stimmt die Rechnung nicht.
+const tileCount = async () => Number(
+  (await page.locator('.readout .cell').first().innerText()).replace(/\D/g, ''));
+const coarse = await tileCount();
+await page.locator('.chip', { hasText: 'Hafen' }).click();
+const fine = await tileCount();
+check('Feinere Stufe braucht mehr Kacheln', fine > coarse, `${coarse} → ${fine}`);
+check('Zu große Mengen werden abgelehnt',
+  (await page.locator('main').innerText()).includes('zu viele Kacheln')
+  || fine <= 4000, `${fine} Kacheln`);
+await page.locator('.chip', { hasText: 'Übersicht' }).click();
+
+// Route: Punkte in der Reihenfolge des Törns.
+await page.getByRole('button', { name: 'Route', exact: true }).click();
+await page.waitForTimeout(150);
+check('Ohne Punkte lässt sich keine Route laden',
+  await page.getByRole('button', { name: /Herunterladen/ }).isDisabled());
+await page.getByRole('button', { name: '+ Meine Position' }).click();
+await page.waitForTimeout(150);
+check('Route nimmt Punkte auf', await page.locator('.wp-item').count() >= 1);
+check('Mit Punkt lässt sich die Route laden',
+  !(await page.getByRole('button', { name: /Herunterladen/ }).isDisabled()));
+await shot('07b-karten-einstellungen');
+await page.getByRole('button', { name: 'Umkreis', exact: true }).click();
+await page.getByRole('button', { name: 'Allgemein', exact: true }).click();
+await page.waitForTimeout(150);
+
 // --- Oberflächensprache ----------------------------------------------------
-await page.locator('nav.tabs button').nth(3).click();
+await goTab(5);
 await page.waitForSelector('.card');
 await page.getByRole('button', { name: 'English' }).first().click();
 await page.waitForTimeout(150);
@@ -410,7 +619,7 @@ check('Titel auf Englisch', (await page.locator('.topbar h1').innerText()).inclu
 await shot('07-settings-en');
 
 // Funkspruchsprache blieb davon unberührt (steht noch auf Deutsch).
-await page.locator('nav.tabs button').nth(0).click();
+await goTab(0);
 await page.waitForSelector('.phrase-btn');
 const firstPhrase = await page.locator('.phrase-btn').first().innerText();
 check('Funksprüche unabhängig von der Oberflächensprache',
@@ -419,7 +628,7 @@ check('Funksprüche unabhängig von der Oberflächensprache',
 await page.getByRole('button', { name: 'Deutsch' }).first().click();
 
 // --- Helligkeit ------------------------------------------------------------
-await page.locator('nav.tabs button').nth(3).click();
+await goTab(5);
 await page.locator('input[type="range"]').fill('40');
 // Der Dimmer blendet über 0,2 s ein – erst danach steht der Endwert.
 await page.waitForTimeout(400);
@@ -434,7 +643,7 @@ await page.waitForFunction(() => navigator.serviceWorker?.controller != null, nu
   .catch(() => problems.push('Service Worker hat die Seite nicht übernommen'));
 
 // Die App muss selbst nachweisen können, dass sie vollständig im Gerät liegt.
-await page.locator('nav.tabs button').nth(3).click();
+await goTab(5);
 await page.waitForSelector('.card');
 await page.waitForFunction(
   () => /Fully stored|Vollständig im Gerät/.test(document.body.innerText),
@@ -486,7 +695,7 @@ check('Schiffsdaten überstehen den Kaltstart',
 await coldPage.getByRole('button', { name: 'MAYDAY – Notruf' }).click();
 check('Funkspruch offline vollständig',
   (await coldPage.locator('.script').innerText()).includes('MAYDAY SEEBÄR'));
-await coldPage.locator('nav.tabs button').nth(2).click();
+await coldPage.locator('nav.tabs button').nth(3).click();
 await coldPage.waitForSelector('.light-card');
 check('Lichterführung offline vollständig', await coldPage.locator('.light-card').count() > 10);
 

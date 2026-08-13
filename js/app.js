@@ -12,17 +12,22 @@ import { applyTheme, toggleNight } from './lib/theme.js';
 import { formatPosition } from './lib/geo.js';
 import { t } from './lib/i18n.js';
 import { initOffline, onOfflineChange } from './lib/offline.js';
+import { logbook } from './lib/logbook.js';
 
 import * as radioView from './views/radio.js';
 import * as positionView from './views/position.js';
+import * as mapView from './views/map.js';
 import * as nightView from './views/night.js';
+import * as logbookView from './views/logbook.js';
 import * as settingsView from './views/settings.js';
 import * as setupView from './views/setup.js';
 
 const TABS = [
   { key: 'funk', label: 'tab.radio', title: 'title.radio', view: radioView, icon: iconRadio },
   { key: 'position', label: 'tab.position', title: 'title.position', view: positionView, icon: iconTarget },
+  { key: 'karte', label: 'tab.map', title: 'title.map', view: mapView, icon: iconMap },
   { key: 'nacht', label: 'tab.night', title: 'title.night', view: nightView, icon: iconMoon },
+  { key: 'logbuch', label: 'tab.log', title: 'title.log', view: logbookView, icon: iconBook },
   { key: 'setup', label: 'tab.settings', title: 'title.settings', view: settingsView, icon: iconGear },
 ];
 
@@ -35,6 +40,8 @@ const app = document.getElementById('app');
 
 applyTheme();
 gps.start();
+// Das Logbuch schreibt unabhängig vom gerade sichtbaren Reiter mit.
+logbook.startAuto();
 boot();
 
 function boot() {
@@ -163,6 +170,19 @@ function iconTarget() {
   const el = icon('M12 2v3M12 19v3M2 12h3M19 12h3');
   el.appendChild(svg('circle', { cx: '12', cy: '12', r: '7' }));
   el.appendChild(svg('circle', { cx: '12', cy: '12', r: '2.5' }));
+  return el;
+}
+
+function iconBook() {
+  const el = icon('M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z', 'M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5A2.5 2.5 0 0 1 4 20.5z');
+  el.appendChild(svg('path', { d: 'M8 7h7M8 10.5h7' }));
+  return el;
+}
+
+/** Aufgeschlagene Seekarte mit Falz. */
+function iconMap() {
+  const el = icon('M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z', 'M9 4v13.5M15 6.5V20');
+  el.appendChild(svg('circle', { cx: '12', cy: '11', r: '1.6' }));
   return el;
 }
 

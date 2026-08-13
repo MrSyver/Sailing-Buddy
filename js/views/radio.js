@@ -7,7 +7,7 @@
  */
 
 import { h, render, copy, group } from '../lib/dom.js';
-import { settings } from '../lib/storage.js';
+import { settings, waypoints } from '../lib/storage.js';
 import { gps } from '../lib/gps.js';
 import { formatPosition, formatSpoken } from '../lib/geo.js';
 import { t, uiLang, locale } from '../lib/i18n.js';
@@ -27,16 +27,32 @@ let emergencyId = null;
 let recList = [];
 let recTimer = null;
 let recError = null;
+// Position im Funkspruch: Zahlen oder ausgeschrieben zum Vorlesen.
+let spokenPosition = false;
 
 /** Sprache der Funksprüche – unabhängig von der Oberflächensprache. */
 function phraseLang() {
   return settings.get('phraseLang') === 'en' ? 'en' : 'de';
 }
 
-/** Sammelt alles, was in die Platzhalter eingesetzt wird. */
-function values() {
+/** Die zuletzt gemerkte MOB-Position, falls es eine gibt. */
+function mobPosition() {
+  return waypoints.list().find((w) => w.kind === 'mob') ?? null;
+}
+
+/**
+ * Sammelt alles, was in die Platzhalter eingesetzt wird.
+ *
+ * Beim Funkspruch „Mensch über Bord“ zählt nicht, wo das Schiff gerade ist,
+ * sondern wo die Person über Bord ging – bis der Notruf abgesetzt ist, ist
+ * man längst weitergetrieben. Liegt eine gemerkte MOB-Position vor, wird
+ * deshalb diese eingesetzt.
+ */
+function values(phrase = null) {
   const s = settings.all();
-  const fix = gps.fix;
+  const mob = phrase?.id === 'mob' ? mobPosition() : null;
+  const source = mob ?? gps.fix;
+  const lang = phraseLang();
   return {
     boat: s.boat || null,
     callsign: s.callsign || null,
@@ -45,7 +61,13 @@ function values() {
     loa: s.loa ? `${s.loa} m` : null,
     draft: s.draft ? `${s.draft} m` : null,
     descr: s.descr || null,
-    position: fix ? formatPosition(fix) : null,
+    position: source
+      ? (spokenPosition ? formatSpoken(source, lang) : formatPosition(source))
+      : null,
+    // Für die Anzeige: Woher stammt die Position?
+    positionSource: mob ? 'mob' : (gps.fix ? 'gps' : null),
+    positionRaw: source,
+    mobName: mob?.name ?? null,
   };
 }
 
@@ -333,7 +355,7 @@ function detail(wrap, phrase) {
   const after = localized(phrase, 'after', lang);
   const cases = emergenciesFor(phrase);
   const chosen = cases.find((e) => e.id === emergencyId) ?? null;
-  const v = values();
+  const v = values(phrase);
   const parts = [];
 
   // --- Kopfzeile: Zurück und Sprachumschalter -------------------------------
@@ -358,12 +380,20 @@ function detail(wrap, phrase) {
   ));
 
   // --- Der Funkspruch, direkt darunter --------------------------------------
+  const needsPos = Boolean(lines?.some((l) => l.text?.includes('{{position}}')));
+
   if (lines?.length) {
-    const needsPos = lines.some((l) => l.text?.includes('{{position}}'));
     if (needsPos && !v.position) {
       parts.push(h('div.notice.warn',
         h('strong', t('radio.noPosition.title')),
         t('radio.noPosition.text'),
+      ));
+    }
+
+    if (v.positionSource === 'mob') {
+      parts.push(h('div.notice', { style: { 'border-left-color': 'var(--danger)' } },
+        h('strong', t('radio.mobPosition.title')),
+        t('radio.mobPosition.text', { name: v.mobName ?? '' }),
       ));
     }
 
@@ -374,6 +404,21 @@ function detail(wrap, phrase) {
         h('span.badge', { class: phrase.level, lang: uiLang() }, t(`radio.level.${phrase.level}`)),
       ),
       h('div.script', { lang }, ...lines.map((l) => renderLine(l, v, chosen, lang))),
+
+      // Die Position lässt sich zwischen Zahlen und Sprechweise umschalten –
+      // im Funk wird sie Ziffer für Ziffer gesprochen.
+      needsPos && v.position && h('div.seg', { style: { 'margin-top': '12px' } },
+        h('button', {
+          type: 'button',
+          'aria-pressed': String(!spokenPosition),
+          onclick: () => { spokenPosition = false; draw(wrap); },
+        }, t('radio.posNumbers')),
+        h('button', {
+          type: 'button',
+          'aria-pressed': String(spokenPosition),
+          onclick: () => { spokenPosition = true; draw(wrap); },
+        }, t('radio.posSpoken')),
+      ),
     ));
 
     parts.push(h('div.row.wrap', { style: { 'margin-bottom': '12px' } },
@@ -381,9 +426,9 @@ function detail(wrap, phrase) {
         type: 'button',
         onclick: () => copy(plainText(phrase, lines, v, lang, chosen), t('radio.copiedText')),
       }, t('radio.copyText')),
-      v.position && h('button.btn.grow', {
+      v.positionRaw && h('button.btn.grow', {
         type: 'button',
-        onclick: () => copy(formatSpoken(gps.fix, lang), t('radio.copiedPosition')),
+        onclick: () => copy(formatSpoken(v.positionRaw, lang), t('radio.copiedPosition')),
       }, t('radio.copyDigits')),
     ));
   } else {
@@ -399,15 +444,6 @@ function detail(wrap, phrase) {
 
   // --- Häufige Notfälle ------------------------------------------------------
   if (cases.length) parts.push(emergencyPicker(wrap, cases, chosen, lang));
-
-  // --- Position zum Vorlesen -------------------------------------------------
-  if (lines?.length && v.position) {
-    parts.push(h('div.card',
-      h('h3', t('radio.spokenTitle')),
-      h('p.small.muted', { style: { margin: '0 0 7px' } }, t('radio.spokenHint')),
-      h('div.spoken-position', { lang }, formatSpoken(gps.fix, lang)),
-    ));
-  }
 
   // --- Hinweise und Ablauf, erst danach --------------------------------------
   const info = [];
