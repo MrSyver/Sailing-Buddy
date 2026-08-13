@@ -24,16 +24,21 @@ GitHub Pages.
 
 ### Einmalig: veröffentlichen
 
-Nach `main` mergen – mehr ist nicht nötig. Der Workflow
-`.github/workflows/pages.yml` schaltet GitHub Pages beim ersten Lauf selbst
-ein, fährt alle Prüfungen, stellt die Website zusammen, prüft sie noch einmal
-im Browser (samt Kaltstart ohne Netz) und veröffentlicht sie erst dann.
+1. **Settings → Pages** öffnen und unter *Build and deployment* als *Source*
+   **GitHub Actions** auswählen.
 
-Nach ein bis zwei Minuten liegt die App unter
-`https://mrsyver.github.io/Sailing-Buddy/`.
+   Dieser Klick ist einmalig nötig und lässt sich nicht automatisieren: Der
+   `GITHUB_TOKEN` eines Workflows darf eine Pages-Seite nicht anlegen. Fehlt
+   der Schritt, bricht der Lauf mit *„Create Pages site failed – Resource not
+   accessible by integration“* ab.
 
-Sollte GitHub Pages im Repository ausdrücklich abgeschaltet sein, lässt es
-sich unter **Settings → Pages** mit *Source: GitHub Actions* einschalten.
+2. Nach `main` mergen (oder den Workflow unter *Actions* von Hand starten).
+   `.github/workflows/pages.yml` fährt alle Prüfungen, stellt die Website
+   zusammen, prüft sie noch einmal im Browser – samt Kaltstart ohne Netz –
+   und veröffentlicht sie erst dann.
+
+3. Nach ein bis zwei Minuten liegt die App unter
+   `https://mrsyver.github.io/Sailing-Buddy/`.
 
 ### Auf dem Gerät
 
