@@ -3,3 +3,7 @@ package-lock.json
 screenshots/
 dist/
 .DS_Store
+
+# Wegwerfskripte beim Suchen von Fehlern
+*.tmp.mjs
+*.tmp.js
