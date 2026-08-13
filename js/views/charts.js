@@ -7,8 +7,15 @@
  * einzeln mit Pause, und die Adresse der Grundkarte lässt sich unten
  * austauschen – gegen einen eigenen Server oder einen Anbieter mit Konto.
  *
- * Geladen wird nur, was jemand ausdrücklich anfordert. Nichts läuft im
- * Hintergrund, nichts erneuert sich von selbst.
+ * Ganze Seegebiete werden nur geladen, wenn jemand sie ausdrücklich
+ * anfordert. Nichts davon läuft im Hintergrund, nichts erneuert sich von
+ * selbst.
+ *
+ * Davon getrennt steht der Schalter „Fehlende Kacheln unterwegs nachholen“:
+ * Der holt bei bestehender Verbindung den sichtbaren Ausschnitt nach, wenn er
+ * nicht im Gerät ist – einen Bildschirm voll, nicht ein Seegebiet. Das ist
+ * gewöhnliche Kartennutzung und nicht das, wogegen sich die
+ * Nutzungsbedingungen richten.
  */
 
 import { h, render, toast } from '../lib/dom.js';
@@ -80,6 +87,7 @@ function paint() {
   render(host,
     packCard(),
     state.packBusy ? packProgressCard() : null,
+    autoCard(),
     downloadCard(),
     state.busy ? progressCard() : null,
     areasCard(),
@@ -214,6 +222,32 @@ function packCard() {
     ),
 
     h('p.small.muted', { style: { margin: '12px 0 0' } }, PACK_ATTRIBUTION),
+  );
+}
+
+/**
+ * Nachholen unterwegs.
+ *
+ * Steht bewusst neben den Paketen und nicht darin: Es ist der Weg für alle,
+ * die kein Paket geladen haben oder über dessen Rand hinausfahren.
+ */
+function autoCard() {
+  const on = settings.get('autoTiles') !== false;
+  return h('div.card',
+    h('h2', t('charts.autoTiles')),
+    h('div.seg',
+      h('button', {
+        type: 'button',
+        'aria-pressed': String(on),
+        onclick: () => { settings.set('autoTiles', true); paint(); },
+      }, t('common.on')),
+      h('button', {
+        type: 'button',
+        'aria-pressed': String(!on),
+        onclick: () => { settings.set('autoTiles', false); paint(); },
+      }, t('common.off')),
+    ),
+    h('p.small.muted', { style: { margin: '10px 0 0' } }, t('charts.autoTilesHint')),
   );
 }
 

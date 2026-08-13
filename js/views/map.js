@@ -6,12 +6,17 @@
  *   1. Die Positionen selbst. Sie werden immer gezeichnet, überall auf der
  *      Welt, ohne Kartenmaterial und ohne Speicherbedarf.
  *   2. Das Kartenbild darunter. Das kostet Platz im Gerät und wird deshalb
- *      nur auf Knopfdruck eingeblendet – und ausschließlich aus dem, was
- *      vorher unter „Einstellungen → Karten“ heruntergeladen wurde.
+ *      nur auf Knopfdruck eingeblendet. Es kommt aus den Kartenpaketen und
+ *      den einzeln geladenen Kacheln, die schon im Gerät liegen.
  *
- * Aus diesem Modul heraus wird nie etwas aus dem Netz geholt. Fehlt eine
- * Kachel, bleibt die Fläche leer und sagt das auch. Alles andere wäre eine
- * Karte, die genau dann verschwindet, wenn man sie braucht.
+ * Fehlt eine Kachel im Gerät und besteht gerade eine Verbindung, wird sie
+ * nachgeholt und gleich abgelegt – dann ist sie beim nächsten Mal auch ohne
+ * Netz da. Nachgeholt wird ausschließlich der sichtbare Ausschnitt, einzeln
+ * und mit Pause: ein Bildschirm voll Kacheln bei Bedarf ist genau das, wofür
+ * ein Kachelserver da ist, im Gegensatz zum Herunterladen ganzer Seegebiete.
+ *
+ * Ohne Verbindung bleibt die Fläche leer und sagt das auch. Eine Karte, die
+ * ohne Netz verschwindet, wäre schlimmer als gar keine.
  */
 
 import { h, svg, render, toast } from '../lib/dom.js';
@@ -21,7 +26,7 @@ import { t, num } from '../lib/i18n.js';
 import { formatPosition, rhumbLine } from '../lib/geo.js';
 import { logbook } from '../lib/logbook.js';
 import {
-  lonToTileX, latToTileY, tileXToLon, tileYToLat, tileStore,
+  lonToTileX, latToTileY, tileXToLon, tileYToLat, tileStore, tileUrl,
 } from '../lib/tiles.js';
 import { layers, ATTRIBUTION } from '../data/tilesources.js';
 import { openAll } from '../lib/packs.js';
@@ -30,6 +35,8 @@ import { mediaType } from '../lib/mbtiles.js';
 const TILE = 256;
 const MIN_Z = 3;
 const MAX_Z = 16;
+/** Pause zwischen zwei nachgeholten Kacheln, in Millisekunden. */
+const FETCH_DELAY = 80;
 
 const state = {
   showTiles: false,   // Kartenbild nur auf Knopfdruck
@@ -41,6 +48,12 @@ const state = {
 let container = null;
 let objectUrls = [];
 let lastTiles = null;
+/**
+ * Zählt jede Neuzeichnung mit. Nachgeladene Kacheln aus einem alten
+ * Ausschnitt dürfen nicht in einen neuen hineinfallen – bis eine Antwort da
+ * ist, hat man vielleicht längst weitergeschoben.
+ */
+let generation = 0;
 
 export function view(root) {
   container = h('div');
@@ -236,13 +249,16 @@ async function paint() {
   if (!reuse) {
     existing?.remove();
     releaseUrls();
+    // Ein neuer Ausschnitt: Was noch aus dem Netz unterwegs ist, gehört
+    // nicht mehr hierher.
+    generation += 1;
   }
   lastTiles = key;
 
   if (state.showTiles && !reuse) {
     // Absichtlich erst zeichnen, dann nachreichen: Die Punkte stehen sofort,
     // die Bilder kommen aus der Datenbank hinterher.
-    tileLayer(box, z, originX, originY, width, height);
+    tileLayer(box, z, originX, originY, width, height, generation);
   }
 
   box.appendChild(overlay({ marks, track, toXY, width, height, z, center }));
@@ -250,7 +266,7 @@ async function paint() {
 }
 
 /** Legt die gespeicherten Kacheln hinter die Zeichnung. */
-async function tileLayer(box, z, originX, originY, width, height) {
+async function tileLayer(box, z, originX, originY, width, height, token) {
   const wrap = h('div.chart-tiles');
   box.prepend(wrap);
 
@@ -290,6 +306,7 @@ async function tileLayer(box, z, originX, originY, width, height) {
     }));
   };
 
+  const missing = [];
   for (const tile of wanted) {
     let hit = false;
 
@@ -312,20 +329,90 @@ async function tileLayer(box, z, originX, originY, width, height) {
     }
 
     if (hit) found += 1;
+    else missing.push(tile);
   }
 
-  // Fehlt das meiste, ist das keine Karte mehr – dann lieber sagen, warum.
-  const note = container?.querySelector('#chart-note');
-  if (!note) return;
-  if (found === 0) {
-    render(note, h('div.notice.warn', { style: { 'margin-top': '10px' } },
-      h('strong', t('map.noTiles.title')), t('map.noTiles.text')));
-  } else if (found < wanted.length) {
-    render(note, h('p.small.muted', { style: { margin: '9px 0 0' } },
-      t('map.partial', { have: found, want: wanted.length })));
-  } else {
-    render(note);
+  // Was im Gerät fehlt, wird nachgeholt – aber nur mit Verbindung, nur der
+  // sichtbare Ausschnitt und nur, wenn es eingeschaltet ist.
+  const online = navigator.onLine !== false;
+  const allowed = settings.get('autoTiles') !== false;
+
+  const note = () => container?.querySelector('#chart-note');
+  const sayState = (have) => {
+    const el = note();
+    if (!el) return;
+    if (have === 0) {
+      // Warum nichts da ist, hängt davon ab, woran es liegt – und das ist
+      // der einzige Satz, den man in dem Moment wirklich braucht.
+      const grund = !online ? t('map.noTiles.offline')
+        : !allowed ? t('map.noTiles.switchedOff')
+          : t('map.noTiles.unreachable');
+      render(el, h('div.notice.warn', { style: { 'margin-top': '10px' } },
+        h('strong', t('map.noTiles.title')), grund));
+    } else if (have < wanted.length) {
+      render(el, h('p.small.muted', { style: { margin: '9px 0 0' } },
+        t('map.partial', { have, want: wanted.length })));
+    } else {
+      render(el);
+    }
+  };
+
+  if (missing.length === 0 || !online || !allowed) {
+    sayState(found);
+    return;
   }
+
+  const el = note();
+  if (el) {
+    render(el, h('p.small.muted', { style: { margin: '9px 0 0' } },
+      t('map.fetching', { n: missing.length })));
+  }
+
+  found += await fetchMissing(missing, { z, sources, place, token });
+  if (token !== generation) return;
+  sayState(found);
+}
+
+/**
+ * Holt fehlende Kacheln aus dem Netz und legt sie gleich ab.
+ *
+ * Einzeln und mit Pause, damit es ein Abruf nach Bedarf bleibt und kein
+ * Sturm. Wird zwischendurch weitergeschoben, bricht es ab: Die Antworten
+ * gehörten dann zu einem Ausschnitt, den niemand mehr ansieht.
+ */
+async function fetchMissing(missing, { z, sources, place, token }) {
+  let geholt = 0;
+
+  for (const tile of missing) {
+    if (token !== generation) break;
+    let hit = false;
+
+    for (const layer of sources) {
+      if (token !== generation) break;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const response = await fetch(tileUrl(layer.url, z, tile.x, tile.y));
+        if (!response.ok) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const blob = await response.blob();
+        if (token !== generation) break;
+        // Abgelegt wird immer: Beim nächsten Mal ist die Stelle auch ohne
+        // Netz da – und genau darum geht es unterwegs.
+        // eslint-disable-next-line no-await-in-loop
+        await tileStore.put(layer.id, z, tile.x, tile.y, blob).catch(() => {});
+        place(blob, tile);
+        if (layer.id === 'base') hit = true;
+      } catch {
+        // Eine Kachel, die nicht kommt, ist kein Grund aufzuhören.
+      }
+    }
+
+    if (hit) geholt += 1;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => { setTimeout(resolve, FETCH_DELAY); });
+  }
+
+  return geholt;
 }
 
 /** Positionen, Spur, Nordpfeil und Maßstab. */
