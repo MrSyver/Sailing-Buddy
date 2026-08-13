@@ -5,12 +5,27 @@ import { audio } from '../lib/audio.js';
 import { t, loc, uiLang } from '../lib/i18n.js';
 import {
   LIGHTS, LIGHT_COLORS, LIGHT_CATEGORIES, LIGHT_TYPES, LIGHT_RANGES,
-  LIGHT_FACETS, FACET_GROUPS, filterLights,
+  LIGHT_FACETS, FACET_GROUPS, filterLights, matchesFacets,
 } from '../data/lights.js';
 import { SOUNDS, SOUND_GROUPS, SOUND_BASICS, DISTRESS_VISUAL } from '../data/sounds.js';
 import {
   BUOYS, BUOY_GROUPS, BUOY_COLORS, LIGHT_RHYTHMS, LIGHT_COLOR_CODES,
 } from '../data/buoys.js';
+
+/**
+ * Die Suche geht über Fahrzeuge und Seezeichen zugleich – nachts sieht man
+ * ein Licht und weiß gerade nicht, ob da ein Schiff fährt oder eine Tonne
+ * liegt. Genau das soll die Suche beantworten.
+ */
+function searchAll(keys, category = 'all') {
+  const vessels = category === 'tonnen' ? [] : LIGHTS
+    .filter((l) => (category === 'all' || l.category === category) && matchesFacets(l, keys))
+    .map((l) => ({ item: l, kind: 'vessel' }));
+  const buoys = (category === 'all' || category === 'tonnen')
+    ? BUOYS.filter((b) => matchesFacets(b, keys)).map((b) => ({ item: b, kind: 'buoy' }))
+    : [];
+  return [...vessels, ...buoys];
+}
 
 const state = {
   tab: 'lichter',        // 'lichter' | 'schall' | 'grundlagen'
@@ -69,8 +84,10 @@ const en = () => uiLang() === 'en';
 // ================================================================== Lichter
 
 function lightsView() {
-  const found = filterLights(state.facets, state.category);
   const active = [...state.facets];
+  // Fahrzeuge und Seezeichen stehen immer zusammen in einer Liste – nachts
+  // weiß man nicht, ob da ein Schiff fährt oder eine Tonne liegt.
+  const found = searchAll(state.facets, state.category);
 
   return h('div',
     // Ein großer Knopf statt einer Filterleiste: Nachts will niemand
@@ -112,7 +129,7 @@ function lightsView() {
 
     found.length === 0
       ? h('div.card', h('div.empty', t('night.noMatch')))
-      : h('div', ...found.map(lightCard)),
+      : h('div', ...found.map((f) => (f.kind === 'buoy' ? buoyCard(f.item, true) : lightCard(f.item)))),
 
     h('p.disclaimer', t('night.lightsDisclaimer')),
   );
@@ -140,7 +157,7 @@ function openSearch() {
   overlay._onKey = onKey;
 
   const paint = () => {
-    const found = filterLights(state.facets, 'all');
+    const found = searchAll(state.facets, 'all');
 
     const groups = FACET_GROUPS.map((group) => {
       const chips = LIGHT_FACETS
@@ -151,11 +168,12 @@ function openSearch() {
           const probe = new Set(state.facets);
           if (chosen) probe.delete(facet.key);
           else probe.add(facet.key);
-          const count = filterLights(probe, 'all').length;
+          const count = searchAll(probe, 'all').length;
           // Was zu nichts mehr führt, wird gar nicht erst angeboten.
           if (!chosen && count === 0) return null;
           return h('button.facet', {
             type: 'button',
+            'data-facet': facet.key,
             'aria-pressed': String(chosen),
             onclick: () => {
               if (chosen) state.facets.delete(facet.key);
@@ -299,23 +317,64 @@ function buoysView() {
   );
 }
 
-function buoyCard(b) {
+function buoyCard(b, marked = false) {
   const memo = loc(b, 'memo');
   return h('div.card.light-card',
     h('div.light-head',
       buoySchematic(b),
       h('div.txt',
-        h('h3', loc(b, 'title')),
+        h('div.row', { style: { gap: '7px', 'align-items': 'flex-start' } },
+          h('h3.grow', loc(b, 'title')),
+          marked && h('span.rule', t('night.isBuoy')),
+        ),
         h('div.sub', loc(b, 'subtitle')),
         h('p.buoy-light',
           h('span.buoy-dot', { style: { background: lightSwatch(b.lightColor) } }),
           h('span.mono', loc(b, 'light')),
         ),
         h('p.small', { style: { margin: '4px 0 0' } }, loc(b, 'lightPlain')),
+        rhythmBar(b.rhythm, b.rhythmIsExample),
       ),
     ),
     h('p.small', { style: { margin: '10px 0 0' } }, loc(b, 'meaning')),
     memo && h('div.mnemonic', '„', memo, '“'),
+  );
+}
+
+/**
+ * Die Feuerkennung als Balken über eine Wiederkehr: helle Abschnitte in der
+ * Farbe des Feuers, dazwischen Dunkelheit. So lässt sich das, was man am
+ * Horizont blinken sieht, unmittelbar vergleichen.
+ */
+function rhythmBar(rhythm, isExample = false) {
+  if (!rhythm) return null;
+  const W = 240;
+  const H = 22;
+  const el = svg('svg.rhythm-bar', {
+    viewBox: `0 0 ${W} ${H}`,
+    role: 'img',
+    'aria-label': t('night.rhythmBar', { v: rhythm.period }),
+  });
+
+  el.appendChild(svg('rect', { x: 0, y: 0, width: W, height: H, class: 'rhythm-dark' }));
+
+  let x = 0;
+  rhythm.segments.forEach((seg) => {
+    const width = (seg.d / rhythm.period) * W;
+    if (seg.c) {
+      el.appendChild(svg('rect', {
+        x: x.toFixed(2), y: 0, width: Math.max(1.2, width).toFixed(2), height: H,
+        fill: BUOY_COLORS[seg.c] ?? BUOY_COLORS.w,
+      }));
+    }
+    x += width;
+  });
+
+  return h('div', { style: { 'margin-top': '9px' } },
+    el,
+    h('p.small.muted', { style: { margin: '3px 0 0' } },
+      t('night.rhythmBar', { v: rhythm.period }),
+      isExample ? ` · ${t('night.rhythmExample')}` : ''),
   );
 }
 

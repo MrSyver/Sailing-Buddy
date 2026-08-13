@@ -24,6 +24,7 @@ const DEFAULTS = {
   variation: '',       // Missweisung in Grad, Ost positiv
   deviation: '',       // Ablenkung in Grad, Ost positiv
   manualSpeed: '',     // Ersatzgeschwindigkeit, wenn kein GPS-Speed anliegt
+  compassCourseUp: false, // Kompass mitdrehend statt nordorientiert
   setupDone: false,
   waypoints: [],       // [{ id, name, lat, lon, kind, ts }]
 };

@@ -77,7 +77,11 @@
 html, body {
   margin: 0;
   padding: 0;
-  height: 100%;
+  /* 100% bezieht sich auf das Layout-Fenster, das bei sichtbarer Browserleiste
+     höher ist als der wirklich sichtbare Bereich – die untere Reiterleiste
+     rutscht dann darunter. dvh folgt der tatsächlich sichtbaren Höhe. */
+  height: 100vh;
+  height: 100dvh;
   overscroll-behavior-y: none;
 }
 
@@ -104,7 +108,8 @@ body {
 }
 
 .app {
-  min-height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   padding-bottom: calc(72px + env(safe-area-inset-bottom));
@@ -368,6 +373,8 @@ nav.tabs {
   bottom: 0;
   left: 0;
   right: 0;
+  /* Bei sichtbarer Browserleiste bleibt die Leiste sonst darunter verborgen. */
+  transform: translateY(calc(100dvh - 100vh));
   z-index: 50;
   display: flex;
   background: var(--surface);
@@ -633,6 +640,7 @@ table.data td.k { font-family: var(--mono); font-weight: 700; white-space: nowra
 .compass .tick.major { stroke: var(--text); stroke-width: 2; }
 .compass .card-label { fill: var(--text-dim); font-size: 9px; font-weight: 700; font-family: var(--font); }
 .compass .needle { fill: var(--accent); }
+.compass .own-ship { fill: var(--text-dim); }
 .compass .heading { stroke: var(--text-dim); stroke-width: 2; stroke-dasharray: 4 3; }
 .compass .center-text { fill: var(--text); font-family: var(--mono); font-weight: 700; text-anchor: middle; }
 .compass .center-sub { fill: var(--text-dim); font-size: 9px; text-anchor: middle; font-family: var(--font); }
@@ -1067,6 +1075,20 @@ details.foldout > div { padding: 0 15px 15px; }
   font-weight: 650;
 }
 
+.rhythm-bar {
+  width: 100%;
+  max-width: 260px;
+  height: 22px;
+  display: block;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+}
+
+.rhythm-bar .rhythm-dark { fill: #05070c; }
+
+/* Im Nachtmodus auch hier abdunkeln – der Balken zeigt echte Lichtfarben. */
+[data-theme="night"] .rhythm-bar { filter: brightness(.45) saturate(.85); }
+
 .buoy-dot {
   width: 15px;
   height: 15px;
@@ -1075,7 +1097,56 @@ details.foldout > div { padding: 0 15px 15px; }
   flex: none;
 }
 
-[data-theme="night"] .buoy-dot { filter: brightness(.5); }
+[data-theme="night"] .rhythm-bar {
+  width: 100%;
+  max-width: 260px;
+  height: 22px;
+  display: block;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+}
+
+.rhythm-bar .rhythm-dark { fill: #05070c; }
+
+/* Im Nachtmodus auch hier abdunkeln – der Balken zeigt echte Lichtfarben. */
+[data-theme="night"] .rhythm-bar { filter: brightness(.45) saturate(.85); }
+
+.buoy-dot { filter: brightness(.5); }
+
+/* ================================================================= Logbuch */
+
+.track-plot {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  display: block;
+  border-radius: 11px;
+}
+
+.track-plot .plot-bg { fill: var(--surface-2); }
+.track-plot .plot-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.track-plot .plot-dot { fill: var(--accent); opacity: .65; }
+.track-plot .plot-dot.manual { fill: var(--text); opacity: .85; }
+.track-plot .plot-dot.now { fill: var(--ok); opacity: 1; }
+.track-plot .plot-north,
+.track-plot .plot-scale { fill: none; stroke: var(--text-dim); stroke-width: 1.6; }
+.track-plot .plot-label { fill: var(--text-dim); font-size: 10px; font-family: var(--font); }
+
+.log-item {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.log-item:last-child { border-bottom: 0; }
+.log-item .log-time { font-weight: 650; font-size: .88rem; }
+.log-item .log-pos { font-size: .84rem; margin-top: 2px; }
+.log-item .log-note { margin-top: 5px; font-size: .9rem; }
+
+/* Fünf Reiter passen auch auf schmale Geräte, wenn die Schrift mitgeht. */
+@media (max-width: 380px) {
+  nav.tabs button { font-size: .64rem; }
+  nav.tabs button svg { width: 21px; height: 21px; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }

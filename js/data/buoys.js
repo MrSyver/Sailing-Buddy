@@ -10,6 +10,10 @@
  *
  * `bands` beschreibt die Farbfolge von oben nach unten,
  * `topmark` das Toppzeichen, `lightColor` die Farbe des Feuers.
+ *
+ * `seen` und `traits` gehören zur Lichtersuche: Nachts sieht man von einer
+ * Tonne nur das Feuer, also seine Farbe und seinen Rhythmus – nicht die
+ * Farbbänder und nicht das Toppzeichen.
  */
 
 export const BUOY_COLORS = {
@@ -21,10 +25,38 @@ export const BUOY_COLORS = {
   bu: '#1263d2',  // blau
 };
 
+/**
+ * Feuerkennungen als Zeitfolge, damit sie sich als Balken zeichnen lassen.
+ * Jeder Abschnitt ist { d: Sekunden, c: Farbe } – ohne `c` ist es dunkel.
+ * Die Summe ergibt die Wiederkehr.
+ */
+function fillTo(segments, period, color) {
+  const used = segments.reduce((sum, seg) => sum + seg.d, 0);
+  return { period, color, segments: [...segments, { d: Math.max(0.2, period - used) }] };
+}
+
+/** n Funkel, wahlweise mit anschließendem langem Blitz. */
+function quick(n, period, color = 'w', longFlash = false) {
+  const segments = [];
+  for (let i = 0; i < n; i += 1) segments.push({ d: 0.35, c: color }, { d: 0.65 });
+  if (longFlash) segments.push({ d: 2, c: color }, { d: 0.8 });
+  return fillTo(segments, period, color);
+}
+
+/** n Blitze in einer Gruppe. */
+function group(n, period, color, gap = 0.7, len = 0.45) {
+  const segments = [];
+  for (let i = 0; i < n; i += 1) segments.push({ d: len, c: color }, { d: gap });
+  return fillTo(segments, period, color);
+}
+
 export const BUOYS = [
   // ---- Kardinalzeichen ------------------------------------------------------
   {
     id: 'card-n',
+    rhythm: quick(9, 10, 'w'),
+    seen: ['w'],
+    traits: ['single', 'flash', 'quick'],
     group: 'kardinal',
     title: 'Nordzeichen',
     subtitle: 'Nördlich davon ist tiefes Wasser',
@@ -45,6 +77,9 @@ export const BUOYS = [
   },
   {
     id: 'card-e',
+    rhythm: quick(3, 10, 'w'),
+    seen: ['w'],
+    traits: ['single', 'flash', 'quick', 'group'],
     group: 'kardinal',
     title: 'Ostzeichen',
     subtitle: 'Östlich davon ist tiefes Wasser',
@@ -65,6 +100,9 @@ export const BUOYS = [
   },
   {
     id: 'card-s',
+    rhythm: quick(6, 15, 'w', true),
+    seen: ['w'],
+    traits: ['single', 'flash', 'quick', 'group', 'longflash'],
     group: 'kardinal',
     title: 'Südzeichen',
     subtitle: 'Südlich davon ist tiefes Wasser',
@@ -85,6 +123,9 @@ export const BUOYS = [
   },
   {
     id: 'card-w',
+    rhythm: quick(9, 15, 'w'),
+    seen: ['w'],
+    traits: ['single', 'flash', 'quick', 'group'],
     group: 'kardinal',
     title: 'Westzeichen',
     subtitle: 'Westlich davon ist tiefes Wasser',
@@ -107,6 +148,10 @@ export const BUOYS = [
   // ---- Lateralzeichen -------------------------------------------------------
   {
     id: 'lat-port',
+    rhythmIsExample: true,
+    rhythm: group(1, 4, 'r'),
+    seen: ['r'],
+    traits: ['single', 'flash'],
     group: 'lateral',
     title: 'Backbordzeichen',
     subtitle: 'Region A – beim Einlaufen an Backbord lassen',
@@ -129,6 +174,10 @@ export const BUOYS = [
   },
   {
     id: 'lat-stbd',
+    rhythmIsExample: true,
+    rhythm: group(1, 4, 'g'),
+    seen: ['g'],
+    traits: ['single', 'flash'],
     group: 'lateral',
     title: 'Steuerbordzeichen',
     subtitle: 'Region A – beim Einlaufen an Steuerbord lassen',
@@ -151,6 +200,9 @@ export const BUOYS = [
   },
   {
     id: 'lat-pref-stbd',
+    rhythm: fillTo([{ d: 0.45, c: 'r' }, { d: 0.7 }, { d: 0.45, c: 'r' }, { d: 1.6 }, { d: 0.45, c: 'r' }], 10, 'r'),
+    seen: ['r'],
+    traits: ['single', 'flash', 'group'],
     group: 'lateral',
     title: 'Hauptfahrwasser rechts',
     subtitle: 'Backbordzeichen mit grünem Band',
@@ -170,6 +222,9 @@ export const BUOYS = [
   },
   {
     id: 'lat-pref-port',
+    rhythm: fillTo([{ d: 0.45, c: 'g' }, { d: 0.7 }, { d: 0.45, c: 'g' }, { d: 1.6 }, { d: 0.45, c: 'g' }], 10, 'g'),
+    seen: ['g'],
+    traits: ['single', 'flash', 'group'],
     group: 'lateral',
     title: 'Hauptfahrwasser links',
     subtitle: 'Steuerbordzeichen mit rotem Band',
@@ -191,6 +246,9 @@ export const BUOYS = [
   // ---- Gefahren- und Sonderzeichen -----------------------------------------
   {
     id: 'isolated',
+    rhythm: group(2, 5, 'w'),
+    seen: ['w'],
+    traits: ['single', 'flash', 'group'],
     group: 'gefahr',
     title: 'Einzelgefahrenstelle',
     subtitle: 'Untiefe oder Wrack mit freiem Wasser ringsum',
@@ -212,6 +270,9 @@ export const BUOYS = [
   },
   {
     id: 'safewater',
+    rhythm: fillTo([{ d: 2, c: 'w' }], 10, 'w'),
+    seen: ['w'],
+    traits: ['single', 'steady', 'longflash'],
     group: 'gefahr',
     title: 'Mittefahrwasserzeichen',
     subtitle: 'Sicheres Fahrwasser, ringsum schiffbar',
@@ -235,6 +296,9 @@ export const BUOYS = [
   },
   {
     id: 'special',
+    rhythm: group(1, 5, 'y'),
+    seen: ['y'],
+    traits: ['single', 'flash'],
     group: 'gefahr',
     title: 'Sonderzeichen',
     subtitle: 'Sperrgebiet, Kabel, Messstelle, Badezone',
@@ -255,6 +319,9 @@ export const BUOYS = [
   },
   {
     id: 'wreck',
+    rhythm: fillTo([{ d: 1, c: 'bu' }, { d: 0.5 }, { d: 1, c: 'y' }], 3, 'bu'),
+    seen: ['bu', 'y'],
+    traits: ['single', 'flash', 'alternating'],
     group: 'gefahr',
     title: 'Notfall-Wrackzeichen',
     subtitle: 'Frisches Wrack, noch nicht in der Karte',

@@ -13,7 +13,7 @@ import { t, locale, uiLang, num } from '../lib/i18n.js';
 import {
   solve, parsePositionPair, formatPosition, formatLat,
   formatLon, formatDecimal, formatSpoken, formatDuration,
-  toParts, fromParts,
+  toParts, fromParts, norm360,
 } from '../lib/geo.js';
 
 // Bleibt beim Reiterwechsel erhalten.
@@ -418,6 +418,24 @@ function result(nav, opts) {
 
     compassRose(bearing, opts.heading, relative),
 
+    // Nordorientiert oder mitdrehend – auf einem krängenden Schiff ist die
+    // mitdrehende Ansicht leichter zu lesen, weil oben immer voraus ist.
+    h('div.seg', { style: { 'margin-top': '10px' } },
+      h('button', {
+        type: 'button',
+        'aria-pressed': String(!settings.get('compassCourseUp')),
+        onclick: () => { settings.set('compassCourseUp', false); draw(); },
+      }, t('pos.northUp')),
+      h('button', {
+        type: 'button',
+        disabled: opts.heading === null || opts.heading === undefined,
+        'aria-pressed': String(Boolean(settings.get('compassCourseUp'))),
+        onclick: () => { settings.set('compassCourseUp', true); draw(); },
+      }, t('pos.courseUp')),
+    ),
+    (opts.heading === null || opts.heading === undefined)
+      && h('p.small.muted', { style: { margin: '7px 0 0' } }, t('pos.courseUpNeedsHeading')),
+
     h('div.readout', { style: { 'margin-top': '12px' } },
       hasVar && h('div.cell',
         h('div.label', t('pos.magnetic')),
@@ -508,6 +526,12 @@ function cell(label, value, unit, sub) {
 function compassRose(bearing, heading, relative) {
   const C = 100;
   const R = 86;
+  const hasHeading = heading !== null && heading !== undefined;
+  // Mitdrehend: Die Rose wird um den eigenen Kurs zurückgedreht, damit oben
+  // immer die eigene Fahrtrichtung liegt.
+  const courseUp = Boolean(settings.get('compassCourseUp')) && hasHeading;
+  const turn = courseUp ? -heading : 0;
+
   const el = svg('svg.compass', {
     viewBox: '0 0 200 200',
     role: 'img',
@@ -516,11 +540,15 @@ function compassRose(bearing, heading, relative) {
 
   el.appendChild(svg('circle', { class: 'ring', cx: C, cy: C, r: R }));
 
+  // Alles, was sich mitdreht, kommt in eine gemeinsame Gruppe.
+  const rose = svg('g', { transform: `rotate(${turn} ${C} ${C})` });
+  el.appendChild(rose);
+
   for (let a = 0; a < 360; a += 10) {
     const major = a % 30 === 0;
     const rad = (a - 90) * Math.PI / 180;
     const r1 = R - (major ? 12 : 6);
-    el.appendChild(svg('line', {
+    rose.appendChild(svg('line', {
       class: major ? 'tick major' : 'tick',
       x1: C + r1 * Math.cos(rad), y1: C + r1 * Math.sin(rad),
       x2: C + R * Math.cos(rad), y2: C + R * Math.sin(rad),
@@ -531,16 +559,20 @@ function compassRose(bearing, heading, relative) {
   const east = uiLang() === 'en' ? 'E' : 'O';
   [['N', 0], [east, 90], ['S', 180], ['W', 270]].forEach(([label, a]) => {
     const rad = (a - 90) * Math.PI / 180;
-    el.appendChild(svg('text', {
+    const x = C + (R - 24) * Math.cos(rad);
+    const y = C + (R - 24) * Math.sin(rad) + 3;
+    rose.appendChild(svg('text', {
       class: 'card-label',
-      x: C + (R - 24) * Math.cos(rad),
-      y: C + (R - 24) * Math.sin(rad) + 3,
+      x, y,
       'text-anchor': 'middle',
+      // Die Beschriftung soll lesbar bleiben, also wieder zurückdrehen.
+      transform: turn ? `rotate(${-turn} ${x} ${y - 3})` : null,
     }, label));
   });
 
-  // Kurs über Grund als gestrichelte Linie
-  if (heading !== null && heading !== undefined) {
+  // Eigener Kurs: nordorientiert als gestrichelte Linie, mitdrehend liegt er
+  // fest oben und wird als Bugsymbol gezeichnet.
+  if (hasHeading && !courseUp) {
     const rad = (heading - 90) * Math.PI / 180;
     el.appendChild(svg('line', {
       class: 'heading',
@@ -549,18 +581,23 @@ function compassRose(bearing, heading, relative) {
       y2: C + (R - 16) * Math.sin(rad),
     }));
   }
+  if (courseUp) {
+    el.appendChild(svg('polygon', { class: 'own-ship', points: '100,44 94,60 106,60' }));
+    el.appendChild(svg('line', { class: 'heading', x1: C, y1: 60, x2: C, y2: C }));
+  }
 
-  // Zeiger zum Ziel
+  // Zeiger zum Ziel – mitdrehend zeigt er die Seitenpeilung.
   el.appendChild(svg('polygon', {
     class: 'needle',
     points: '100,10 91,34 100,29 109,34',
-    transform: `rotate(${bearing} ${C} ${C})`,
+    transform: `rotate(${norm360(bearing + turn)} ${C} ${C})`,
   }));
 
   el.appendChild(svg('text', {
     class: 'center-text', x: C, y: C + 4, 'font-size': '30',
   }, `${deg3(bearing)}°`));
-  el.appendChild(svg('text', { class: 'center-sub', x: C, y: C + 20 }, t('pos.compassTrue')));
+  el.appendChild(svg('text', { class: 'center-sub', x: C, y: C + 20 },
+    courseUp ? t('pos.courseUpShort') : t('pos.compassTrue')));
 
   if (relative) {
     el.appendChild(svg('text', { class: 'center-sub', x: C, y: C + 36 }, relativeText(relative)));
@@ -590,8 +627,11 @@ function waypointList(fix, opts) {
     ),
     ...list.map((wp) => {
       const nav = fix ? solve(fix, wp, opts) : null;
+      const isTarget = state.target
+        && Math.abs(state.target.lat - wp.lat) < 1e-9
+        && Math.abs(state.target.lon - wp.lon) < 1e-9;
       return h('div.wp-item',
-        h('div.grow', { style: { cursor: 'pointer' }, onclick: () => useWaypoint(wp) },
+        h('div.grow',
           h('div.wp-name', wp.kind === 'mob' ? `⚑ ${wp.name}` : wp.name),
           h('div.wp-pos', formatPosition(wp, 2)),
         ),
@@ -599,6 +639,12 @@ function waypointList(fix, opts) {
           `${num(nav.distance, nav.distance < 10 ? 2 : 1)} sm`,
           h('small', `${deg3(nav.bearing)}°`),
         ),
+        // Ein Klick genügt, um die gemerkte Position wieder als Ziel zu setzen.
+        h('button.btn.small', {
+          type: 'button',
+          disabled: isTarget,
+          onclick: () => useWaypoint(wp),
+        }, isTarget ? t('pos.isTarget') : t('pos.useAsTarget')),
         h('button.btn.small', {
           type: 'button',
           'aria-label': `${wp.name} – ${t('common.delete')}`,

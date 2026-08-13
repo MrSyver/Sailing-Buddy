@@ -9,7 +9,8 @@ Drei Module:
 |---|---|
 | **Funk** | Die wichtigsten Funksprüche mit bereits eingesetztem Schiffsnamen, Rufzeichen, MMSI und aktueller GPS-Position. Zum Vorlesen, in Deutsch oder Englisch. Häufige Notfälle auf Antippen einsetzbar. Dazu Sprachaufnahmen für empfangene Meldungen. |
 | **Position** | Zielkoordinate in reinen Zahlenfeldern eingeben – ohne Gradzeichen und Hochkomma – und Entfernung, rechtweisenden Kurs, Kompasskurs und Fahrzeit ablesen. MOB-Taste mit gemerkter Position. |
-| **Nachtfahrt** | Lichterführung, Seezeichen und Schallsignale nach KVR und IALA. Mit einer Lichtersuche, die nach jeder Auswahl nur noch das anbietet, was überhaupt noch möglich ist. |
+| **Nachtfahrt** | Lichterführung, Seezeichen und Schallsignale nach KVR und IALA. Die Lichtersuche geht über Fahrzeuge und Tonnen zugleich und bietet nach jeder Auswahl nur noch an, was überhaupt möglich ist. Jede Feuerkennung als Balken. |
+| **Logbuch** | Positionen von Hand oder in festem Takt mitschreiben, als Spur zeichnen, als Text oder Tabelle ausgeben. |
 
 Dazu ein **Nachtmodus**, der ausschließlich langwelliges Rot auf Schwarz
 verwendet, und ein Dimmer, der weiter herunterregelt als iOS allein.
@@ -149,13 +150,15 @@ js/app.js                Reiter, Kopfzeile, GPS-Leiste
 js/lib/geo.js            Navigationsrechnung und Koordinaten-Erkennung
 js/lib/gps.js            Geolocation
 js/lib/i18n.js           Sprache der Oberfläche
+js/lib/logbook.js        Logbuch samt automatischem Takt und Spurberechnung
 js/lib/offline.js        prüft und sichert die Offline-Bereitschaft
+js/lib/recorder.js       Sprachaufnahmen (IndexedDB)
 js/lib/storage.js        Einstellungen und Wegpunkte (bleiben auf dem Gerät)
 js/lib/theme.js          Farbschema und Dimmer
 js/lib/audio.js          erzeugt die Schallsignale im Gerät
 js/lib/dom.js            kleine Helfer statt Framework
-js/views/                die vier Module
-js/data/                 Funksprüche, Lichterführung, Schallsignale
+js/views/                die fünf Module
+js/data/                 Funksprüche, Lichterführung, Seezeichen, Schallsignale
 tools/make-icons.py      erzeugt die App-Symbole
 tools/build-single-file.mjs  baut dist/sailing-buddy.html
 tools/smoke.mjs          Rauchtest im echten Browser
@@ -178,8 +181,8 @@ abgesetzt wird.
 ## Prüfen
 
 ```bash
-npm test                                  # 26 Prüfungen: Navigation und Offline-Kopie
-npm run smoke                             # 46 Prüfungen im echten Browser
+npm test                                  # 30 Prüfungen: Navigation und Offline-Kopie
+npm run smoke                             # 92 Prüfungen im echten Browser
 node tools/smoke.mjs --shots              # zusätzlich Bildschirmfotos
 ```
 
