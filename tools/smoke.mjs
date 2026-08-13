@@ -838,6 +838,46 @@ check('Es wurde wirklich nur der Rest geholt',
   fortgesetzt.vorher > 0 && fortgesetzt.vorher < fortgesetzt.ganz,
   `${fortgesetzt.vorher} von ${fortgesetzt.ganz} lagen schon da`);
 
+// Und die Oberfläche muss das Fortsetzen auch anbieten – gerade bei einem
+// selbst eingetragenen Paket, denn das wird genommen, wenn eine der
+// vorgegebenen Adressen nicht stimmt.
+await page.evaluate(async (url) => {
+  const dir = await navigator.storage.getDirectory();
+  const ganz = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  const teil = await dir.getFileHandle('halb.mbtiles.teil', { create: true });
+  const schreiber = await teil.createWritable();
+  await schreiber.write(ganz.subarray(0, Math.floor(ganz.length / 4)));
+  await schreiber.close();
+  const reg = JSON.parse(localStorage.getItem('sailing-buddy-packs') ?? '{}');
+  reg.halb = { name: 'Halbes Paket', url, ts: Date.now(), total: ganz.length };
+  localStorage.setItem('sailing-buddy-packs', JSON.stringify(reg));
+}, `${base}test.mbtiles`);
+
+await goTab(5);
+await page.getByRole('button', { name: 'Karten', exact: true }).click();
+await page.waitForTimeout(400);
+const halbeZeile = page.locator('.wp-item', { hasText: 'Halbes Paket' });
+check('Angefangenes Paket wird als solches gezeigt',
+  (await halbeZeile.innerText()).includes('angefangen'),
+  (await halbeZeile.innerText().catch(() => '—')).replace(/\n/g, ' | '));
+check('Angefangenes Paket lässt sich fortsetzen',
+  await halbeZeile.getByRole('button', { name: /Fortsetzen/ }).count() === 1);
+
+await halbeZeile.getByRole('button', { name: /Fortsetzen/ }).click();
+await page.waitForFunction(() => !document.querySelector('#pack-progress'),
+  null, { timeout: 30000 }).catch(() => {});
+await page.waitForTimeout(400);
+check('Fortsetzen über die Oberfläche macht es vollständig',
+  (await page.locator('.wp-item', { hasText: 'Prüfgebiet Kiel' }).count()) >= 1,
+  (await page.locator('main').innerText()).split('\n')
+    .filter((l) => /Halbes|Prüfgebiet|vollständig|angefangen/.test(l)).join(' | '));
+
+// Aufräumen: Das Paket trägt jetzt den Namen aus der Datei.
+page.once('dialog', (d) => d.accept());
+await page.locator('.wp-item', { hasText: 'Prüfgebiet Kiel' })
+  .getByRole('button', { name: '✕' }).first().click();
+await page.waitForTimeout(600);
+
 // Wieder weg damit, damit die folgenden Prüfungen nichts erben.
 await goTab(5);
 await page.getByRole('button', { name: 'Karten', exact: true }).click();

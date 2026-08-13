@@ -181,6 +181,16 @@ function packCard() {
             state: p.complete ? t('packs.stateDone') : t('packs.statePart'),
           })),
         ),
+        // Auch ein selbst eingetragener Download muss fortsetzbar sein –
+        // gerade der, denn er wird genommen, wenn eine Adresse oben nicht
+        // stimmt, und reißt genauso ab wie jeder andere.
+        !p.complete && p.url && h('button.btn.small', {
+          type: 'button',
+          disabled: Boolean(state.packBusy) || !online,
+          onclick: () => startPack({
+            id: p.id, name: p.name, url: p.url, bytes: p.total,
+          }),
+        }, t('packs.resume')),
         h('button.btn.small', {
           type: 'button',
           disabled: Boolean(state.packBusy),
