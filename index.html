@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover: nutzt auf dem iPhone die Fläche unter Notch und Home-Indikator,
+     die sichere Zone wird im CSS über env(safe-area-inset-*) freigehalten. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Offline-Helfer für Segler: Funksprüche mit den eigenen Schiffsdaten, Entfernung und Kurs zu jeder Position, Lichter- und Schallsignale mit Nachtmodus.">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark light">
+
+<title>Sailing Buddy</title>
+
+<!-- Als App auf dem Home-Bildschirm (iOS und Android) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sailing Buddy">
+
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- Zusätzlicher Dimmer für die Nachtwache, liegt über allem und fängt keine Eingaben ab. -->
+<div id="dimmer" aria-hidden="true"></div>
+
+<div class="app" id="app">
+  <main>
+    <div class="card">
+      <h2>Sailing Buddy wird geladen …</h2>
+    </div>
+  </main>
+</div>
+
+<noscript>
+  <div style="padding:20px;font-family:sans-serif">
+    <h2>JavaScript ist ausgeschaltet</h2>
+    <p>Sailing Buddy rechnet Kurse und Entfernungen direkt im Gerät und braucht dafür JavaScript.
+       Bitte in den Einstellungen von Safari wieder einschalten.</p>
+  </div>
+</noscript>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+name: Test & Deploy
+
+# Die App braucht keinen Bauschritt: Was im Verzeichnis liegt, wird
+# unverändert veröffentlicht. Für die Installation auf dem iPhone ist
+# HTTPS Pflicht – das liefert GitHub Pages.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Navigationsrechnung prüfen
+        run: npm test
+
+      - name: Browser für den Rauchtest bereitstellen
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Einzeldatei bauen
+        run: npm run build:single
+
+      - name: Rauchtest im Browser
+        run: node tools/smoke.mjs
+
+  deploy:
+    # Veröffentlicht wird nur der Stand auf main, nicht jeder Pull Request.
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Nur das veröffentlichen, was die App zum Laufen braucht – keine Tests,
+      # keine Werkzeuge und vor allem kein node_modules.
+      - name: Website zusammenstellen
+        run: |
+          npm install --no-audit --no-fund
+          npm run build:single
+          mkdir -p _site/dist
+          cp index.html manifest.webmanifest sw.js _site/
+          cp -r css js icons _site/
+          cp dist/sailing-buddy.html _site/dist/
+          echo "Veröffentlicht wird:" && find _site -type f | sort
+
+      # Nicht auf gut Glück veröffentlichen: Das zusammengestellte
+      # Verzeichnis wird noch einmal im Browser geprüft, samt Kaltstart
+      # ohne Netz und ohne Server.
+      - name: Zusammengestellte Website prüfen
+        run: |
+          npx playwright install --with-deps chromium
+          SMOKE_ROOT=_site node tools/smoke.mjs
+
+      # enablement: true schaltet GitHub Pages beim ersten Lauf selbst ein,
+      # damit man es nicht vorher von Hand in den Repository-Einstellungen
+      # umstellen muss.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+      - id: deployment
+        uses: actions/deploy-pages@v4
