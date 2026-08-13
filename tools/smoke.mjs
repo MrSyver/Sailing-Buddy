@@ -801,6 +801,43 @@ await shot('04c-karte-mit-paket');
 
 await page.getByRole('button', { name: /Seekarte ausblenden/ }).click();
 
+// --- Fortsetzen eines abgerissenen Downloads -------------------------------
+// Das ist der Fall, der auf einem Boot wirklich eintritt. Geprüft wird
+// unmittelbar an der Bibliothek: ein angefangenes Stück ablegen, den Download
+// anstoßen und sehen, ob am Ende eine vollständige, lesbare Datei dasteht.
+// Würde der Bereich falsch angehängt, wäre die Datei verdorben und ließe sich
+// nicht mehr als Kartenpaket öffnen – der Fehler käme also sicher heraus.
+const fortgesetzt = await page.evaluate(async (url) => {
+  const { downloadPack, removePack } = await import('./js/lib/packs.js');
+  const dir = await navigator.storage.getDirectory();
+  const ganz = new Uint8Array(await (await fetch(url)).arrayBuffer());
+
+  const teil = await dir.getFileHandle('probe.mbtiles.teil', { create: true });
+  const schreiber = await teil.createWritable();
+  await schreiber.write(ganz.subarray(0, Math.floor(ganz.length / 3)));
+  await schreiber.close();
+  const vorher = (await teil.getFile()).size;
+
+  try {
+    const res = await downloadPack({
+      id: 'probe', name: 'Fortsetzen', url, expectedBytes: ganz.length,
+    });
+    return { vorher, nachher: res.bytes, ganz: ganz.length, fehler: null };
+  } catch (err) {
+    return { vorher, nachher: 0, ganz: ganz.length, fehler: err.message };
+  } finally {
+    await removePack('probe').catch(() => {});
+  }
+}, `${base}test.mbtiles`);
+
+check('Abgerissener Download wird fortgesetzt',
+  fortgesetzt.fehler === null && fortgesetzt.nachher === fortgesetzt.ganz,
+  `angefangen ${fortgesetzt.vorher}, danach ${fortgesetzt.nachher} von ${fortgesetzt.ganz}`
+  + (fortgesetzt.fehler ? ` – ${fortgesetzt.fehler}` : ''));
+check('Es wurde wirklich nur der Rest geholt',
+  fortgesetzt.vorher > 0 && fortgesetzt.vorher < fortgesetzt.ganz,
+  `${fortgesetzt.vorher} von ${fortgesetzt.ganz} lagen schon da`);
+
 // Wieder weg damit, damit die folgenden Prüfungen nichts erben.
 await goTab(5);
 await page.getByRole('button', { name: 'Karten', exact: true }).click();

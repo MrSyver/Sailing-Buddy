@@ -123,6 +123,28 @@ export async function downloadPack({ id, name, url, expectedBytes = null }, {
   let handle = await dir.getFileHandle(partName, { create: true });
   let done = (await handle.getFile()).size;
 
+  /**
+   * Fortsetzen kostet vorübergehend zusätzlichen Platz.
+   *
+   * `createWritable` schreibt nicht in die Datei selbst, sondern in eine
+   * Zweitschrift, die beim Schließen eingewechselt wird. Mit
+   * `keepExistingData` wird das Angefangene vorher dorthin kopiert – für
+   * einen Augenblick liegt das Paket also doppelt im Gerät. Bei einem frisch
+   * begonnenen Download passiert das nicht.
+   *
+   * Deshalb wird hier vorher nachgerechnet und im Zweifel klar gesagt, was zu
+   * tun ist, statt mitten im Schreiben mit „Speicher voll“ abzubrechen.
+   */
+  if (done > 0) {
+    const space = await storageEstimate();
+    const brauche = done + Math.max(0, (expectedBytes ?? done * 2) - done);
+    if (space && space.free < brauche) {
+      throw new Error(
+        `Zum Fortsetzen fehlt der Platz für die Zwischenkopie (nötig etwa ${Math.round(brauche / 1024 / 1024)} MB, frei ${Math.round(space.free / 1024 / 1024)} MB). Lösch das Angefangene und lade neu.`,
+      );
+    }
+  }
+
   const registry = readRegistry();
   registry[id] = {
     ...registry[id], name, url, ts: Date.now(), total: expectedBytes,
