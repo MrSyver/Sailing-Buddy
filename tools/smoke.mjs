@@ -328,6 +328,24 @@ check('Gemerkte Position hat einen Übernehmen-Knopf',
   await page.locator('.wp-item').getByRole('button', { name: /Ist Ziel|Als Ziel/ }).count() >= 1);
 
 // --- Karte -----------------------------------------------------------------
+// Die untere Leiste muss unten stehen und dort bleiben. Ein früherer Versuch,
+// sie mit translateY(100dvh - 100vh) nachzuführen, schob sie bei jeder
+// Bewegung der Adressleiste sichtbar nach oben.
+const barBefore = await page.locator('nav.tabs').evaluate((el) => {
+  const b = el.getBoundingClientRect();
+  return { top: Math.round(b.top), bottom: Math.round(b.bottom), transform: getComputedStyle(el).transform };
+});
+check('Reiterleiste steht am unteren Rand',
+  Math.abs(barBefore.bottom - 844) <= 1, JSON.stringify(barBefore));
+check('Reiterleiste wird nicht verschoben', barBefore.transform === 'none', barBefore.transform);
+await page.evaluate(() => window.scrollTo(0, 700));
+await page.waitForTimeout(200);
+const barAfter = await page.locator('nav.tabs').evaluate(
+  (el) => Math.round(el.getBoundingClientRect().top));
+check('Reiterleiste bleibt beim Scrollen liegen', barAfter === barBefore.top,
+  `vorher ${barBefore.top}, nachher ${barAfter}`);
+await page.evaluate(() => window.scrollTo(0, 0));
+
 // Sechs Reiter auf einem schmalen Gerät: Kein Wort darf abgeschnitten werden.
 const tabFit = await page.locator('nav.tabs button').evaluateAll((els) => els.map((el) => {
   const span = el.querySelector('span');
@@ -576,6 +594,30 @@ check('Karten haben einen eigenen Reiter in den Einstellungen',
 check('Noch kein Seegebiet geladen',
   (await page.locator('main').innerText()).includes('Noch kein Seegebiet geladen'));
 
+// Fertige Seegebiete: Antippen genügt, und die Menge steht sofort da.
+check('Fertige Seegebiete stehen zur Auswahl',
+  await page.locator('.region-row').count() > 10,
+  `${await page.locator('.region-row').count()} Gebiete`);
+check('Ohne Auswahl lässt sich nichts laden',
+  await page.getByRole('button', { name: /Herunterladen/ }).isDisabled());
+// Die eigene Position liegt in der Kieler Bucht – das Gebiet muss oben stehen.
+const firstRegion = await page.locator('.region-row').first().innerText();
+check('Das Gebiet unter dem Kiel steht oben', /Kieler Bucht/.test(firstRegion),
+  firstRegion.replace(/\n/g, ' | '));
+await page.locator('.region-row[data-region="kieler-bucht"]').first().click();
+await page.waitForTimeout(150);
+check('Gewähltes Gebiet lässt sich laden',
+  !(await page.getByRole('button', { name: /Herunterladen/ }).isDisabled()));
+const regionTiles = Number(
+  (await page.locator('.readout .cell').first().innerText()).replace(/\D/g, ''));
+check('Ein Revier passt in einen Rutsch', regionTiles > 0 && regionTiles <= 4000,
+  `${regionTiles} Abrufe`);
+await shot('07c-seegebiete');
+await page.locator('.region-row[data-region="kieler-bucht"]').first().click();
+
+await page.getByRole('button', { name: 'Umkreis', exact: true }).click();
+await page.waitForTimeout(150);
+
 // Umkreis: Die Menge muss vor dem Herunterladen dastehen, nicht danach.
 const tilesShown = await page.locator('.readout .cell').first().innerText();
 check('Kachelmenge wird vorher angezeigt', /\d/.test(tilesShown.replace(/\D/g, '')),
@@ -604,7 +646,6 @@ check('Route nimmt Punkte auf', await page.locator('.wp-item').count() >= 1);
 check('Mit Punkt lässt sich die Route laden',
   !(await page.getByRole('button', { name: /Herunterladen/ }).isDisabled()));
 await shot('07b-karten-einstellungen');
-await page.getByRole('button', { name: 'Umkreis', exact: true }).click();
 await page.getByRole('button', { name: 'Allgemein', exact: true }).click();
 await page.waitForTimeout(150);
 

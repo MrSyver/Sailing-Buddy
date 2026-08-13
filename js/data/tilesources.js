@@ -45,11 +45,32 @@ export function layers(settings) {
   ];
 }
 
-/** Sinnvolle Zoomstufen für die Küstennavigation. */
+/**
+ * Sinnvolle Zoomstufen.
+ *
+ * Alle beginnen bei Stufe 6: Die groben Stufen kosten nur eine Handvoll
+ * Kacheln, sorgen aber dafür, dass die Karte beim Herauszoomen nicht ins
+ * Leere läuft.
+ */
 export const ZOOM_PRESETS = [
-  { zMin: 8, zMax: 11, label: 'Übersicht', labelEn: 'Overview', hint: 'grobe Orientierung' },
-  { zMin: 8, zMax: 13, label: 'Küste', labelEn: 'Coastal', hint: 'Standard für den Törn' },
-  { zMin: 8, zMax: 15, label: 'Hafen', labelEn: 'Harbour', hint: 'bis in die Hafeneinfahrt' },
+  { zMin: 6, zMax: 11, label: 'Übersicht', labelEn: 'Overview', hint: 'grobe Orientierung' },
+  { zMin: 6, zMax: 13, label: 'Küste', labelEn: 'Coastal', hint: 'Standard für den Törn' },
+  { zMin: 6, zMax: 15, label: 'Hafen', labelEn: 'Harbour', hint: 'bis in die Hafeneinfahrt' },
+];
+
+/**
+ * Zoomstufen für ganze Seegebiete.
+ *
+ * Ein Revier ist tausendmal größer als ein Umkreis von zehn Seemeilen, also
+ * bleiben die Stufen gröber. Das ist kein Sparzwang, sondern die Aufteilung,
+ * die zum Zweck passt: Das Gebiet liefert Küstenlinie und Inseln für den
+ * ganzen Törn, die Feinheit holt man sich als Umkreis oder Streifen dort, wo
+ * man tatsächlich fährt.
+ */
+export const REGION_ZOOM_PRESETS = [
+  { zMin: 5, zMax: 9, label: 'Grob', labelEn: 'Rough', hint: 'Umrisse des Reviers' },
+  { zMin: 5, zMax: 10, label: 'Übersicht', labelEn: 'Overview', hint: 'Küstenverlauf und Inseln' },
+  { zMin: 5, zMax: 11, label: 'Küstenlinie', labelEn: 'Coastline', hint: 'so fein, wie ein Revier am Stück geht' },
 ];
 
 /** Auswählbare Radien um die eigene Position, in Seemeilen. */

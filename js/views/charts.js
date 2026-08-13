@@ -21,12 +21,17 @@ import {
   formatBytes, MAX_TILES_PER_AREA, BYTES_PER_TILE,
 } from '../lib/tiles.js';
 import {
-  layers, ZOOM_PRESETS, RADIUS_OPTIONS, CORRIDOR_OPTIONS,
+  layers, ZOOM_PRESETS, REGION_ZOOM_PRESETS, RADIUS_OPTIONS, CORRIDOR_OPTIONS,
   DEFAULT_BASE_URL, DEFAULT_SEAMARK_URL, ATTRIBUTION,
 } from '../data/tilesources.js';
+import {
+  SEA_REGIONS, REGION_GROUPS, regionArea, regionContains,
+} from '../data/searegions.js';
 
 const state = {
-  kind: 'radius',        // 'radius' | 'route'
+  kind: 'region',        // 'region' | 'radius' | 'route'
+  regionId: null,
+  regionPreset: 1,       // Zeigerstelle in REGION_ZOOM_PRESETS
   radiusNm: RADIUS_OPTIONS[1],
   corridorNm: CORRIDOR_OPTIONS[1],
   preset: 1,             // Zeigerstelle in ZOOM_PRESETS
@@ -36,6 +41,11 @@ const state = {
   busy: null,            // { done, total, stored, bytes, name }
   abort: null,
 };
+
+const en = () => locale().startsWith('en');
+const regionName = (r) => (en() ? r.nameEn : r.name);
+const regionHint = (r) => (en() ? r.hintEn : r.hint);
+const region = (id) => SEA_REGIONS.find((r) => r.id === id) ?? null;
 
 let host = null;
 
@@ -68,6 +78,12 @@ function paint() {
 function selection() {
   const preset = ZOOM_PRESETS[state.preset];
   const fix = gps.fix;
+  if (state.kind === 'region') {
+    const chosen = region(state.regionId);
+    if (!chosen) return null;
+    const rp = REGION_ZOOM_PRESETS[state.regionPreset];
+    return { ...regionArea(chosen, rp.zMin, rp.zMax), regionId: chosen.id };
+  }
   if (state.kind === 'route') {
     if (state.route.length === 0) return null;
     return {
@@ -103,6 +119,11 @@ function downloadCard() {
     h('div.seg', { style: { 'margin-bottom': '12px' } },
       h('button', {
         type: 'button',
+        'aria-pressed': String(state.kind === 'region'),
+        onclick: () => { state.kind = 'region'; paint(); },
+      }, t('charts.kind.region')),
+      h('button', {
+        type: 'button',
         'aria-pressed': String(state.kind === 'radius'),
         onclick: () => { state.kind = 'radius'; paint(); },
       }, t('charts.kind.radius')),
@@ -113,20 +134,11 @@ function downloadCard() {
       }, t('charts.kind.route')),
     ),
 
-    state.kind === 'radius' ? radiusPart() : routePart(),
+    state.kind === 'region' ? regionPart()
+      : state.kind === 'radius' ? radiusPart() : routePart(),
 
     // Zoomstufen
-    h('div.field', { style: { 'margin-bottom': '10px' } },
-      h('span', t('charts.detail')),
-      h('div.filter-chips', { role: 'group', 'aria-label': t('charts.detail') },
-        ...ZOOM_PRESETS.map((preset, i) => h('button.chip', {
-          type: 'button',
-          'aria-pressed': String(state.preset === i),
-          onclick: () => { state.preset = i; paint(); },
-        }, t(`charts.preset.${i}`))),
-      ),
-      h('span.hint', t('charts.detailHint')),
-    ),
+    detailPart(),
 
     // Vorschau der Menge – vor dem Herunterladen, nicht hinterher.
     h('div.readout', { style: { 'margin-bottom': '12px' } },
@@ -154,7 +166,78 @@ function downloadCard() {
     }, t('charts.download')),
 
     !area && h('p.small.muted', { style: { margin: '9px 0 0' } },
-      state.kind === 'route' ? t('charts.needRoute') : t('charts.needFix')),
+      state.kind === 'region' ? t('charts.needRegion')
+        : state.kind === 'route' ? t('charts.needRoute') : t('charts.needFix')),
+  );
+}
+
+/** Die Stufen der Feinheit – für Reviere gröber als für einen Umkreis. */
+function detailPart() {
+  const forRegion = state.kind === 'region';
+  const presets = forRegion ? REGION_ZOOM_PRESETS : ZOOM_PRESETS;
+  const chosen = forRegion ? state.regionPreset : state.preset;
+  const prefix = forRegion ? 'charts.rpreset' : 'charts.preset';
+  const chosenRegion = forRegion ? region(state.regionId) : null;
+  const perLayer = layers(settings.all()).length;
+
+  return h('div.field', { style: { 'margin-bottom': '10px' } },
+    h('span', t('charts.detail')),
+    h('div.filter-chips', { role: 'group', 'aria-label': t('charts.detail') },
+      ...presets.map((preset, i) => {
+        // Bei einem gewählten Revier steht schon an der Schaltfläche, welche
+        // Stufe überhaupt in einem Rutsch geht.
+        const over = chosenRegion
+          && tilesForArea(regionArea(chosenRegion, preset.zMin, preset.zMax)).length
+            * perLayer > MAX_TILES_PER_AREA;
+        return h('button.chip', {
+          type: 'button',
+          'aria-pressed': String(chosen === i),
+          onclick: () => {
+            if (forRegion) state.regionPreset = i; else state.preset = i;
+            paint();
+          },
+        }, t(`${prefix}.${i}`), over && h('span.count', '!'));
+      }),
+    ),
+    h('span.hint', forRegion ? t('charts.regionDetailHint') : t('charts.detailHint')),
+  );
+}
+
+/** Fertige Reviere – zuerst die, in denen man gerade ist. */
+function regionPart() {
+  const fix = gps.fix;
+  const here = fix ? SEA_REGIONS.filter((r) => regionContains(r, fix)) : [];
+  const hereIds = new Set(here.map((r) => r.id));
+
+  const row = (r, isHere) => h('button.region-row', {
+    type: 'button',
+    'data-region': r.id,
+    'aria-pressed': String(state.regionId === r.id),
+    onclick: () => { state.regionId = state.regionId === r.id ? null : r.id; paint(); },
+  },
+  h('span.name', isHere ? `◎ ${regionName(r)}` : regionName(r)),
+  h('span.hint', regionHint(r)),
+  );
+
+  return h('div',
+    h('p.small.muted', { style: { margin: '0 0 10px' } }, t('charts.regionHint')),
+
+    here.length > 0 && h('div.region-group',
+      h('h4', t('charts.regionHere')),
+      ...here.map((r) => row(r, true)),
+    ),
+
+    ...REGION_GROUPS.map((group) => {
+      const items = SEA_REGIONS.filter((r) => r.group === group.key && !hereIds.has(r.id));
+      if (!items.length) return null;
+      // Die Gruppe des gewählten Reviers bleibt offen, damit die Auswahl
+      // sichtbar bleibt; die übrigen sind zugeklappt.
+      const open = items.some((r) => r.id === state.regionId) || (here.length === 0 && !state.regionId && group.key === 'nordost');
+      return h('details.foldout.region-fold', { open },
+        h('summary', en() ? group.labelEn : group.label),
+        h('div.region-group', ...items.map((r) => row(r, false))),
+      );
+    }).filter(Boolean),
   );
 }
 
@@ -277,6 +360,10 @@ async function start(area, existing = null) {
 
 function defaultName(area) {
   const when = new Date().toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' });
+  if (area.kind === 'bounds') {
+    const r = region(area.regionId);
+    return r ? regionName(r) : t('charts.nameArea', { v: when });
+  }
   if (area.kind === 'route') {
     return t('charts.nameRoute', { n: area.points.length, v: when });
   }
@@ -339,9 +426,11 @@ function areasCard() {
 }
 
 function areaRow(area, here) {
-  const preset = area.kind === 'route'
-    ? t('charts.rowRoute', { n: num((area.points ?? []).length, 0), v: num(area.corridorNm, 0) })
-    : t('charts.rowRadius', { v: num(area.radiusNm, 0) });
+  const preset = area.kind === 'bounds'
+    ? t('charts.rowRegion')
+    : area.kind === 'route'
+      ? t('charts.rowRoute', { n: num((area.points ?? []).length, 0), v: num(area.corridorNm, 0) })
+      : t('charts.rowRadius', { v: num(area.radiusNm, 0) });
 
   return h('div.wp-item',
     h('div.grow',
@@ -365,6 +454,8 @@ function areaRow(area, here) {
         radiusNm: area.radiusNm,
         points: area.points,
         corridorNm: area.corridorNm,
+        bounds: area.bounds,
+        regionId: area.regionId,
         zMin: area.zMin,
         zMax: area.zMax,
       }, area),

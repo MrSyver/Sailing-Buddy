@@ -77,11 +77,9 @@
 html, body {
   margin: 0;
   padding: 0;
-  /* 100% bezieht sich auf das Layout-Fenster, das bei sichtbarer Browserleiste
-     höher ist als der wirklich sichtbare Bereich – die untere Reiterleiste
-     rutscht dann darunter. dvh folgt der tatsächlich sichtbaren Höhe. */
-  height: 100vh;
-  height: 100dvh;
+  /* Bewusst keine feste Höhe: In Safari ändert sich dvh, während die
+     Adressleiste beim Scrollen ein- und ausfährt. Hing die Seitenhöhe daran,
+     rutschte bei jeder dieser Änderungen das halbe Layout mit. */
   overscroll-behavior-y: none;
 }
 
@@ -373,8 +371,10 @@ nav.tabs {
   bottom: 0;
   left: 0;
   right: 0;
-  /* Bei sichtbarer Browserleiste bleibt die Leiste sonst darunter verborgen. */
-  transform: translateY(calc(100dvh - 100vh));
+  /* Ohne Kunstgriff: Safari setzt eine unten verankerte feste Leiste von
+     selbst an den sichtbaren Rand. Ein früherer Versuch, das mit
+     translateY(100dvh - 100vh) nachzuhelfen, schob sie bei jeder Bewegung
+     der Adressleiste sichtbar nach oben. */
   z-index: 50;
   display: flex;
   background: var(--surface);
@@ -1290,3 +1290,39 @@ details.foldout > div { padding: 0 15px 15px; }
 
 /* Im Nachtmodus keine leuchtende Fläche – nur ein schmaler Streifen. */
 [data-theme="night"] .progress .bar { background: var(--accent); opacity: .55; }
+
+/* --------------------------------------------------------- Fertige Seegebiete */
+
+.region-group { display: grid; gap: 6px; margin-bottom: 10px; }
+
+.region-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 13px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  min-height: var(--tap);
+}
+
+.region-row .name { display: block; font-weight: 650; font-size: .95rem; }
+.region-row .hint { display: block; font-size: .78rem; color: var(--text-dim); margin-top: 1px; }
+
+.region-row[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.region-group h4 {
+  margin: 0 0 6px;
+  font-size: .74rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-dim);
+}
+
+.region-fold { margin-bottom: 8px; }
