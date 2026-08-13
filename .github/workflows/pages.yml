@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Test & Deploy
 
 # Die App braucht keinen Bauschritt: Was im Verzeichnis liegt, wird
 # unverändert veröffentlicht. Für die Installation auf dem iPhone ist
@@ -7,6 +7,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -15,7 +16,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -26,10 +27,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+
       - name: Navigationsrechnung prüfen
         run: npm test
 
+      - name: Browser für den Rauchtest bereitstellen
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Rauchtest im Browser
+        run: node tools/smoke.mjs
+
   deploy:
+    # Veröffentlicht wird nur der Stand auf main, nicht jeder Pull Request.
+    if: github.event_name != 'pull_request'
     needs: test
     runs-on: ubuntu-latest
     environment:
