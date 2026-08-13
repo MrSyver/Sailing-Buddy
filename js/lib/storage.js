@@ -30,6 +30,7 @@ const DEFAULTS = {
   tileSeamarkUrl: '',
   packBaseUrl: '',      // Verzeichnis der fertigen Kartenpakete
   packUrls: {},         // einzelne Pakete mit abweichender Adresse
+  autoTiles: true,      // fehlende Kacheln bei Verbindung nachholen
   setupDone: false,
   waypoints: [],       // [{ id, name, lat, lon, kind, ts }]
 };

@@ -10,6 +10,7 @@
  */
 
 import { chromium } from 'playwright';
+import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
@@ -21,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // Standardmäßig wird das Arbeitsverzeichnis geprüft. Mit SMOKE_ROOT lässt
 // sich stattdessen ein zusammengestelltes Website-Verzeichnis prüfen – also
 // genau das, was später wirklich veröffentlicht wird.
+const require = createRequire(import.meta.url);
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const ROOT = process.env.SMOKE_ROOT ? resolve(process.env.SMOKE_ROOT) : REPO;
 const SHOTS = process.argv.includes('--shots');
@@ -35,6 +37,31 @@ const SHOT_DIR = process.env.SHOT_DIR ?? join(REPO, 'screenshots');
  * die SQLite-Datei lesen und die Kachel auf der Karte zeigen. Nur die Adresse
  * ist eine andere.
  */
+/** Ein winziges einfarbiges PNG, von Hand gebaut. */
+const TILE_PNG = (() => {
+  const zlib = require('node:zlib');
+  const chunk = (tag, data) => {
+    const body = Buffer.concat([Buffer.from(tag), data]);
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(body) >>> 0);
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(2, 0); ihdr.writeUInt32BE(2, 4);
+  ihdr[8] = 8; ihdr[9] = 2;
+  const raw = Buffer.concat([
+    Buffer.from([0, 30, 120, 190, 30, 120, 190]),
+    Buffer.from([0, 30, 120, 190, 30, 120, 190]),
+  ]);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0)),
+  ]);
+})();
+
+/** Jeder Kachelabruf des örtlichen Servers wird mitgeschrieben. */
+const tileHits = [];
+
 const FIXTURE_DIR = mkdtempSync(join(tmpdir(), 'sb-smoke-'));
 const FIXTURE = join(FIXTURE_DIR, 'test.mbtiles');
 process.on('exit', () => rmSync(FIXTURE_DIR, { recursive: true, force: true }));
@@ -126,6 +153,14 @@ function serve(fixture) {
       return;
     }
 
+    // Ein Kachelweg für die Prüfung des Nachholens – ein einfarbiges PNG.
+    if (path.startsWith('/kachel/')) {
+      tileHits.push(path);
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(TILE_PNG.length) });
+      res.end(TILE_PNG);
+      return;
+    }
+
     const rel = normalize(path === '/' ? '/index.html' : path).replace(/^(\.\.[/\\])+/, '');
     try {
       const body = await readFile(join(ROOT, rel));
@@ -187,10 +222,33 @@ const context = await browser.newContext({
   geolocation: { latitude: 54.5, longitude: 10.27, accuracy: 8 },
 });
 
+// Der Test darf unter keinen Umständen echte Kachelserver anfassen. Abgeklemmt
+// statt gehofft – und nebenbei ist damit geprüft, dass die App fehlgeschlagene
+// Abrufe verkraftet, statt stehenzubleiben.
+const fremdeAbrufe = [];
+await context.route('**://tile.openstreetmap.org/**', (route) => {
+  fremdeAbrufe.push(route.request().url());
+  return route.abort();
+});
+await context.route('**://tiles.openseamap.org/**', (route) => {
+  fremdeAbrufe.push(route.request().url());
+  return route.abort();
+});
+
 const page = await context.newPage();
 
+/**
+ * Ein Kachelabruf, der ins Leere läuft, meldet der Browser von sich aus in
+ * der Konsole. Das ist kein Mangel der App, sondern der Fall, für den sie
+ * gebaut ist – ohne Netz oder mit einer unerreichbaren Quelle. Alles andere
+ * in der Konsole bleibt ein Fehlschlag.
+ */
+const erwartet = (text) => /net::ERR_|Failed to load resource/.test(text);
+
 page.on('console', (msg) => {
-  if (msg.type() === 'error') problems.push(`Konsolenfehler: ${msg.text()}`);
+  if (msg.type() === 'error' && !erwartet(msg.text())) {
+    problems.push(`Konsolenfehler: ${msg.text()}`);
+  }
 });
 page.on('pageerror', (err) => problems.push(`Ausnahme: ${err.message}`));
 
@@ -462,11 +520,75 @@ check('Die Liste nennt Entfernung und Kurs',
 // Das Kartenbild ist ausdrücklich zuschaltbar und ohne Kacheln ehrlich.
 check('Ohne Knopfdruck kein Kartenbild', await page.locator('.chart-tiles').count() === 0);
 await page.getByRole('button', { name: /Seekarte einblenden/ }).click();
-await page.waitForTimeout(500);
-check('Fehlendes Kartenmaterial wird benannt',
+// Die App versucht jetzt nachzuholen; die echten Kachelserver sind abgeklemmt.
+// Gewartet wird auf die endgültige Aussage, nicht auf eine feste Zeit.
+await page.waitForFunction(
+  () => /Kein Kartenmaterial/.test(document.querySelector('main')?.innerText ?? ''),
+  null, { timeout: 30000 },
+).catch(() => {});
+check('Ohne erreichbare Quelle wird das gesagt, statt leer zu bleiben',
   (await page.locator('main').innerText()).includes('Kein Kartenmaterial'));
+// Kein „Ausnahme:“ in der Liste – fehlgeschlagene Abrufe müssen gefangen
+// werden, nicht bis in die Oberfläche durchschlagen.
+check('Fehlgeschlagene Abrufe schlagen nicht durch',
+  problems.filter((p) => p.startsWith('Ausnahme')).length === 0,
+  problems.filter((p) => p.startsWith('Ausnahme')).slice(0, 2).join(' | '));
+check('Es wurde überhaupt versucht nachzuholen', fremdeAbrufe.length > 0,
+  `${fremdeAbrufe.length} Versuche`);
 await page.getByRole('button', { name: /Seekarte ausblenden/ }).click();
 await shot('04b-karte');
+
+// --- Nachholen unterwegs ---------------------------------------------------
+// Ist eine Stelle nicht im Gerät, soll sie mit Verbindung nachgeholt und
+// gleich abgelegt werden. Geprüft gegen den örtlichen Kachelweg, damit im
+// Test nichts nach draußen geht.
+await page.evaluate(async (vorlage) => {
+  const { settings } = await import('./js/lib/storage.js');
+  settings.update({ tileBaseUrl: vorlage, tileSeamarkUrl: '', autoTiles: true });
+}, `${base}kachel/{z}/{x}/{y}.png`);
+
+const vorher = tileHits.length;
+await page.getByRole('button', { name: /Seekarte einblenden/ }).click();
+await page.waitForFunction(
+  () => document.querySelectorAll('.chart-tile').length > 0,
+  null, { timeout: 30000 },
+).catch(() => {});
+
+const nachgeholt = await page.locator('.chart-tile').count();
+check('Fehlende Kacheln werden aus dem Netz nachgeholt', nachgeholt > 0,
+  `${nachgeholt} Kacheln, ${tileHits.length - vorher} Abrufe`);
+check('Nachgeholt wird nur der sichtbare Ausschnitt',
+  tileHits.length - vorher > 0 && tileHits.length - vorher < 60,
+  `${tileHits.length - vorher} Abrufe`);
+
+// Und sie müssen abgelegt worden sein – sonst wäre es beim nächsten Mal
+// wieder weg, und genau das soll es ja nicht sein.
+const abgelegt = await page.evaluate(async () => {
+  const { tileStore } = await import('./js/lib/tiles.js');
+  return tileStore.count();
+});
+check('Nachgeholte Kacheln bleiben im Gerät', abgelegt > 0, `${abgelegt} im Speicher`);
+
+// Ausgeschaltet wird auch nichts geholt.
+await page.getByRole('button', { name: /Seekarte ausblenden/ }).click();
+await page.evaluate(async () => {
+  const { settings } = await import('./js/lib/storage.js');
+  settings.set('autoTiles', false);
+  const { tileStore } = await import('./js/lib/tiles.js');
+  await tileStore.clear();
+});
+const vorAus = tileHits.length;
+await page.getByRole('button', { name: /Seekarte einblenden/ }).click();
+await page.waitForTimeout(1200);
+check('Ausgeschaltet wird nichts nachgeholt', tileHits.length === vorAus,
+  `${tileHits.length - vorAus} Abrufe trotz Schalter aus`);
+await page.getByRole('button', { name: /Seekarte ausblenden/ }).click();
+
+// Zurück auf die Voreinstellung, damit die folgenden Prüfungen nichts erben.
+await page.evaluate(async () => {
+  const { settings } = await import('./js/lib/storage.js');
+  settings.update({ tileBaseUrl: '', tileSeamarkUrl: '', autoTiles: false });
+});
 
 // --- Nachtfahrt ------------------------------------------------------------
 await goTab(3);
