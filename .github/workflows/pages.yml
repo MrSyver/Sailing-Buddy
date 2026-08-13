@@ -36,6 +36,9 @@ jobs:
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
 
+      - name: Einzeldatei bauen
+        run: npm run build:single
+
       - name: Rauchtest im Browser
         run: node tools/smoke.mjs
 
@@ -49,6 +52,17 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Die Einzeldatei wird mitveröffentlicht, damit sie sich ohne
+      # Bauwerkzeug herunterladen und als Sicherung ablegen lässt.
+      - name: Einzeldatei bauen
+        run: |
+          npm install --no-audit --no-fund
+          npm run build:single
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

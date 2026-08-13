@@ -11,6 +11,7 @@ import { gps, GPS_STATUS_KEY } from './lib/gps.js';
 import { applyTheme, toggleNight } from './lib/theme.js';
 import { formatPosition } from './lib/geo.js';
 import { t } from './lib/i18n.js';
+import { initOffline, onOfflineChange } from './lib/offline.js';
 
 import * as radioView from './views/radio.js';
 import * as positionView from './views/position.js';
@@ -185,13 +186,26 @@ function iconGear() {
 
 // ------------------------------------------------------- Offline-Bereitstellung
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {
-      // Ohne Service Worker läuft die App weiter, nur eben nicht offline.
-    });
-  });
-}
+// Anmelden, dauerhaften Speicher anfordern, Vollständigkeit prüfen und
+// Lücken schließen, solange noch eine Verbindung da ist.
+initOffline();
+
+// Fehlt etwas, erfährt man das hier und nicht erst auf See.
+onOfflineChange((offline) => {
+  const bar = document.getElementById('offline-warning');
+  const show = offline.supported && offline.controlled && !offline.ready && !offline.checking;
+  if (!show) {
+    bar?.remove();
+    return;
+  }
+  if (bar) return;
+  const main = document.getElementById('main');
+  if (!main) return;
+  main.prepend(h('div.notice.danger', { id: 'offline-warning' },
+    h('strong', t('offline.incomplete.title')),
+    t('offline.incomplete.text'),
+  ));
+});
 
 // GPS beim Zurückkehren aus dem Hintergrund neu anstoßen (iOS pausiert die Ortung).
 document.addEventListener('visibilitychange', () => {

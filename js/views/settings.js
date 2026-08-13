@@ -3,25 +3,119 @@
 import { h, render, copy, toast, keepAwake, isAwake, group } from '../lib/dom.js';
 import { settings } from '../lib/storage.js';
 import { applyTheme, themes } from '../lib/theme.js';
-import { t, UI_LANGS, uiLang } from '../lib/i18n.js';
+import { t, UI_LANGS, uiLang, locale } from '../lib/i18n.js';
+import {
+  offlineState, onOfflineChange, checkReadiness, refreshOfflineCopy, formatBytes,
+} from '../lib/offline.js';
 
 let container = null;
+let offOffline = null;
 
 export function view(root) {
   container = h('div');
   render(root, container);
   draw();
-  return () => { container = null; };
+  // Die Offline-Karte zeigt immer den aktuellen Stand.
+  offOffline = onOfflineChange(() => draw());
+  return () => {
+    if (offOffline) offOffline();
+    offOffline = null;
+    container = null;
+  };
 }
 
 function draw() {
   if (!container) return;
   const s = settings.all();
   render(container,
+    offlineCard(),
     boatCard(s),
     displayCard(s),
     backupCard(),
     aboutCard(),
+  );
+}
+
+// ------------------------------------------------------ Offline-Bereitschaft
+
+function offlineCard() {
+  const o = offlineState();
+
+  const status = () => {
+    if (!o.supported) return { cls: 'danger', text: t('offline.unsupported') };
+    if (o.checking) return { cls: '', text: t('offline.checking') };
+    if (!o.controlled) return { cls: 'warn', text: t('offline.setupPending') };
+    if (o.ready) return { cls: 'ok', text: t('offline.ready') };
+    return {
+      cls: 'danger',
+      text: `${t('offline.notReady')} – ${t('offline.missing', { n: o.missing.length, total: o.total })}`,
+    };
+  };
+
+  const s = status();
+  const colors = { ok: 'var(--ok)', warn: 'var(--warn)', danger: 'var(--danger)', '': 'var(--text-dim)' };
+
+  return h('div.card',
+    h('h2', t('offline.title')),
+
+    h('div.row', { style: { 'align-items': 'flex-start', gap: '10px', 'margin-bottom': '10px' } },
+      h('span', {
+        style: { color: colors[s.cls], 'font-size': '1.3rem', 'line-height': '1.2' },
+        'aria-hidden': 'true',
+      }, o.ready ? '✓' : o.checking ? '…' : '!'),
+      h('div.grow',
+        h('div', { style: { 'font-weight': '650', color: colors[s.cls] } }, s.text),
+        o.ready && h('div.small.muted', t('offline.readyHint')),
+      ),
+    ),
+
+    o.supported && h('div.small.muted', { style: { 'margin-bottom': '10px' } },
+      h('div', o.persisted === true ? `✓ ${t('offline.persisted')}`
+        : o.persisted === false ? `! ${t('offline.notPersisted')}`
+          : t('offline.persistUnknown')),
+      h('div', { style: { 'margin-top': '3px' } },
+        o.persisted === true ? t('offline.persistedHint')
+          : o.persisted === false ? t('offline.notPersistedHint') : ''),
+    ),
+
+    o.error && h('p.small', { style: { color: 'var(--danger)', margin: '0 0 10px' } }, o.error),
+
+    h('div.small.muted.mono', { style: { 'margin-bottom': '10px' } },
+      o.total ? t('offline.files', { n: o.total }) : '',
+      o.usageBytes !== null ? ` · ${t('offline.size')} ${formatBytes(o.usageBytes)}` : '',
+      o.version ? ` · ${o.version}` : '',
+      h('br'),
+      t('offline.lastCheck', {
+        time: o.lastCheck
+          ? new Date(o.lastCheck).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })
+          : t('offline.never'),
+      }),
+    ),
+
+    h('div.row.wrap',
+      h('button.btn.small.grow', {
+        type: 'button',
+        disabled: o.checking || !o.supported,
+        onclick: async () => {
+          await checkReadiness({ repair: true });
+          toast(t('offline.checkedNow'));
+        },
+      }, t('offline.check')),
+      h('button.btn.small.grow', {
+        type: 'button',
+        disabled: o.checking || !o.supported,
+        onclick: async () => {
+          if (!navigator.onLine) {
+            toast(t('offline.needsConnection'));
+            return;
+          }
+          await refreshOfflineCopy();
+          toast(t('offline.checkedNow'));
+        },
+      }, t('offline.refresh')),
+    ),
+
+    h('p.small.muted', { style: { margin: '11px 0 0' } }, t('offline.explain')),
   );
 }
 

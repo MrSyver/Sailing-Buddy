@@ -13,7 +13,8 @@ import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SHOTS = process.argv.includes('--shots');
@@ -300,23 +301,98 @@ check('Dimmer blockiert keine Eingaben',
   await page.locator('#dimmer').evaluate((el) => getComputedStyle(el).pointerEvents) === 'none');
 await page.locator('input[type="range"]').fill('100');
 
-// --- Offline ---------------------------------------------------------------
-await page.waitForFunction(() => navigator.serviceWorker?.controller !== null, null, { timeout: 8000 })
+// --- Offline-Bereitschaft ---------------------------------------------------
+await page.waitForFunction(() => navigator.serviceWorker?.controller != null, null, { timeout: 10000 })
   .catch(() => problems.push('Service Worker hat die Seite nicht übernommen'));
 
+// Die App muss selbst nachweisen können, dass sie vollständig im Gerät liegt.
+await page.locator('nav.tabs button').nth(3).click();
+await page.waitForSelector('.card');
+await page.waitForFunction(
+  () => /Fully stored|Vollständig im Gerät/.test(document.body.innerText),
+  null, { timeout: 15000 },
+).catch(() => problems.push('Offline-Bereitschaft wird nicht als vollständig gemeldet'));
+const readiness = await page.locator('.card').first().innerText();
+check('App meldet sich als vollständig offline',
+  /Fully stored|Vollständig im Gerät/.test(readiness), readiness.split('\n').slice(0, 3).join(' | '));
+
+const missingCount = await page.evaluate(async () => {
+  const reg = await navigator.serviceWorker.ready;
+  return new Promise((resolve) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = (e) => resolve(e.data);
+    reg.active.postMessage({ type: 'CHECK' }, [ch.port2]);
+  });
+});
+check('Keine Datei fehlt im Gerät', missingCount.missing.length === 0,
+  `${missingCount.missing.length} von ${missingCount.total}: ${missingCount.missing.join(', ')}`);
+check('Offline-Liste ist nicht leer', missingCount.total > 20, `${missingCount.total} Dateien`);
+
+// --- Kaltstart ohne Netz und ohne Server ------------------------------------
+// Der schärfste Fall: Die Seite wird geschlossen, der Server abgeschaltet und
+// das Netz getrennt. Erst dann wird ein neuer Tab geöffnet. Was jetzt noch
+// läuft, läuft wirklich aus dem Gerät.
+await shot('08-offline-readiness');
+await page.close();
 await context.setOffline(true);
-await page.reload({ waitUntil: 'domcontentloaded' });
-await page.waitForSelector('nav.tabs', { timeout: 8000 })
-  .catch(() => problems.push('App startet offline nicht'));
-check('App läuft offline weiter', await page.locator('nav.tabs').count() === 1);
-check('Schiffsdaten offline erhalten',
-  (await page.locator('.boat-tag').innerText()).includes('SEEBÄR'));
-await shot('08-offline');
-await context.setOffline(false);
+server.closeAllConnections?.();
+await new Promise((resolve) => server.close(resolve));
+
+const coldPage = await context.newPage();
+const netAttempts = [];
+coldPage.on('requestfailed', (req) => netAttempts.push(req.url()));
+coldPage.on('pageerror', (err) => problems.push(`Ausnahme beim Kaltstart: ${err.message}`));
+
+let coldStarted = true;
+await coldPage.goto(base, { waitUntil: 'domcontentloaded' })
+  .catch(() => { coldStarted = false; });
+await coldPage.waitForSelector('nav.tabs', { timeout: 10000 })
+  .catch(() => { coldStarted = false; });
+
+check('Kaltstart ohne Netz und ohne Server', coldStarted,
+  netAttempts.length ? `fehlgeschlagene Anfragen: ${netAttempts.slice(0, 3).join(', ')}` : '');
+check('Schiffsdaten überstehen den Kaltstart',
+  (await coldPage.locator('.boat-tag').innerText().catch(() => '')).includes('SEEBÄR'));
+
+// Auch die Module müssen ohne Netz vollständig da sein.
+await coldPage.getByRole('button', { name: 'MAYDAY – Notruf' }).click();
+check('Funkspruch offline vollständig',
+  (await coldPage.locator('.script').innerText()).includes('MAYDAY SEEBÄR'));
+await coldPage.locator('nav.tabs button').nth(2).click();
+await coldPage.waitForSelector('.light-card');
+check('Lichterführung offline vollständig', await coldPage.locator('.light-card').count() > 10);
+
+if (SHOTS) await coldPage.screenshot({ path: join(SHOT_DIR, '09-kaltstart-offline.png') });
+
+// --- Einzeldatei als Rückfallebene ------------------------------------------
+// Immer noch offline und ohne Server: Die gebaute Einzeldatei muss sich direkt
+// von der Platte öffnen lassen, ohne Herkunft, ohne Modullader, ohne alles.
+const singleFile = join(ROOT, 'dist/sailing-buddy.html');
+if (existsSync(singleFile)) {
+  const filePage = await context.newPage();
+  const fileProblems = [];
+  filePage.on('pageerror', (err) => fileProblems.push(err.message));
+
+  await filePage.goto(pathToFileURL(singleFile).href, { waitUntil: 'domcontentloaded' });
+  const booted = await filePage.waitForSelector('.setup-hero, nav.tabs', { timeout: 10000 })
+    .then(() => true).catch(() => false);
+  check('Einzeldatei startet direkt von der Platte', booted,
+    fileProblems.slice(0, 2).join(' | '));
+
+  // Sie muss dieselben Inhalte mitbringen – nicht nur eine leere Hülle.
+  const hasContent = await filePage.evaluate(() =>
+    document.body.innerText.includes('Sailing Buddy')
+    || document.body.innerText.includes('Willkommen an Bord'));
+  check('Einzeldatei bringt die Inhalte mit', hasContent);
+  check('Einzeldatei ohne Ausnahmen', fileProblems.length === 0, fileProblems.slice(0, 2).join(' | '));
+  if (SHOTS) await filePage.screenshot({ path: join(SHOT_DIR, '10-einzeldatei.png') });
+  await filePage.close();
+} else {
+  console.log('  --   Einzeldatei nicht gebaut (node tools/build-single-file.mjs), Prüfung übersprungen');
+}
 
 // --- Ergebnis --------------------------------------------------------------
 await browser.close();
-server.close();
 
 for (const s of steps) {
   console.log(`${s.ok ? '  ok  ' : ' FAIL '} ${s.name}${s.ok || !s.detail ? '' : ` → ${s.detail}`}`);

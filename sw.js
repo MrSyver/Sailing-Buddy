@@ -1,15 +1,21 @@
 /**
- * Service Worker – macht die App offline lauffähig.
+ * Service Worker – macht die App dauerhaft offline lauffähig.
  *
- * Strategie: alles beim ersten Aufruf in den Cache legen und danach zuerst
- * aus dem Cache bedienen. An Bord zählt Verlässlichkeit, nicht Aktualität –
- * eine neue Fassung wird im Hintergrund geholt und beim nächsten Start aktiv.
+ * Grundsatz: Die App startet **immer** aus dem Cache, niemals aus dem Netz.
+ * Es gibt keinen Ablauf, keine Gültigkeitsdauer und keinen Netzversuch beim
+ * Start. Ist eine Verbindung da, wird im Hintergrund aufgefrischt; ist keine
+ * da, merkt die App das gar nicht.
+ *
+ * Die Installation ist bewusst „ganz oder gar nicht“: Schlägt auch nur eine
+ * Datei fehl, gilt die Installation als gescheitert und der bisherige Stand
+ * bleibt erhalten. Ein halb gefüllter Cache wäre schlimmer als keiner – er
+ * fällt erst auf See auf.
  *
  * Alle Pfade sind relativ, damit die App auch in einem Unterverzeichnis
  * funktioniert (etwa unter …github.io/Sailing-Buddy/).
  */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `sailing-buddy-${VERSION}`;
 
 const ASSETS = [
@@ -23,6 +29,7 @@ const ASSETS = [
   './js/lib/gps.js',
   './js/lib/audio.js',
   './js/lib/i18n.js',
+  './js/lib/offline.js',
   './js/lib/storage.js',
   './js/lib/theme.js',
   './js/views/radio.js',
@@ -40,15 +47,43 @@ const ASSETS = [
   './icons/icon-maskable-512.png',
 ];
 
+/** Holt alle Dateien frisch vom Server und legt sie ab. Wirft bei Lücken. */
+async function precache() {
+  const cache = await caches.open(CACHE);
+  const failed = [];
+
+  await Promise.all(ASSETS.map(async (url) => {
+    try {
+      // cache: 'reload' umgeht den HTTP-Cache des Browsers, damit wirklich
+      // die aktuelle Fassung abgelegt wird und keine alte aus dem Speicher.
+      const response = await fetch(new Request(url, { cache: 'reload' }));
+      if (!response.ok) throw new Error(String(response.status));
+      await cache.put(url, response);
+    } catch (err) {
+      failed.push(`${url} (${err.message})`);
+    }
+  }));
+
+  if (failed.length) {
+    throw new Error(`Nicht ablegbar: ${failed.join(', ')}`);
+  }
+}
+
+/** Welche Dateien fehlen im Cache? Leeres Feld bedeutet: vollständig offline. */
+async function missingAssets() {
+  const cache = await caches.open(CACHE);
+  const missing = [];
+  for (const url of ASSETS) {
+    // eslint-disable-next-line no-await-in-loop
+    if (!(await cache.match(url, { ignoreSearch: true }))) missing.push(url);
+  }
+  return missing;
+}
+
 self.addEventListener('install', (event) => {
-  event.waitUntil((async () => {
-    const cache = await caches.open(CACHE);
-    // Einzeln hinzufügen: Eine fehlende Datei soll nicht die ganze
-    // Installation scheitern lassen.
-    await Promise.all(ASSETS.map((url) =>
-      cache.add(new Request(url, { cache: 'reload' })).catch(() => {})));
-    await self.skipWaiting();
-  })());
+  // Kein skipWaiting: Eine neue Fassung übernimmt erst, wenn sie vollständig
+  // abgelegt ist. Bis dahin läuft die alte unverändert weiter.
+  event.waitUntil(precache());
 });
 
 self.addEventListener('activate', (event) => {
@@ -68,18 +103,22 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Seitenaufrufe: erst Netz versuchen, sonst die gespeicherte Startseite.
+  // Seitenaufruf: immer sofort aus dem Cache. Kein Netzversuch, keine
+  // Wartezeit, kein Unterschied zwischen Hafen und offener See.
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
+      const cached = await caches.match('./index.html', { ignoreSearch: true });
+      if (cached) {
+        // Im Hintergrund auffrischen, ohne den Start aufzuhalten.
+        event.waitUntil(refreshInBackground('./index.html'));
+        return cached;
+      }
       try {
-        const fresh = await fetch(request);
-        const cache = await caches.open(CACHE);
-        cache.put('./index.html', fresh.clone());
-        return fresh;
+        return await fetch(request);
       } catch {
-        const cached = await caches.match('./index.html', { ignoreSearch: true });
-        return cached ?? new Response(
-          '<h1>Offline</h1><p>Diese Seite wurde noch nicht gespeichert.</p>',
+        return new Response(
+          '<!DOCTYPE html><meta charset="utf-8"><h1>Offline</h1>'
+          + '<p>Diese Seite wurde noch nicht gespeichert. Einmal mit Verbindung öffnen.</p>',
           { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
         );
       }
@@ -87,17 +126,63 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Alles Übrige: zuerst aus dem Cache, im Hintergrund auffrischen.
+  // Alles Übrige ebenso: erst Cache, Auffrischen läuft nebenher.
   event.respondWith((async () => {
     const cached = await caches.match(request, { ignoreSearch: true });
-    const network = fetch(request).then(async (response) => {
-      if (response && response.ok) {
+    if (cached) {
+      event.waitUntil(refreshInBackground(request));
+      return cached;
+    }
+    try {
+      const response = await fetch(request);
+      if (response.ok) {
         const cache = await caches.open(CACHE);
-        cache.put(request, response.clone());
+        await cache.put(request, response.clone());
       }
       return response;
-    }).catch(() => null);
-
-    return cached ?? (await network) ?? new Response('', { status: 504 });
+    } catch {
+      return new Response('', { status: 504, statusText: 'Offline' });
+    }
   })());
+});
+
+/** Stilles Auffrischen. Ohne Verbindung passiert schlicht nichts. */
+async function refreshInBackground(request) {
+  try {
+    const response = await fetch(request);
+    if (!response.ok) return;
+    const cache = await caches.open(CACHE);
+    await cache.put(request, response);
+  } catch {
+    // Offline ist der Normalfall, kein Fehler.
+  }
+}
+
+/**
+ * Auskunft an die App: Ist alles abgelegt? Notfalls nachladen.
+ * Antwort geht über den mitgeschickten Kanal zurück.
+ */
+self.addEventListener('message', (event) => {
+  const type = event.data?.type;
+  const reply = (payload) => event.ports?.[0]?.postMessage(payload);
+
+  if (type === 'CHECK') {
+    event.waitUntil((async () => {
+      const missing = await missingAssets();
+      reply({ version: VERSION, total: ASSETS.length, missing });
+    })());
+  }
+
+  if (type === 'PRECACHE') {
+    event.waitUntil((async () => {
+      try {
+        await precache();
+        reply({ ok: true, version: VERSION, total: ASSETS.length, missing: [] });
+      } catch (err) {
+        reply({ ok: false, error: err.message, missing: await missingAssets() });
+      }
+    })());
+  }
+
+  if (type === 'ACTIVATE_UPDATE') self.skipWaiting();
 });

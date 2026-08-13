@@ -44,6 +44,62 @@ GitHub Pages.
 
 Ab jetzt läuft alles offline, auch im Flugmodus.
 
+---
+
+## Wie „offline“ hier gemeint ist
+
+Einmal muss die App auf das Gerät kommen. Das gilt für jede App, auch für
+solche aus dem App Store. Alles danach passiert ohne Verbindung:
+
+* Die App **startet immer aus dem Gerät**. Beim Start wird nicht einmal
+  versucht, das Netz zu erreichen – es gibt also auch keine Wartezeit, kein
+  Hängen an einem schlechten Hotspot und keinen Unterschied zwischen Hafen und
+  offener See.
+* Sie **läuft nicht ab**. Es gibt keine Gültigkeitsdauer, keinen Abgleich,
+  keine Anmeldung.
+* Sie lädt **nichts nach**. Keine Schriften, keine Programmbibliotheken, keine
+  Karten, keine Auswertung. Ein Test wacht darüber, dass sich nie ein Verweis
+  auf einen fremden Server einschleicht.
+* Die Installation ist **ganz oder gar nicht**. Fehlt beim Ablegen auch nur
+  eine Datei, gilt sie als gescheitert und der bisherige Stand bleibt
+  bestehen. Ein halb gefüllter Speicher wäre schlimmer als keiner – er fällt
+  erst auf See auf.
+
+### Nachweis statt Vertrauen
+
+Unter **Einstellungen → Offline-Bereitschaft** steht schwarz auf weiß, ob
+wirklich jede Datei im Gerät liegt, wie viel Platz sie belegt und ob der
+Speicher als *dauerhaft* gekennzeichnet ist. Ohne diese Kennzeichnung dürfte
+das Betriebssystem die Kopie bei Platzmangel wegräumen; die App fordert sie
+deshalb beim ersten Start an. Fehlt etwas, erscheint eine Warnung im Kopf der
+App und ein Knopf „Offline-Kopie erneuern“ – nicht erst dann, wenn es zu spät
+ist.
+
+Vor dem Ablegen: einmal in den Flugmodus schalten und die App vom
+Home-Bildschirm starten. Wenn sie kommt, kommt sie immer.
+
+### Rückfallebene: alles in einer Datei
+
+Für den Fall, dass iOS die Kopie doch einmal entfernt, während keine
+Verbindung da ist, gibt es die ganze App als **eine einzige HTML-Datei**:
+
+```
+https://mrsyver.github.io/Sailing-Buddy/dist/sailing-buddy.html
+```
+
+Rund 200 kB, ohne weitere Bestandteile. In „Dateien“ oder iCloud Drive legen,
+und sie lässt sich jederzeit direkt öffnen – ohne Server, ohne Netz, auch von
+einem USB-Stick oder per AirDrop von einem Rechner. Selbst bauen:
+
+```bash
+npm run build:single      # erzeugt dist/sailing-buddy.html
+```
+
+Das ist die Reserve, nicht der Hauptweg: Aus einer lokalen Datei heraus geben
+Browser den Standort je nach Fassung nicht frei. Funksprüche, Lichter und
+Schallsignale funktionieren dort in jedem Fall, die Position wird dann von
+Hand eingetragen.
+
 ### Was auf welchem Gerät funktioniert
 
 | Gerät | GPS ohne Netz |
@@ -72,7 +128,8 @@ funktioniert die Installation nur über HTTPS.
 ## Aufbau
 
 Kein Bauschritt, keine Laufzeit-Abhängigkeiten. Was im Verzeichnis liegt,
-läuft im Browser.
+läuft im Browser. Gebaut wird nur die optionale Einzeldatei – die App selbst
+bleibt davon unberührt.
 
 ```
 index.html               App-Hülle, iOS-Metaangaben
@@ -83,6 +140,7 @@ js/app.js                Reiter, Kopfzeile, GPS-Leiste
 js/lib/geo.js            Navigationsrechnung und Koordinaten-Erkennung
 js/lib/gps.js            Geolocation
 js/lib/i18n.js           Sprache der Oberfläche
+js/lib/offline.js        prüft und sichert die Offline-Bereitschaft
 js/lib/storage.js        Einstellungen und Wegpunkte (bleiben auf dem Gerät)
 js/lib/theme.js          Farbschema und Dimmer
 js/lib/audio.js          erzeugt die Schallsignale im Gerät
@@ -90,8 +148,10 @@ js/lib/dom.js            kleine Helfer statt Framework
 js/views/                die vier Module
 js/data/                 Funksprüche, Lichterführung, Schallsignale
 tools/make-icons.py      erzeugt die App-Symbole
+tools/build-single-file.mjs  baut dist/sailing-buddy.html
 tools/smoke.mjs          Rauchtest im echten Browser
 tests/geo.test.mjs       Prüfungen der Navigationsrechnung
+tests/offline.test.mjs   wacht über die Vollständigkeit der Offline-Kopie
 ```
 
 ### Sprachen
@@ -109,15 +169,22 @@ abgesetzt wird.
 ## Prüfen
 
 ```bash
-npm test                                  # Navigationsrechnung, 20 Prüfungen
-node tools/smoke.mjs                      # Rauchtest im Browser
+npm test                                  # 26 Prüfungen: Navigation und Offline-Kopie
+npm run smoke                             # 46 Prüfungen im echten Browser
 node tools/smoke.mjs --shots              # zusätzlich Bildschirmfotos
 ```
 
+`npm test` prüft die Navigationsrechnung und wacht darüber, dass die
+Offline-Liste des Service Workers zu den tatsächlich vorhandenen Dateien passt
+und sich nirgends ein Verweis auf einen fremden Server einschleicht.
+
 Der Rauchtest startet die App in einem echten Chromium mit vorgegebener
-GPS-Position, klappert alle Module ab, schaltet die Sprachen um und prüft am
-Ende, dass die App ohne Netz weiterläuft. Playwright ist dafür als
-Entwicklungsabhängigkeit nötig, für den Betrieb der App nicht.
+GPS-Position, klappert alle Module ab, schaltet beide Sprachen getrennt um,
+prüft die Farben des Nachtmodus – und am Ende den harten Fall: **Seite
+geschlossen, Webserver abgeschaltet, Netz getrennt, neuer Tab.** Was dann noch
+startet, startet wirklich aus dem Gerät. Zuletzt wird die Einzeldatei direkt
+von der Platte geöffnet. Playwright ist dafür als Entwicklungsabhängigkeit
+nötig, für den Betrieb der App nicht.
 
 Nutzt das System schon ein Chromium, lässt es sich angeben:
 
