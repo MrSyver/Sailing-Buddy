@@ -327,8 +327,42 @@ check('MOB ist jetzt das Ziel',
 check('Gemerkte Position hat einen Übernehmen-Knopf',
   await page.locator('.wp-item').getByRole('button', { name: /Ist Ziel|Als Ziel/ }).count() >= 1);
 
-// --- Nachtfahrt ------------------------------------------------------------
+// --- Karte -----------------------------------------------------------------
+// Sechs Reiter auf einem schmalen Gerät: Kein Wort darf abgeschnitten werden.
+const tabFit = await page.locator('nav.tabs button').evaluateAll((els) => els.map((el) => {
+  const span = el.querySelector('span');
+  return { text: span.textContent, over: span.scrollWidth - (el.clientWidth - 2) };
+}));
+const cut = tabFit.filter((x) => x.over > 0);
+check('Kein Reiterwort wird abgeschnitten', cut.length === 0,
+  cut.map((x) => `${x.text} +${x.over}px`).join(', '));
+
 await goTab(2);
+await page.waitForSelector('.chart');
+check('Karte ist ein eigener Bereich',
+  (await page.locator('.topbar h1').innerText()).includes('Karte'));
+
+// Die eigene und die gemerkte MOB-Position stehen beide darauf.
+const chartMarks = await page.locator('.chart-mark').count();
+check('Eigene und gemerkte Positionen auf der Karte', chartMarks >= 2,
+  `${chartMarks} Punkte`);
+check('Eigene Position ist als solche gekennzeichnet',
+  await page.locator('.chart-mark.own').count() === 1);
+check('MOB-Position ist auf der Karte', await page.locator('.chart-mark.mob').count() >= 1);
+check('Die Liste nennt Entfernung und Kurs',
+  await page.locator('.wp-dist').count() >= 1);
+
+// Das Kartenbild ist ausdrücklich zuschaltbar und ohne Kacheln ehrlich.
+check('Ohne Knopfdruck kein Kartenbild', await page.locator('.chart-tiles').count() === 0);
+await page.getByRole('button', { name: /Seekarte einblenden/ }).click();
+await page.waitForTimeout(500);
+check('Fehlendes Kartenmaterial wird benannt',
+  (await page.locator('main').innerText()).includes('Kein Kartenmaterial'));
+await page.getByRole('button', { name: /Seekarte ausblenden/ }).click();
+await shot('04b-karte');
+
+// --- Nachtfahrt ------------------------------------------------------------
+await goTab(3);
 await page.waitForSelector('.light-card');
 const cardsAll = await page.locator('.light-card').count();
 check('Lichterliste gefüllt', cardsAll > 10, `${cardsAll} Einträge`);
@@ -431,7 +465,7 @@ check('Grundlagen zeigen die Tragweiten',
   await page.getByText('Tragweiten', { exact: false }).count() > 0);
 
 // --- Logbuch ---------------------------------------------------------------
-await goTab(3);
+await goTab(4);
 await page.waitForSelector('main');
 check('Logbuch ist ein eigener Bereich',
   (await page.locator('.topbar h1').innerText()).includes('Logbuch'));
@@ -473,7 +507,7 @@ check('Eintrag wieder löschbar',
   `vorher ${logBefore}, nachher ${await page.locator('.log-item').count()}`);
 check('Automatischer Eintrag wurde angelegt', logBefore >= 3, `${logBefore} Einträge`);
 
-await goTab(2);
+await goTab(3);
 
 // --- Nachtmodus ------------------------------------------------------------
 await page.locator('.topbar .icon-btn').click();
@@ -531,7 +565,7 @@ check('Nachtmodus ohne leuchtende Flächen', filled.length === 0, filled.join(' 
 await shot('06-night-mode');
 
 // --- Oberflächensprache ----------------------------------------------------
-await goTab(4);
+await goTab(5);
 await page.waitForSelector('.card');
 await page.getByRole('button', { name: 'English' }).first().click();
 await page.waitForTimeout(150);
@@ -550,7 +584,7 @@ check('Funksprüche unabhängig von der Oberflächensprache',
 await page.getByRole('button', { name: 'Deutsch' }).first().click();
 
 // --- Helligkeit ------------------------------------------------------------
-await goTab(4);
+await goTab(5);
 await page.locator('input[type="range"]').fill('40');
 // Der Dimmer blendet über 0,2 s ein – erst danach steht der Endwert.
 await page.waitForTimeout(400);
@@ -565,7 +599,7 @@ await page.waitForFunction(() => navigator.serviceWorker?.controller != null, nu
   .catch(() => problems.push('Service Worker hat die Seite nicht übernommen'));
 
 // Die App muss selbst nachweisen können, dass sie vollständig im Gerät liegt.
-await goTab(4);
+await goTab(5);
 await page.waitForSelector('.card');
 await page.waitForFunction(
   () => /Fully stored|Vollständig im Gerät/.test(document.body.innerText),
@@ -617,7 +651,7 @@ check('Schiffsdaten überstehen den Kaltstart',
 await coldPage.getByRole('button', { name: 'MAYDAY – Notruf' }).click();
 check('Funkspruch offline vollständig',
   (await coldPage.locator('.script').innerText()).includes('MAYDAY SEEBÄR'));
-await coldPage.locator('nav.tabs button').nth(2).click();
+await coldPage.locator('nav.tabs button').nth(3).click();
 await coldPage.waitForSelector('.light-card');
 check('Lichterführung offline vollständig', await coldPage.locator('.light-card').count() > 10);
 

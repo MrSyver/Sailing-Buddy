@@ -15,7 +15,7 @@
  * funktioniert (etwa unter …github.io/Sailing-Buddy/).
  */
 
-const VERSION = 'v5';
+const VERSION = 'v6';
 const CACHE = `sailing-buddy-${VERSION}`;
 
 const ASSETS = [
@@ -38,6 +38,7 @@ const ASSETS = [
   './js/views/radio.js',
   './js/views/position.js',
   './js/views/night.js',
+  './js/views/map.js',
   './js/views/logbook.js',
   './js/views/settings.js',
   './js/views/setup.js',

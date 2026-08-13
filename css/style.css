@@ -384,13 +384,18 @@ nav.tabs {
 
 nav.tabs button {
   flex: 1;
+  min-width: 0;
   border: 0;
   background: transparent;
   color: var(--text-dim);
   font: inherit;
-  font-size: .7rem;
+  /* Sechs Reiter auf einem schmalen Gerät: knapp gesetzt, aber ohne
+     Abkürzungen – „Einstellungen“ ist das längste Wort und passt gerade so. */
+  font-size: .6rem;
+  letter-spacing: -.01em;
   font-weight: 600;
-  padding: 8px 2px 9px;
+  white-space: nowrap;
+  padding: 8px 1px 9px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -703,7 +708,7 @@ table.data td.k { font-family: var(--mono); font-weight: 700; white-space: nowra
    würden die Dunkeladaption sonst wieder zunichtemachen. */
 [data-theme="night"] .light-view { filter: brightness(.42) saturate(.85); }
 
-.light-view .aspect-none { fill: var(--text-dim); font-family: var(--sans); }
+.light-view .aspect-none { fill: var(--text-dim); font-family: var(--font); }
 
 /* Bild und Umschalter gehören zusammen und stehen als Block links. */
 .light-aspect {
@@ -1182,14 +1187,23 @@ details.foldout > div { padding: 0 15px 15px; }
   border-radius: 11px;
 }
 
-.track-plot .plot-bg { fill: var(--surface-2); }
-.track-plot .plot-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
-.track-plot .plot-dot { fill: var(--accent); opacity: .65; }
-.track-plot .plot-dot.manual { fill: var(--text); opacity: .85; }
-.track-plot .plot-dot.now { fill: var(--ok); opacity: 1; }
-.track-plot .plot-north,
-.track-plot .plot-scale { fill: none; stroke: var(--text-dim); stroke-width: 1.6; }
-.track-plot .plot-label { fill: var(--text-dim); font-size: 10px; font-family: var(--font); }
+/* Gilt für beide Zeichnungen: die Spur im Logbuch und die Karte. */
+.plot-bg { fill: var(--surface-2); }
+.plot-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.plot-dot { fill: var(--accent); opacity: .65; }
+.plot-dot.manual { fill: var(--text); opacity: .85; }
+.plot-dot.now { fill: var(--ok); opacity: 1; }
+.plot-north,
+.plot-scale { fill: none; stroke: var(--text-dim); stroke-width: 1.6; }
+.plot-label {
+  fill: var(--text-dim);
+  font-size: 10px;
+  font-family: var(--font);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
+}
 
 .log-item {
   padding: 11px 0;
@@ -1214,4 +1228,47 @@ details.foldout > div { padding: 0 15px 15px; }
 @media (min-width: 700px) {
   body { font-size: 17px; }
   .phrase-list { grid-template-columns: 1fr 1fr; }
+}
+
+/* ==================================================================== Karte */
+
+.chart {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  touch-action: none;   /* Ziehen und Kneifen gehören der Karte, nicht der Seite */
+  cursor: grab;
+}
+
+.chart-tiles { position: absolute; inset: 0; }
+
+.chart-tile {
+  position: absolute;
+  width: 256px;
+  height: 256px;
+  /* Kacheln sind für Tageslicht gemacht; nachts wären sie eine Blendlampe. */
+  image-rendering: auto;
+}
+
+[data-theme="dark"] .chart-tile { filter: brightness(.82) saturate(.9); }
+[data-theme="night"] .chart-tile { filter: brightness(.3) saturate(0) sepia(1) hue-rotate(-30deg); }
+
+.chart-plot { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.chart-mark .halo { fill: var(--accent); opacity: .22; }
+.chart-mark.own .dot { fill: var(--accent); stroke: var(--bg); stroke-width: 1.5; }
+.chart-mark.wp .dot { fill: var(--ok); stroke: var(--bg); stroke-width: 1.5; }
+.chart-mark.mob .dot { fill: var(--danger); stroke: var(--bg); stroke-width: 1.5; }
+
+.chart-label {
+  fill: var(--text);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 650;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }
