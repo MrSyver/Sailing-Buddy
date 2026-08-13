@@ -13,14 +13,19 @@ import { t, locale, uiLang, num } from '../lib/i18n.js';
 import {
   solve, parsePositionPair, formatPosition, formatLat,
   formatLon, formatDecimal, formatSpoken, formatDuration,
+  toParts, fromParts,
 } from '../lib/geo.js';
 
 // Bleibt beim Reiterwechsel erhalten.
 const state = {
-  raw: '',
+  // Einzelfelder statt eines Textes: Grad, Minuten, Himmelsrichtung.
+  // So braucht es keine Gradzeichen und keine Hochkommata auf der Tastatur.
+  parts: toParts(null),
   target: null,      // { lat, lon }
   targetName: '',
   error: null,
+  raw: '',           // nur für das Einfügen aus einer Nachricht
+  showSpoken: false, // eigene Position ausgeschrieben zum Vorlesen
 };
 
 let container = null;
@@ -33,22 +38,29 @@ export function view(root) {
   return () => { off(); container = null; };
 }
 
-function draw() {
-  if (!container) return;
-  const s = settings.all();
-  const fix = gps.fix;
-  const opts = {
+/** Missweisung, Ablenkung und Geschwindigkeit aus den Einstellungen. */
+function navOptions(s, fix) {
+  return {
     variation: Number(String(s.variation).replace(',', '.')) || 0,
     deviation: Number(String(s.deviation).replace(',', '.')) || 0,
     speed: fix?.speed ?? (Number(String(s.manualSpeed).replace(',', '.')) || null),
     heading: fix?.heading ?? null,
   };
+}
+
+function draw() {
+  if (!container) return;
+  const s = settings.all();
+  const fix = gps.fix;
+  const opts = navOptions(s, fix);
   const nav = fix && state.target ? solve(fix, state.target, opts) : null;
 
   render(container,
     ownPosition(fix),
     targetInput(),
-    nav ? result(nav, opts) : hintCard(fix),
+    // Eigener Container, damit sich das Ergebnis beim Tippen auffrischen lässt,
+    // ohne die Eingabefelder neu zu bauen.
+    h('div', { id: 'nav-result' }, nav ? result(nav, opts) : hintCard(fix)),
     waypointList(fix, opts),
     navSettings(s),
   );
@@ -95,17 +107,67 @@ function ownPosition(fix) {
             ),
           }, t('pos.copySpoken')),
         ),
-        h('button.btn.danger.block', {
+        // Ausgeschrieben zum Vorlesen – die Fassung, die im Funk gebraucht wird.
+        h('button.btn.small.block', {
           type: 'button',
           style: { 'margin-top': '10px' },
+          'aria-expanded': String(state.showSpoken),
+          onclick: () => { state.showSpoken = !state.showSpoken; draw(); },
+        }, state.showSpoken ? t('pos.spokenHide') : t('pos.spokenShow')),
+        state.showSpoken && h('div.spoken-position', { style: { 'margin-top': '9px' } },
+          formatSpoken(fix, settings.get('phraseLang') === 'en' ? 'en' : 'de')),
+
+        h('button.btn.danger.block', {
+          type: 'button',
+          style: { 'margin-top': '12px' },
           onclick: () => markMob(fix),
         }, t('pos.mob')),
+
+        // Die gemerkte MOB-Position steht direkt unter der Taste und lässt
+        // sich jederzeit wieder als Ziel setzen.
+        h('div', { id: 'mob-slot' }, mobRow()),
       )
       : h('div.empty',
         h('p', { style: { margin: '0 0 10px' } }, t(GPS_STATUS_KEY[status] ?? 'gps.none')),
         h('p.small', status === 'denied' ? t('gps.deniedHelp') : t('gps.searchHelp')),
         h('button.btn.primary', { type: 'button', onclick: () => gps.start() }, t('gps.start')),
       ),
+  );
+}
+
+/** Die zuletzt gemerkte MOB-Position, falls es eine gibt. */
+function lastMob() {
+  return waypoints.list().find((w) => w.kind === 'mob') ?? null;
+}
+
+/** Anzeige der gemerkten MOB-Position mit Knopf zum Übernehmen als Ziel. */
+function mobRow() {
+  const mob = lastMob();
+  if (!mob) return null;
+  const isTarget = state.target
+    && Math.abs(state.target.lat - mob.lat) < 1e-9
+    && Math.abs(state.target.lon - mob.lon) < 1e-9;
+
+  return h('div.mob-row',
+    h('div.grow',
+      h('div.mob-name', '⚑ ', mob.name),
+      h('div.mob-pos.mono', formatPosition(mob, 3)),
+    ),
+    h('button.btn.small', {
+      type: 'button',
+      disabled: isTarget,
+      title: t('pos.useAsTarget'),
+      onclick: () => useWaypoint(mob),
+    }, isTarget ? t('pos.isTarget') : t('pos.useAsTarget')),
+    h('button.btn.small', {
+      type: 'button',
+      'aria-label': t('pos.mobDelete'),
+      onclick: () => {
+        if (!confirm(t('pos.mobConfirmDelete'))) return;
+        waypoints.remove(mob.id);
+        draw();
+      },
+    }, '✕'),
   );
 }
 
@@ -117,8 +179,8 @@ function markMob(fix) {
     kind: 'mob',
   });
   state.target = { lat: wp.lat, lon: wp.lon };
+  state.parts = toParts(state.target);
   state.targetName = wp.name;
-  state.raw = formatPosition(wp);
   state.error = null;
   toast(t('pos.mobSaved'));
   draw();
@@ -127,40 +189,88 @@ function markMob(fix) {
 // ------------------------------------------------------------ Zieleingabe
 
 function targetInput() {
-  const field = h('textarea.mono', {
-    value: state.raw,
-    rows: 2,
-    placeholder: `54°31.234' N   011°22.345' E`,
-    inputmode: 'text',
-    autocapitalize: 'characters',
+  const p = state.parts;
+
+  /**
+   * Behält nur Ziffern und höchstens ein Dezimalzeichen. Damit ist es egal,
+   * ob jemand Punkt oder Komma tippt – und eingefügte Gradzeichen fallen
+   * einfach weg, statt die Eingabe unbrauchbar zu machen.
+   */
+  const clean = (raw) => {
+    const kept = raw.replace(/[^\d.,]/g, '').replace(/\./g, ',');
+    const [whole, ...rest] = kept.split(',');
+    return rest.length ? `${whole},${rest.join('')}` : whole;
+  };
+
+  /** Ein Zahlenfeld – ruft die Zifferntastatur auf, sonst nichts. */
+  const numField = (key, { max, label, hint, next }) => h('input.coord-input', {
+    id: `coord-${key}`,
+    value: p[key] ?? '',
+    inputmode: 'decimal',
+    autocomplete: 'off',
+    autocorrect: 'off',
     spellcheck: false,
-    oninput: (e) => { state.raw = e.target.value; },
-    onchange: () => applyInput(),
+    maxlength: max,
+    placeholder: hint,
+    'aria-label': label,
+    oninput: (e) => {
+      const cleaned = clean(e.target.value);
+      if (cleaned !== e.target.value) e.target.value = cleaned;
+      state.parts = { ...state.parts, [key]: cleaned };
+      applyParts({ redraw: false });
+      // Ist die Gradzahl voll, von selbst ins Minutenfeld springen.
+      if (next && cleaned.length >= max) document.getElementById(next)?.focus();
+    },
+    onfocus: (e) => e.target.select(),
   });
+
+  /** Himmelsrichtung als zwei große Schaltflächen. */
+  const hemi = (key, a, b) => h('div.seg.coord-hemi',
+    ...[a, b].map((code) => h('button', {
+      type: 'button',
+      'aria-pressed': String((p[key] ?? a) === code),
+      onclick: () => {
+        state.parts = { ...state.parts, [key]: code };
+        applyParts();
+      },
+    }, code)),
+  );
+
+  const row = (label, degKey, minKey, hemiEl, degMax, degHint) => h('div.coord-row',
+    h('span.coord-label', label),
+    h('div.coord-fields',
+      numField(degKey, {
+        max: degMax,
+        label: `${label} – ${t('pos.degrees')}`,
+        hint: degHint,
+        next: `coord-${minKey}`,
+      }),
+      h('span.coord-unit', '°'),
+      numField(minKey, { max: 7, label: `${label} – ${t('pos.minutes')}`, hint: '31,234' }),
+      h('span.coord-unit', '′'),
+    ),
+    hemiEl,
+  );
 
   return h('div.card',
     h('h2', t('pos.target')),
-    h('p.small.muted', { style: { margin: '0 0 9px' } }, t('pos.targetHint')),
-    field,
-    state.error && h('p.small', { style: { color: 'var(--danger)', margin: '7px 0 0' } }, state.error),
-    state.target && h('p.small.mono', { style: { margin: '7px 0 0', color: 'var(--ok)' } },
-      '✓ ', formatPosition(state.target)),
-    h('div.row.wrap', { style: { 'margin-top': '10px' } },
-      h('button.btn.primary.grow', { type: 'button', onclick: () => applyInput(field) }, t('common.apply')),
-      h('button.btn.small', {
-        type: 'button',
-        onclick: async () => {
-          try {
-            const text = await navigator.clipboard.readText();
-            state.raw = text;
-            field.value = text;
-            applyInput(field);
-          } catch {
-            toast(t('common.clipboardUnreadable'));
-          }
-        },
-      }, t('common.paste')),
-      state.target && h('button.btn.small', {
+    h('p.small.muted', { style: { margin: '0 0 12px' } }, t('pos.targetHintSimple')),
+
+    row(t('pos.latitude'), 'latDeg', 'latMin', hemi('latHemi', 'N', 'S'), 2, '54'),
+    row(t('pos.longitude'), 'lonDeg', 'lonMin', hemi('lonHemi', 'E', 'W'), 3, '011'),
+
+    h('p.small.coord-error', {
+      style: {
+        color: 'var(--danger)', margin: '4px 0 0',
+        display: state.error ? '' : 'none',
+      },
+    }, state.error ?? ''),
+    h('p.coord-check.mono', {
+      style: { display: state.target ? '' : 'none' },
+    }, state.target ? `✓ ${formatPosition(state.target)}` : ''),
+
+    h('div.row.wrap', { style: { 'margin-top': '12px' } },
+      state.target && h('button.btn.small.grow', {
         type: 'button',
         onclick: () => {
           const name = prompt(t('pos.wpNamePrompt'), state.targetName || t('pos.wpDefault'));
@@ -170,38 +280,117 @@ function targetInput() {
           draw();
         },
       }, t('common.save')),
-      state.target && h('button.btn.small', {
+      (state.target || p.latDeg || p.lonDeg) && h('button.btn.small.grow', {
         type: 'button',
         onclick: () => {
+          state.parts = toParts(null);
           state.target = null;
-          state.raw = '';
+          state.targetName = '';
           state.error = null;
           draw();
         },
       }, t('pos.clearTarget')),
     ),
+
+    // Aus einer Nachricht oder einem Notruf übernehmen – da stehen die
+    // Sonderzeichen dann eben doch drin, aber getippt werden muss nichts.
+    h('details.foldout', { style: { 'margin-top': '12px', 'margin-bottom': 0 } },
+      h('summary', t('pos.pasteTitle')),
+      h('div',
+        h('p.small.muted', { style: { 'margin-top': 0 } }, t('pos.pasteHint')),
+        pasteBox(),
+      ),
+    ),
   );
 }
 
-function applyInput(field) {
-  const text = (field ? field.value : state.raw).trim();
-  state.raw = text;
-  if (!text) {
-    state.target = null;
-    state.error = null;
-    draw();
-    return;
-  }
-  const parsed = parsePositionPair(text);
-  if (parsed) {
+/** Freitextfeld für kopierte Positionen. */
+function pasteBox() {
+  const field = h('textarea.mono', {
+    value: state.raw,
+    rows: 2,
+    placeholder: `54°31.234' N   011°22.345' E`,
+    spellcheck: false,
+    oninput: (e) => { state.raw = e.target.value; },
+  });
+
+  const take = () => {
+    const parsed = parsePositionPair(field.value);
+    if (!parsed) {
+      state.error = t('pos.parseError');
+      draw();
+      return;
+    }
     state.target = parsed;
+    state.parts = toParts(parsed);
     state.targetName = '';
     state.error = null;
-  } else {
-    state.target = null;
-    state.error = t('pos.parseError');
+    state.raw = '';
+    draw();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  return h('div',
+    field,
+    h('div.row.wrap', { style: { 'margin-top': '9px' } },
+      h('button.btn.small.grow', { type: 'button', onclick: take }, t('common.apply')),
+      h('button.btn.small', {
+        type: 'button',
+        onclick: async () => {
+          try {
+            field.value = await navigator.clipboard.readText();
+            state.raw = field.value;
+            take();
+          } catch {
+            toast(t('common.clipboardUnreadable'));
+          }
+        },
+      }, t('common.paste')),
+    ),
+  );
+}
+
+/** Rechnet die Einzelfelder in eine Position um. */
+function applyParts({ redraw = true } = {}) {
+  const pos = fromParts(state.parts);
+  const filled = String(state.parts.latDeg ?? '') !== '' && String(state.parts.lonDeg ?? '') !== '';
+  state.target = pos;
+  state.targetName = pos ? state.targetName : '';
+  state.error = !pos && filled ? t('pos.partsError') : null;
+  if (redraw) draw();
+  else updateResultOnly();
+}
+
+/**
+ * Beim Tippen nur das Ergebnis auffrischen, nicht die Eingabefelder – sonst
+ * springt der Textcursor und die Tastatur klappt zu. Alles, was sich dabei
+ * ändern kann, wird hier von Hand nachgezogen.
+ */
+function updateResultOnly() {
+  if (!container) return;
+  const s = settings.all();
+  const fix = gps.fix;
+  const opts = navOptions(s, fix);
+  const nav = fix && state.target ? solve(fix, state.target, opts) : null;
+
+  const slot = container.querySelector('#nav-result');
+  if (slot) render(slot, nav ? result(nav, opts) : hintCard(fix));
+
+  const check = container.querySelector('.coord-check');
+  if (check) {
+    check.textContent = state.target ? `✓ ${formatPosition(state.target)}` : '';
+    check.style.display = state.target ? '' : 'none';
   }
-  draw();
+
+  const error = container.querySelector('.coord-error');
+  if (error) {
+    error.textContent = state.error ?? '';
+    error.style.display = state.error ? '' : 'none';
+  }
+
+  // Die MOB-Zeile zeigt an, ob sie gerade das Ziel ist – das ändert sich mit.
+  const mobSlot = container.querySelector('#mob-slot');
+  if (mobSlot) render(mobSlot, mobRow());
 }
 
 // ----------------------------------------------------------- Rechenergebnis
@@ -422,8 +611,8 @@ function waypointList(fix, opts) {
 
 function useWaypoint(wp) {
   state.target = { lat: wp.lat, lon: wp.lon };
+  state.parts = toParts(state.target);
   state.targetName = wp.name;
-  state.raw = formatPosition(wp);
   state.error = null;
   toast(t('pos.targetSet', { name: wp.name }));
   draw();

@@ -7,9 +7,9 @@ Drei Module:
 
 | Modul | Was es kann |
 |---|---|
-| **Funk** | Die wichtigsten Funksprüche mit bereits eingesetztem Schiffsnamen, Rufzeichen, MMSI und aktueller GPS-Position. Zum Vorlesen, in Deutsch oder Englisch. |
-| **Position** | Eine Position eingeben – etwa aus einem Notruf – und Entfernung, rechtweisenden Kurs, Kompasskurs und Fahrzeit dorthin ablesen. |
-| **Nachtfahrt** | Lichterführung und Schallsignale nach den Kollisionsverhütungsregeln, mit Farbfilter „Was sehe ich?“ und hörbaren Signalen. |
+| **Funk** | Die wichtigsten Funksprüche mit bereits eingesetztem Schiffsnamen, Rufzeichen, MMSI und aktueller GPS-Position. Zum Vorlesen, in Deutsch oder Englisch. Häufige Notfälle auf Antippen einsetzbar. Dazu Sprachaufnahmen für empfangene Meldungen. |
+| **Position** | Zielkoordinate in reinen Zahlenfeldern eingeben – ohne Gradzeichen und Hochkomma – und Entfernung, rechtweisenden Kurs, Kompasskurs und Fahrzeit ablesen. MOB-Taste mit gemerkter Position. |
+| **Nachtfahrt** | Lichterführung, Seezeichen und Schallsignale nach KVR und IALA. Mit einer Lichtersuche, die nach jeder Auswahl nur noch das anbietet, was überhaupt noch möglich ist. |
 
 Dazu ein **Nachtmodus**, der ausschließlich langwelliges Rot auf Schwarz
 verwendet, und ein Dimmer, der weiter herunterregelt als iOS allein.

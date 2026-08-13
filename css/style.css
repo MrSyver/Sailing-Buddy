@@ -160,6 +160,10 @@ body {
   font-weight: 600;
 }
 
+/* Ohne feste Größe rendert ein SVG ohne width/height im Flex-Knopf zu nichts –
+   der Knopf sah dann leer aus. */
+.icon-btn svg { width: 22px; height: 22px; stroke-width: 1.9; }
+
 .icon-btn:active { transform: scale(.96); }
 .icon-btn[aria-pressed="true"] {
   background: var(--accent);
@@ -450,6 +454,24 @@ nav.tabs button[aria-current="page"] { color: var(--accent); }
   font-size: 1.08rem;
 }
 
+/* Die eigene Position ist die Zeile, auf die es im Notruf ankommt.
+   Sie wird größer gesetzt und darf umbrechen, ohne dass Ziffern verrutschen. */
+.script .position {
+  font-family: var(--mono);
+  font-size: 1.62rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -.01em;
+  word-spacing: .08em;
+}
+
+/* Aus einem gewählten Notfall gefüllte Zeile – sichtbar abgesetzt vom
+   frei zu formulierenden Text. */
+.script .slot-filled {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .script .note {
   font-size: .92rem;
   font-weight: 500;
@@ -584,13 +606,24 @@ table.data td.k { font-family: var(--mono); font-weight: 700; white-space: nowra
 .readout .cell.wide { grid-column: 1 / -1; }
 .readout .cell.hero .value { font-size: 2.6rem; }
 
+.spoken-position {
+  font-size: 1.25rem;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
 .posline {
   font-family: var(--mono);
-  font-size: 1.35rem;
+  font-size: 1.85rem;
   font-weight: 700;
-  letter-spacing: -.01em;
-  word-spacing: .1em;
-  line-height: 1.5;
+  letter-spacing: -.02em;
+  word-spacing: .08em;
+  line-height: 1.4;
+}
+
+@media (max-width: 360px) {
+  .posline { font-size: 1.55rem; }
+  .script .position { font-size: 1.35rem; }
 }
 
 /* Kompassrose, rein rechnerisch – keine Kartendaten nötig */
@@ -775,6 +808,274 @@ details.foldout > div { padding: 0 15px 15px; }
   line-height: 1.5;
   padding: 14px 4px 4px;
 }
+
+
+/* ============================================================ Notfallauswahl */
+
+.emergency-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.emergency {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  padding: 12px 13px;
+  min-height: 58px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: .92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.emergency .ico { font-size: 1.25rem; flex: none; line-height: 1; }
+.emergency .txt { flex: 1; }
+.emergency:active { transform: scale(.98); }
+
+.emergency[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* Im Nachtmodus leuchten Emoji unabhängig von der Textfarbe – abdunkeln. */
+[data-theme="night"] .emergency .ico { filter: grayscale(1) brightness(.5); }
+
+/* ============================================== Aufklappblatt (Lichtersuche) */
+
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, .55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: calc(12px + env(safe-area-inset-top)) 12px 12px;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 460px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  box-shadow: var(--shadow);
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 12px;
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 2;
+}
+
+[data-theme="night"] .sheet-overlay { background: rgba(0, 0, 0, .85); }
+
+/* Große Auswahlflächen – im Dunkeln und bei Seegang zählt jeder Millimeter. */
+.facet-group { margin-bottom: 14px; }
+
+.facet-group > h4 {
+  margin: 0 0 7px;
+  font-size: .76rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+
+.facet-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+
+.facet {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 46px;
+  padding: 9px 15px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: .93rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.facet[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.facet .swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid rgba(128, 128, 128, .5);
+  flex: none;
+}
+
+[data-theme="night"] .facet .swatch { filter: brightness(.45); }
+
+.facet .count {
+  font-size: .78rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.sheet-result {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  padding: 11px 4px 4px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sheet-result .n { font-weight: 700; font-size: 1.05rem; }
+
+/* ------------------------------------------------- Koordinaten-Eingabe */
+
+.coord-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 11px;
+  flex-wrap: wrap;
+}
+
+.coord-label {
+  font-size: .82rem;
+  font-weight: 650;
+  color: var(--text-dim);
+  width: 58px;
+  flex: none;
+}
+
+.coord-fields {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 160px;
+}
+
+.coord-input {
+  font-family: var(--mono);
+  font-size: 1.35rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 9px 4px;
+  min-height: 54px;
+  width: 100%;
+}
+
+.coord-fields .coord-input:first-of-type { max-width: 84px; flex: none; }
+
+.coord-unit {
+  font-family: var(--mono);
+  font-size: 1.1rem;
+  color: var(--text-dim);
+  flex: none;
+}
+
+.coord-hemi { width: 92px; flex: none; }
+.coord-hemi button { min-height: 54px; font-size: 1.05rem; font-weight: 700; }
+
+.coord-check {
+  margin: 6px 0 0;
+  font-size: .88rem;
+  color: var(--ok);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------ Gemerkte MOB-Position */
+
+.mob-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 11px;
+  background: var(--surface-2);
+}
+
+.mob-row .mob-name { font-weight: 700; color: var(--danger); }
+.mob-row .mob-pos { font-size: .84rem; color: var(--text-dim); margin-top: 2px; }
+
+/* ================================================================ Aufnahmen */
+
+.rec-live {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  margin-bottom: 10px;
+  border: 1px solid var(--danger);
+  border-radius: 11px;
+  font-weight: 650;
+}
+
+.rec-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--danger);
+  flex: none;
+  animation: pulse 1.2s infinite;
+}
+
+.rec-item {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.rec-item:last-of-type { border-bottom: 0; }
+.rec-item .rec-name { font-weight: 640; }
+.rec-item audio { border-radius: 9px; }
+
+/* Der Abspieler von Safari ist hell – im Nachtmodus abdunkeln. */
+[data-theme="night"] .rec-item audio { filter: invert(1) hue-rotate(180deg) brightness(.5) sepia(1) saturate(6); }
+[data-theme="dark"] .rec-item audio { filter: invert(.92) hue-rotate(180deg); }
+
+/* ================================================================== Tonnen */
+
+.buoy-light {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 9px 0 0;
+  font-weight: 650;
+}
+
+.buoy-dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid rgba(128, 128, 128, .55);
+  flex: none;
+}
+
+[data-theme="night"] .buoy-dot { filter: brightness(.5); }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }

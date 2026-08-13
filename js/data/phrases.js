@@ -8,10 +8,12 @@
  * ersetzt:  {{boat}} {{callsign}} {{mmsi}} {{pob}} {{descr}} {{loa}} {{draft}} {{position}}
  *
  * Zeilen-Typen im `lines`-Array:
- *   { t: 'call',  text }  – laut vorzulesender Funktext (groß dargestellt)
- *   { t: 'fill',  text }  – Textstelle, die selbst ergänzt werden muss
- *   { t: 'note',  text }  – Hinweis, NICHT vorlesen
- *   { t: 'gap' }          – Absatz / kurze Sprechpause
+ *   { t: 'call',  text }        – laut vorzulesender Funktext (groß dargestellt)
+ *   { t: 'fill',  text }        – Textstelle, die selbst ergänzt werden muss
+ *   { t: 'slot',  slot, hint }  – wird aus dem gewählten Notfall gefüllt;
+ *                                 ohne Auswahl steht dort nur der Hinweis
+ *   { t: 'note',  text }        – Hinweis, NICHT vorlesen
+ *   { t: 'gap' }                – Absatz / kurze Sprechpause
  */
 
 export const CHANNELS = [
@@ -118,6 +120,259 @@ export const PROWORDS = [
   ['STATION CALLING', 'Rufende Station', 'Ich weiß nicht, wer mich gerufen hat.', 'I do not know who called me.'],
 ];
 
+/**
+ * Häufige Notfälle als fertige Formulierungen.
+ *
+ * Wird einer ausgewählt, ersetzt er im Funkspruch die beiden offenen Stellen
+ * „ICH HABE …“ und „ICH BENÖTIGE …“. Ohne Auswahl bleibt dort der Hinweis
+ * stehen – niemand soll im Ernstfall etwas vorlesen, was nicht stimmt.
+ *
+ * `level` bestimmt, bei welchem Funkspruch der Fall angeboten wird:
+ * 'distress' beim MAYDAY, 'urgency' beim PAN-PAN.
+ * `dsc` nennt die passende Kategorie am DSC-Gerät.
+ */
+export const EMERGENCIES = [
+  // ---- MAYDAY -------------------------------------------------------------
+  {
+    id: 'flooding',
+    level: 'distress',
+    label: 'Wassereinbruch',
+    icon: '🌊',
+    dsc: 'Flooding',
+    nature: 'ICH HABE WASSEREINBRUCH UND SINKE',
+    need: 'ICH BENÖTIGE SOFORTIGE HILFE UND LENZPUMPEN',
+    en: {
+      label: 'Flooding',
+      nature: 'I HAVE FLOODING AND I AM SINKING',
+      need: 'I REQUIRE IMMEDIATE ASSISTANCE AND PUMPS',
+    },
+  },
+  {
+    id: 'fire',
+    level: 'distress',
+    label: 'Feuer an Bord',
+    icon: '🔥',
+    dsc: 'Fire, explosion',
+    nature: 'ICH HABE FEUER AN BORD',
+    need: 'ICH BENÖTIGE SOFORTIGE HILFE BEI DER BRANDBEKÄMPFUNG UND RETTUNG DER BESATZUNG',
+    en: {
+      label: 'Fire on board',
+      nature: 'I HAVE A FIRE ON BOARD',
+      need: 'I REQUIRE IMMEDIATE ASSISTANCE WITH FIRE FIGHTING AND EVACUATION',
+    },
+  },
+  {
+    id: 'collision',
+    level: 'distress',
+    label: 'Kollision',
+    icon: '💥',
+    dsc: 'Collision',
+    nature: 'ICH HATTE EINE KOLLISION UND MACHE WASSER',
+    need: 'ICH BENÖTIGE SOFORTIGE HILFE',
+    en: {
+      label: 'Collision',
+      nature: 'I HAVE BEEN IN A COLLISION AND I AM TAKING WATER',
+      need: 'I REQUIRE IMMEDIATE ASSISTANCE',
+    },
+  },
+  {
+    id: 'aground-danger',
+    level: 'distress',
+    label: 'Grundberührung, in Gefahr',
+    icon: '⛰️',
+    dsc: 'Grounding',
+    nature: 'ICH BIN AUF GRUND GELAUFEN UND SCHLAGE AUF',
+    need: 'ICH BENÖTIGE SOFORTIGE HILFE',
+    en: {
+      label: 'Aground, in danger',
+      nature: 'I AM AGROUND AND POUNDING',
+      need: 'I REQUIRE IMMEDIATE ASSISTANCE',
+    },
+  },
+  {
+    id: 'capsized',
+    level: 'distress',
+    label: 'Gekentert',
+    icon: '🔻',
+    dsc: 'Capsizing',
+    nature: 'MEIN FAHRZEUG IST GEKENTERT',
+    need: 'ICH BENÖTIGE SOFORTIGE RETTUNG DER BESATZUNG',
+    en: {
+      label: 'Capsized',
+      nature: 'MY VESSEL HAS CAPSIZED',
+      need: 'I REQUIRE IMMEDIATE RESCUE OF THE CREW',
+    },
+  },
+  {
+    id: 'mob',
+    level: 'distress',
+    label: 'Mensch über Bord',
+    icon: '⚑',
+    dsc: 'Man over board',
+    nature: 'ICH HABE PERSON ÜBER BORD',
+    need: 'ICH BENÖTIGE SOFORTIGE HILFE BEI DER SUCHE',
+    en: {
+      label: 'Man overboard',
+      nature: 'I HAVE A MAN OVERBOARD',
+      need: 'I REQUIRE IMMEDIATE ASSISTANCE TO SEARCH',
+    },
+  },
+  {
+    id: 'abandoning',
+    level: 'distress',
+    label: 'Schiff verlassen',
+    icon: '🛟',
+    dsc: 'Abandoning vessel',
+    nature: 'ICH VERLASSE DAS SCHIFF UND GEHE IN DIE RETTUNGSINSEL',
+    need: 'ICH BENÖTIGE SOFORTIGE RETTUNG',
+    en: {
+      label: 'Abandoning vessel',
+      nature: 'I AM ABANDONING VESSEL AND TAKING TO THE LIFERAFT',
+      need: 'I REQUIRE IMMEDIATE RESCUE',
+    },
+  },
+  {
+    id: 'medical-critical',
+    level: 'distress',
+    label: 'Lebensgefahr, medizinisch',
+    icon: '🚑',
+    dsc: 'Undesignated distress',
+    nature: 'ICH HABE EINEN LEBENSBEDROHLICHEN MEDIZINISCHEN NOTFALL AN BORD',
+    need: 'ICH BENÖTIGE SOFORTIGE ÄRZTLICHE HILFE UND EVAKUIERUNG',
+    en: {
+      label: 'Life-threatening medical',
+      nature: 'I HAVE A LIFE-THREATENING MEDICAL EMERGENCY ON BOARD',
+      need: 'I REQUIRE IMMEDIATE MEDICAL ASSISTANCE AND EVACUATION',
+    },
+  },
+  {
+    id: 'sinking-adrift',
+    level: 'distress',
+    label: 'Manövrierunfähig in Gefahr',
+    icon: '⚓',
+    dsc: 'Disabled and adrift',
+    nature: 'ICH BIN MANÖVRIERUNFÄHIG UND TREIBE AUF DIE KÜSTE ZU',
+    need: 'ICH BENÖTIGE SOFORTIGE HILFE',
+    en: {
+      label: 'Disabled and adrift',
+      nature: 'I AM DISABLED AND ADRIFT TOWARDS THE SHORE',
+      need: 'I REQUIRE IMMEDIATE ASSISTANCE',
+    },
+  },
+
+  // ---- PAN-PAN ------------------------------------------------------------
+  {
+    id: 'engine',
+    level: 'urgency',
+    label: 'Maschinenausfall',
+    icon: '⚙️',
+    nature: 'ICH HABE MASCHINENAUSFALL UND TREIBE',
+    need: 'ICH BENÖTIGE SCHLEPPHILFE',
+    en: {
+      label: 'Engine failure',
+      nature: 'I HAVE ENGINE FAILURE AND I AM ADRIFT',
+      need: 'I REQUIRE A TOW',
+    },
+  },
+  {
+    id: 'rudder',
+    level: 'urgency',
+    label: 'Ruderausfall',
+    icon: '🕹️',
+    nature: 'ICH HABE RUDERAUSFALL UND KANN NICHT STEUERN',
+    need: 'ICH BENÖTIGE SCHLEPPHILFE ODER BEGLEITUNG',
+    en: {
+      label: 'Rudder failure',
+      nature: 'I HAVE RUDDER FAILURE AND CANNOT STEER',
+      need: 'I REQUIRE A TOW OR AN ESCORT',
+    },
+  },
+  {
+    id: 'dismasted',
+    level: 'urgency',
+    label: 'Mastbruch',
+    icon: '⛵',
+    nature: 'ICH HABE MASTBRUCH, DAS RIGG LIEGT AUSSENBORDS',
+    need: 'ICH BENÖTIGE SCHLEPPHILFE',
+    en: {
+      label: 'Dismasted',
+      nature: 'I AM DISMASTED, THE RIG IS OVER THE SIDE',
+      need: 'I REQUIRE A TOW',
+    },
+  },
+  {
+    id: 'leak-controlled',
+    level: 'urgency',
+    label: 'Leck unter Kontrolle',
+    icon: '💧',
+    nature: 'ICH HABE EIN LECK, DAS ICH NOCH UNTER KONTROLLE HABE',
+    need: 'ICH BENÖTIGE BEGLEITUNG UND BEREITSCHAFT',
+    en: {
+      label: 'Leak under control',
+      nature: 'I HAVE A LEAK WHICH IS STILL UNDER CONTROL',
+      need: 'I REQUIRE AN ESCORT AND VESSELS TO STAND BY',
+    },
+  },
+  {
+    id: 'aground-safe',
+    level: 'urgency',
+    label: 'Grundberührung, keine Gefahr',
+    icon: '⛰️',
+    nature: 'ICH BIN AUF GRUND GELAUFEN, ES BESTEHT KEINE UNMITTELBARE GEFAHR',
+    need: 'ICH BENÖTIGE SCHLEPPHILFE BEIM FREIKOMMEN',
+    en: {
+      label: 'Aground, no danger',
+      nature: 'I AM AGROUND, THERE IS NO IMMEDIATE DANGER',
+      need: 'I REQUIRE A TOW TO REFLOAT',
+    },
+  },
+  {
+    id: 'medical-advice',
+    level: 'urgency',
+    label: 'Verletzung oder Erkrankung',
+    icon: '🩹',
+    nature: 'ICH HABE EINE VERLETZTE PERSON AN BORD',
+    need: 'ICH BENÖTIGE ÄRZTLICHE BERATUNG',
+    en: {
+      label: 'Injury or illness',
+      nature: 'I HAVE AN INJURED PERSON ON BOARD',
+      need: 'I REQUIRE MEDICAL ADVICE',
+    },
+  },
+  {
+    id: 'no-fuel',
+    level: 'urgency',
+    label: 'Kein Treibstoff',
+    icon: '⛽',
+    nature: 'ICH HABE KEINEN TREIBSTOFF MEHR UND TREIBE',
+    need: 'ICH BENÖTIGE SCHLEPPHILFE',
+    en: {
+      label: 'Out of fuel',
+      nature: 'I HAVE RUN OUT OF FUEL AND I AM ADRIFT',
+      need: 'I REQUIRE A TOW',
+    },
+  },
+  {
+    id: 'lost',
+    level: 'urgency',
+    label: 'Position unklar',
+    icon: '❓',
+    nature: 'ICH KENNE MEINE POSITION NICHT SICHER UND HABE KEINE NAVIGATIONSMITTEL MEHR',
+    need: 'ICH BENÖTIGE HILFE BEI DER NAVIGATION',
+    en: {
+      label: 'Position uncertain',
+      nature: 'I AM UNSURE OF MY POSITION AND HAVE LOST MY NAVIGATION EQUIPMENT',
+      need: 'I REQUIRE NAVIGATIONAL ASSISTANCE',
+    },
+  },
+];
+
+/** Die zu einem Funkspruch passenden Notfälle. */
+export function emergenciesFor(phrase) {
+  if (!phrase?.lines?.some((l) => l.t === 'slot')) return [];
+  return EMERGENCIES.filter((e) => e.level === phrase.level);
+}
+
 /** Die eigentlichen Funkspruch-Vorlagen. */
 export const PHRASES = [
   {
@@ -138,8 +393,8 @@ export const PHRASES = [
       { t: 'call', text: 'MAYDAY {{boat}}' },
       { t: 'call', text: 'Rufzeichen {{callsign}}, MMSI {{mmsi}}' },
       { t: 'call', text: 'MEINE POSITION IST {{position}}' },
-      { t: 'fill', text: 'ICH HABE … (Art der Not: Wassereinbruch / Feuer an Bord / Kollision / Kentern / Person über Bord)' },
-      { t: 'fill', text: 'ICH BENÖTIGE … (sofortige Hilfe / Rettung der Besatzung / Feuerbekämpfung / Arzt)' },
+      { t: 'slot', slot: 'nature', hint: 'ICH HABE … – hier den Notfall schildern' },
+      { t: 'slot', slot: 'need', hint: 'ICH BENÖTIGE … – hier die benötigte Hilfe nennen' },
       { t: 'call', text: 'AN BORD SIND {{pob}} PERSONEN' },
       { t: 'call', text: '{{descr}}' },
       { t: 'fill', text: '… (weitere Angaben: Rettungsinsel ausgesetzt, Schwimmwesten an, Seenotsignale vorhanden)' },
@@ -166,8 +421,8 @@ export const PHRASES = [
         { t: 'call', text: 'MAYDAY {{boat}}' },
         { t: 'call', text: 'Call sign {{callsign}}, MMSI {{mmsi}}' },
         { t: 'call', text: 'MY POSITION IS {{position}}' },
-        { t: 'fill', text: 'I AM … (nature of distress: sinking / on fire / holed / capsized / man overboard)' },
-        { t: 'fill', text: 'I REQUIRE … (immediate assistance / evacuation of the crew / fire fighting / a doctor)' },
+        { t: 'slot', slot: 'nature', hint: 'I HAVE … – describe the emergency here' },
+        { t: 'slot', slot: 'need', hint: 'I REQUIRE … – state the assistance needed here' },
         { t: 'call', text: '{{pob}} PERSONS ON BOARD' },
         { t: 'call', text: '{{descr}}' },
         { t: 'fill', text: '… (any other information: liferaft launched, lifejackets worn, flares on board)' },
@@ -280,8 +535,8 @@ export const PHRASES = [
       { t: 'call', text: 'HIER IST {{boat}} – {{boat}} – {{boat}}' },
       { t: 'call', text: 'Rufzeichen {{callsign}}, MMSI {{mmsi}}' },
       { t: 'call', text: 'MEINE POSITION IST {{position}}' },
-      { t: 'fill', text: 'ICH HABE … (Motorausfall / Ruderschaden / Mastbruch / treibe manövrierunfähig)' },
-      { t: 'fill', text: 'ICH BENÖTIGE … (Schlepphilfe / Begleitung / Beratung)' },
+      { t: 'slot', slot: 'nature', hint: 'ICH HABE … – hier den Notfall schildern' },
+      { t: 'slot', slot: 'need', hint: 'ICH BENÖTIGE … – hier die benötigte Hilfe nennen' },
       { t: 'call', text: 'AN BORD SIND {{pob}} PERSONEN' },
       { t: 'call', text: '{{descr}}' },
       { t: 'call', text: 'OVER' },
@@ -301,8 +556,8 @@ export const PHRASES = [
         { t: 'call', text: 'THIS IS {{boat}} – {{boat}} – {{boat}}' },
         { t: 'call', text: 'Call sign {{callsign}}, MMSI {{mmsi}}' },
         { t: 'call', text: 'MY POSITION IS {{position}}' },
-        { t: 'fill', text: 'I HAVE … (engine failure / rudder damage / dismasted / drifting, unable to manoeuvre)' },
-        { t: 'fill', text: 'I REQUIRE … (a tow / an escort / advice)' },
+        { t: 'slot', slot: 'nature', hint: 'I HAVE … – describe the problem here' },
+        { t: 'slot', slot: 'need', hint: 'I REQUIRE … – state the assistance needed here' },
         { t: 'call', text: '{{pob}} PERSONS ON BOARD' },
         { t: 'call', text: '{{descr}}' },
         { t: 'call', text: 'OVER' },

@@ -4,13 +4,17 @@ import { h, svg, render } from '../lib/dom.js';
 import { audio } from '../lib/audio.js';
 import { t, loc, uiLang } from '../lib/i18n.js';
 import {
-  LIGHTS, LIGHT_COLORS, LIGHT_FILTERS, LIGHT_CATEGORIES, LIGHT_TYPES, LIGHT_RANGES,
+  LIGHTS, LIGHT_COLORS, LIGHT_CATEGORIES, LIGHT_TYPES, LIGHT_RANGES,
+  LIGHT_FACETS, FACET_GROUPS, filterLights,
 } from '../data/lights.js';
 import { SOUNDS, SOUND_GROUPS, SOUND_BASICS, DISTRESS_VISUAL } from '../data/sounds.js';
+import {
+  BUOYS, BUOY_GROUPS, BUOY_COLORS, LIGHT_RHYTHMS, LIGHT_COLOR_CODES,
+} from '../data/buoys.js';
 
 const state = {
   tab: 'lichter',        // 'lichter' | 'schall' | 'grundlagen'
-  colors: new Set(),     // Farbfilter für „Was sehe ich?“
+  facets: new Set(),     // gewählte Merkmale der Lichtersuche
   category: 'all',
   soundGroup: 'manoever',
   playing: null,
@@ -26,7 +30,14 @@ export function view(root) {
     if (!running) state.playing = null;
     draw();
   });
-  return () => { off(); audio.stop(); container = null; };
+  return () => { off(); audio.stop(); closeSearchQuietly(); container = null; };
+}
+
+/** Beim Verlassen des Moduls darf kein Blatt offen bleiben. */
+function closeSearchQuietly() {
+  const overlay = document.getElementById('light-search');
+  if (overlay?._onKey) document.removeEventListener('keydown', overlay._onKey);
+  overlay?.remove();
 }
 
 function draw() {
@@ -34,12 +45,14 @@ function draw() {
   render(container,
     h('div.seg', { style: { 'margin-bottom': '14px' } },
       tabBtn('lichter', t('night.tab.lights')),
+      tabBtn('tonnen', t('night.tab.buoys')),
       tabBtn('schall', t('night.tab.sounds')),
       tabBtn('grundlagen', t('night.tab.basics')),
     ),
     state.tab === 'lichter' ? lightsView()
-      : state.tab === 'schall' ? soundsView()
-        : basicsView(),
+      : state.tab === 'tonnen' ? buoysView()
+        : state.tab === 'schall' ? soundsView()
+          : basicsView(),
   );
 }
 
@@ -56,50 +69,143 @@ const en = () => uiLang() === 'en';
 // ================================================================== Lichter
 
 function lightsView() {
-  const filtered = LIGHTS.filter((l) => {
-    if (state.category !== 'all' && l.category !== state.category) return false;
-    if (state.colors.size === 0) return true;
-    // Alle angetippten Farben müssen an dem Fahrzeug vorkommen.
-    return [...state.colors].every((c) => l.seen.includes(c));
-  });
+  const found = filterLights(state.facets, state.category);
+  const active = [...state.facets];
 
   return h('div',
-    h('div.card',
-      h('h2', t('night.whatISee')),
-      h('p.small.muted', { style: { margin: '0 0 10px' } }, t('night.whatISeeHint')),
-      h('div.filter-chips',
-        ...LIGHT_FILTERS.map((f) => h('button.chip', {
-          type: 'button',
-          'aria-pressed': String(state.colors.has(f.key)),
-          onclick: () => {
-            if (state.colors.has(f.key)) state.colors.delete(f.key);
-            else state.colors.add(f.key);
-            draw();
+    // Ein großer Knopf statt einer Filterleiste: Nachts will niemand
+    // zwischen kleinen Schaltflächen zielen.
+    h('button.btn.primary.block', {
+      type: 'button',
+      style: { 'margin-bottom': '12px', 'min-height': '58px', 'font-size': '1.05rem' },
+      onclick: openSearch,
+    }, t('night.searchOpen')),
+
+    active.length > 0 && h('div.card',
+      h('div.row.wrap', { style: { gap: '7px' } },
+        h('span.small.muted', { style: { width: '100%' } }, t('night.activeFilter')),
+        ...active.map((key) => {
+          const facet = LIGHT_FACETS.find((f) => f.key === key);
+          return h('button.chip', {
+            type: 'button',
+            'aria-pressed': 'true',
+            onclick: () => { state.facets.delete(key); draw(); },
           },
-        },
-        h('span.swatch', { style: { background: LIGHT_COLORS[f.key].hex } }),
-        en() ? f.labelEn : f.label,
-        )),
-        state.colors.size > 0 && h('button.chip', {
+          facet?.kind === 'color'
+            && h('span.swatch', { style: { background: LIGHT_COLORS[key].hex } }),
+          `${en() ? facet?.labelEn : facet?.label} ✕`);
+        }),
+        h('button.chip', {
           type: 'button',
-          onclick: () => { state.colors.clear(); draw(); },
+          onclick: () => { state.facets.clear(); draw(); },
         }, t('night.resetFilter')),
-      ),
-      h('div.filter-chips', { style: { 'margin-top': '9px' } },
-        ...LIGHT_CATEGORIES.map((c) => h('button.chip', {
-          type: 'button',
-          'aria-pressed': String(state.category === c.key),
-          onclick: () => { state.category = c.key; draw(); },
-        }, en() ? c.labelEn : c.label)),
       ),
     ),
 
-    filtered.length === 0
+    h('div.filter-chips', { style: { 'margin-bottom': '12px' } },
+      ...LIGHT_CATEGORIES.map((c) => h('button.chip', {
+        type: 'button',
+        'aria-pressed': String(state.category === c.key),
+        onclick: () => { state.category = c.key; draw(); },
+      }, en() ? c.labelEn : c.label)),
+    ),
+
+    found.length === 0
       ? h('div.card', h('div.empty', t('night.noMatch')))
-      : h('div', ...filtered.map(lightCard)),
+      : h('div', ...found.map(lightCard)),
 
     h('p.disclaimer', t('night.lightsDisclaimer')),
   );
+}
+
+/**
+ * Suchmaske. Bei jeder Auswahl wird neu gerechnet, was überhaupt noch
+ * möglich ist – Merkmale, die zu keinem Ergebnis mehr führen, verschwinden.
+ * So kann man sich nie in eine leere Antwort hineinklicken.
+ */
+function openSearch() {
+  const overlay = h('div.sheet-overlay', {
+    id: 'light-search',
+    role: 'dialog',
+    'aria-modal': 'true',
+    'aria-label': t('night.searchTitle'),
+    onclick: (e) => { if (e.target.id === 'light-search') closeSearch(); },
+  });
+  const sheet = h('div.sheet');
+  overlay.appendChild(sheet);
+  document.body.appendChild(overlay);
+
+  const onKey = (e) => { if (e.key === 'Escape') closeSearch(); };
+  document.addEventListener('keydown', onKey);
+  overlay._onKey = onKey;
+
+  const paint = () => {
+    const found = filterLights(state.facets, 'all');
+
+    const groups = FACET_GROUPS.map((group) => {
+      const chips = LIGHT_FACETS
+        .filter((f) => f.group === group.key)
+        .map((facet) => {
+          const chosen = state.facets.has(facet.key);
+          // Wie viele Ergebnisse bliebe es, wenn man dieses Merkmal wählte?
+          const probe = new Set(state.facets);
+          if (chosen) probe.delete(facet.key);
+          else probe.add(facet.key);
+          const count = filterLights(probe, 'all').length;
+          // Was zu nichts mehr führt, wird gar nicht erst angeboten.
+          if (!chosen && count === 0) return null;
+          return h('button.facet', {
+            type: 'button',
+            'aria-pressed': String(chosen),
+            onclick: () => {
+              if (chosen) state.facets.delete(facet.key);
+              else state.facets.add(facet.key);
+              paint();
+            },
+          },
+          facet.kind === 'color'
+            && h('span.swatch', { style: { background: LIGHT_COLORS[facet.key].hex } }),
+          en() ? facet.labelEn : facet.label,
+          !chosen && h('span.count', String(count)),
+          );
+        })
+        .filter(Boolean);
+
+      if (!chips.length) return null;
+      return h('div.facet-group',
+        h('h4', en() ? group.labelEn : group.label),
+        h('div.facet-chips', ...chips),
+      );
+    }).filter(Boolean);
+
+    render(sheet,
+      h('div.sheet-head',
+        h('strong.grow', t('night.searchTitle')),
+        h('button.btn.small', { type: 'button', onclick: closeSearch }, t('night.searchClose')),
+      ),
+      h('p.small.muted', { style: { margin: '0 0 14px' } }, t('night.searchHint')),
+      ...groups,
+      h('div.sheet-result',
+        h('span.n', String(found.length)),
+        h('span.grow.small', t('night.searchResults')),
+        state.facets.size > 0 && h('button.btn.small', {
+          type: 'button',
+          onclick: () => { state.facets.clear(); paint(); },
+        }, t('night.resetFilter')),
+        h('button.btn.small.primary', { type: 'button', onclick: closeSearch }, t('night.searchShow')),
+      ),
+    );
+  };
+
+  paint();
+}
+
+function closeSearch() {
+  const overlay = document.getElementById('light-search');
+  if (overlay?._onKey) document.removeEventListener('keydown', overlay._onKey);
+  overlay?.remove();
+  draw();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function lightCard(l) {
@@ -157,6 +263,151 @@ function lightSchematic(view) {
     }
     el.appendChild(g);
   });
+
+  return el;
+}
+
+// ================================================================== Seezeichen
+
+function buoysView() {
+  return h('div',
+    h('div.notice', t('night.buoyIntro')),
+
+    ...BUOY_GROUPS.map((group) => h('div',
+      h('h2.section', loc(group, 'label')),
+      h('p.small.muted', { style: { margin: '0 4px 9px' } }, loc(group, 'hint')),
+      ...BUOYS.filter((b) => b.group === group.key).map(buoyCard),
+    )),
+
+    h('div.card',
+      h('h2', t('night.rhythms')),
+      h('table.data',
+        h('tbody', ...LIGHT_RHYTHMS.map((r) => h('tr',
+          h('td.k', r.abbr),
+          h('td.small', en() ? r.en : r.de),
+        ))),
+      ),
+      h('h3', { style: { margin: '15px 0 8px', 'font-size': '.9rem' } }, t('night.colorCodes')),
+      h('div.row.wrap',
+        ...LIGHT_COLOR_CODES.map((c) => h('span.chip', { style: { 'min-height': 'auto', padding: '5px 11px' } },
+          h('b', { style: { 'font-family': 'var(--mono)', 'margin-right': '6px' } }, c.abbr),
+          en() ? c.en : c.de)),
+      ),
+    ),
+
+    h('p.disclaimer', t('night.buoyDisclaimer')),
+  );
+}
+
+function buoyCard(b) {
+  const memo = loc(b, 'memo');
+  return h('div.card.light-card',
+    h('div.light-head',
+      buoySchematic(b),
+      h('div.txt',
+        h('h3', loc(b, 'title')),
+        h('div.sub', loc(b, 'subtitle')),
+        h('p.buoy-light',
+          h('span.buoy-dot', { style: { background: lightSwatch(b.lightColor) } }),
+          h('span.mono', loc(b, 'light')),
+        ),
+        h('p.small', { style: { margin: '4px 0 0' } }, loc(b, 'lightPlain')),
+      ),
+    ),
+    h('p.small', { style: { margin: '10px 0 0' } }, loc(b, 'meaning')),
+    memo && h('div.mnemonic', '„', memo, '“'),
+  );
+}
+
+function lightSwatch(code) {
+  if (code === 'buy') return `linear-gradient(90deg, ${BUOY_COLORS.bu} 50%, ${BUOY_COLORS.y} 50%)`;
+  return BUOY_COLORS[code] ?? BUOY_COLORS.w;
+}
+
+/** Schematische Tonne: Farbfolge und Toppzeichen. */
+function buoySchematic(b) {
+  const el = svg('svg.light-view', { viewBox: '0 0 100 100', 'aria-hidden': 'true' });
+  const bodyTop = 42;
+  const bodyBottom = 92;
+  const height = bodyBottom - bodyTop;
+  const bands = b.bands ?? ['y'];
+
+  if (b.stripes) {
+    // Senkrechte Streifen (Mittefahrwasser, Wrackzeichen)
+    const width = 34 / bands.length;
+    bands.forEach((c, i) => el.appendChild(svg('rect', {
+      x: 33 + i * width, y: bodyTop, width, height,
+      fill: BUOY_COLORS[c],
+    })));
+  } else {
+    // Waagerechte Bänder
+    const band = height / bands.length;
+    bands.forEach((c, i) => el.appendChild(svg('rect', {
+      x: 33, y: bodyTop + i * band, width: 34, height: band,
+      fill: BUOY_COLORS[c],
+    })));
+  }
+
+  el.appendChild(svg('rect', {
+    x: 33, y: bodyTop, width: 34, height,
+    fill: 'none', stroke: '#2b3949', 'stroke-width': '1.2',
+  }));
+  // Stange zum Toppzeichen
+  el.appendChild(svg('line', {
+    x1: 50, y1: bodyTop, x2: 50, y2: 8, stroke: '#2b3949', 'stroke-width': '1.4',
+  }));
+
+  const color = BUOY_COLORS[b.topmarkColor] ?? BUOY_COLORS.b;
+  const cone = (cx, cy, up, size = 9) => svg('polygon', {
+    points: up
+      ? `${cx},${cy - size} ${cx - size * 0.8},${cy + size * 0.6} ${cx + size * 0.8},${cy + size * 0.6}`
+      : `${cx},${cy + size} ${cx - size * 0.8},${cy - size * 0.6} ${cx + size * 0.8},${cy - size * 0.6}`,
+    fill: color,
+  });
+
+  switch (b.topmark) {
+    case 'cones-up':      // Nord: beide Spitzen nach oben
+      el.appendChild(cone(50, 14, true));
+      el.appendChild(cone(50, 32, true));
+      break;
+    case 'cones-down':    // Süd: beide Spitzen nach unten
+      el.appendChild(cone(50, 14, false));
+      el.appendChild(cone(50, 32, false));
+      break;
+    case 'cones-base':    // Ost: Grundflächen aneinander
+      el.appendChild(cone(50, 14, true));
+      el.appendChild(cone(50, 32, false));
+      break;
+    case 'cones-point':   // West: Spitzen zueinander
+      el.appendChild(cone(50, 14, false));
+      el.appendChild(cone(50, 32, true));
+      break;
+    case 'cone':
+      el.appendChild(cone(50, 26, true, 11));
+      break;
+    case 'cylinder':
+      el.appendChild(svg('rect', { x: 40, y: 16, width: 20, height: 20, fill: color }));
+      break;
+    case 'sphere':
+      el.appendChild(svg('circle', { cx: 50, cy: 26, r: 10, fill: color }));
+      break;
+    case 'balls2':
+      el.appendChild(svg('circle', { cx: 50, cy: 15, r: 8, fill: color }));
+      el.appendChild(svg('circle', { cx: 50, cy: 33, r: 8, fill: color }));
+      break;
+    case 'cross-x':
+      el.appendChild(svg('path', {
+        d: 'M40 16 L60 36 M60 16 L40 36', stroke: color, 'stroke-width': '5', 'stroke-linecap': 'round',
+      }));
+      break;
+    case 'cross-upright':
+      el.appendChild(svg('path', {
+        d: 'M50 14 V38 M39 26 H61', stroke: color, 'stroke-width': '5', 'stroke-linecap': 'round',
+      }));
+      break;
+    default:
+      break;
+  }
 
   return el;
 }
