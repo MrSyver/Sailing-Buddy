@@ -138,6 +138,31 @@ export function tilesAlongRoute(points, corridorNm, zMin, zMax) {
   return out;
 }
 
+/**
+ * Liegt eine Position in einem geladenen Bereich?
+ *
+ * Damit lassen sich die Karten zeigen, die gerade unter dem Kiel liegen –
+ * und nicht die vom Törn im vorletzten Sommer.
+ */
+export function areaCovers(area, pos) {
+  if (!area || !pos) return false;
+  if (area.kind === 'route') {
+    const points = area.points ?? [];
+    if (points.length === 0) return false;
+    if (points.length === 1) {
+      return distanceToSegment(pos, points[0], points[0]) <= (area.corridorNm ?? 0);
+    }
+    for (let i = 1; i < points.length; i += 1) {
+      if (distanceToSegment(pos, points[i - 1], points[i]) <= (area.corridorNm ?? 0)) return true;
+    }
+    return false;
+  }
+  if (!area.center) return false;
+  const dLat = (pos.lat - area.center.lat) * 60;
+  const dLon = (pos.lon - area.center.lon) * 60 * Math.cos((pos.lat * Math.PI) / 180);
+  return Math.hypot(dLat, dLon) <= (area.radiusNm ?? 0);
+}
+
 // ---------------------------------------------------------------------------
 // Speicher
 // ---------------------------------------------------------------------------

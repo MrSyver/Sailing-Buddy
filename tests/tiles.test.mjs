@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import {
   lonToTileX, latToTileY, tileXToLon, tileYToLat, tileSizeNm,
   boundsAround, boundsOf, tilesForBounds, tilesAlongRoute, tileUrl,
-  tilesForArea, formatBytes, MAX_TILES_PER_AREA,
+  tilesForArea, formatBytes, MAX_TILES_PER_AREA, areaCovers,
 } from '../js/lib/tiles.js';
 
 const close = (a, b, eps, msg) =>
@@ -170,4 +170,37 @@ test('Größenangaben', () => {
   assert.equal(formatBytes(0), '0 MB');
   assert.equal(formatBytes(500 * 1024), '500 kB');
   assert.equal(formatBytes(5 * 1024 * 1024), '5.0 MB');
+});
+
+test('Ein Umkreis weiß, ob man mitten darin liegt', () => {
+  const area = { kind: 'radius', center: { lat: 54.5, lon: 10.27 }, radiusNm: 10 };
+  assert.ok(areaCovers(area, { lat: 54.5, lon: 10.27 }), 'Mittelpunkt');
+  // Knapp fünf Seemeilen nördlich – noch drin.
+  assert.ok(areaCovers(area, { lat: 54.5 + 5 / 60, lon: 10.27 }), 'fünf Seemeilen nördlich');
+  // Zwanzig Seemeilen nördlich – draußen.
+  assert.equal(areaCovers(area, { lat: 54.5 + 20 / 60, lon: 10.27 }), false, 'zwanzig nördlich');
+});
+
+test('Ein Streifen entlang der Route weiß dasselbe', () => {
+  const area = {
+    kind: 'route',
+    points: [{ lat: 54.0, lon: 10.0 }, { lat: 55.0, lon: 10.0 }],
+    corridorNm: 3,
+  };
+  assert.ok(areaCovers(area, { lat: 54.5, lon: 10.0 }), 'auf der Strecke');
+  // Eine Seemeile querab der Strecke.
+  assert.ok(areaCovers(area, { lat: 54.5, lon: 10.0 + 1 / (60 * Math.cos(54.5 * Math.PI / 180)) }),
+    'eine Seemeile querab');
+  // Zehn Seemeilen querab – draußen.
+  assert.equal(
+    areaCovers(area, { lat: 54.5, lon: 10.0 + 10 / (60 * Math.cos(54.5 * Math.PI / 180)) }),
+    false, 'zehn Seemeilen querab');
+  // Weit hinter dem Endpunkt – draußen.
+  assert.equal(areaCovers(area, { lat: 56.0, lon: 10.0 }), false, 'hinter dem Ende');
+});
+
+test('Ohne Bereich oder ohne Position gilt nichts als abgedeckt', () => {
+  assert.equal(areaCovers(null, { lat: 54, lon: 10 }), false);
+  assert.equal(areaCovers({ kind: 'radius', center: { lat: 54, lon: 10 }, radiusNm: 5 }, null), false);
+  assert.equal(areaCovers({ kind: 'route', points: [], corridorNm: 5 }, { lat: 54, lon: 10 }), false);
 });

@@ -25,6 +25,9 @@ const DEFAULTS = {
   deviation: '',       // Ablenkung in Grad, Ost positiv
   manualSpeed: '',     // Ersatzgeschwindigkeit, wenn kein GPS-Speed anliegt
   compassCourseUp: false, // Kompass mitdrehend statt nordorientiert
+  // Karten – leer heißt: die voreingestellte Quelle aus js/data/tilesources.js
+  tileBaseUrl: '',
+  tileSeamarkUrl: '',
   setupDone: false,
   waypoints: [],       // [{ id, name, lat, lon, kind, ts }]
 };

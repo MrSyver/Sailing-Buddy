@@ -1272,3 +1272,21 @@ details.foldout > div { padding: 0 15px 15px; }
   stroke-width: 3px;
   stroke-linejoin: round;
 }
+
+/* Fortschritt beim Laden von Kartenmaterial */
+.progress {
+  height: 10px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.progress .bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width .15s linear;
+}
+
+/* Im Nachtmodus keine leuchtende Fläche – nur ein schmaler Streifen. */
+[data-theme="night"] .progress .bar { background: var(--accent); opacity: .55; }

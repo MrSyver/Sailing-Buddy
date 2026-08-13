@@ -564,6 +564,50 @@ const filled = await page.evaluate(() => {
 check('Nachtmodus ohne leuchtende Flächen', filled.length === 0, filled.join(' | '));
 await shot('06-night-mode');
 
+// --- Einstellungen: Reiter „Karten“ ----------------------------------------
+// Zurück auf ein helles Schema, damit die folgenden Prüfungen nicht am
+// Nachtmodus hängen.
+await goTab(5);
+await page.waitForSelector('.card');
+await page.getByRole('button', { name: 'Karten', exact: true }).click();
+await page.waitForTimeout(200);
+check('Karten haben einen eigenen Reiter in den Einstellungen',
+  (await page.locator('main').innerText()).includes('Seegebiet ins Gerät holen'));
+check('Noch kein Seegebiet geladen',
+  (await page.locator('main').innerText()).includes('Noch kein Seegebiet geladen'));
+
+// Umkreis: Die Menge muss vor dem Herunterladen dastehen, nicht danach.
+const tilesShown = await page.locator('.readout .cell').first().innerText();
+check('Kachelmenge wird vorher angezeigt', /\d/.test(tilesShown.replace(/\D/g, '')),
+  tilesShown.replace(/\n/g, ' | '));
+
+// Feinere Stufe heißt mehr Kacheln – sonst stimmt die Rechnung nicht.
+const tileCount = async () => Number(
+  (await page.locator('.readout .cell').first().innerText()).replace(/\D/g, ''));
+const coarse = await tileCount();
+await page.locator('.chip', { hasText: 'Hafen' }).click();
+const fine = await tileCount();
+check('Feinere Stufe braucht mehr Kacheln', fine > coarse, `${coarse} → ${fine}`);
+check('Zu große Mengen werden abgelehnt',
+  (await page.locator('main').innerText()).includes('zu viele Kacheln')
+  || fine <= 4000, `${fine} Kacheln`);
+await page.locator('.chip', { hasText: 'Übersicht' }).click();
+
+// Route: Punkte in der Reihenfolge des Törns.
+await page.getByRole('button', { name: 'Route', exact: true }).click();
+await page.waitForTimeout(150);
+check('Ohne Punkte lässt sich keine Route laden',
+  await page.getByRole('button', { name: /Herunterladen/ }).isDisabled());
+await page.getByRole('button', { name: '+ Meine Position' }).click();
+await page.waitForTimeout(150);
+check('Route nimmt Punkte auf', await page.locator('.wp-item').count() >= 1);
+check('Mit Punkt lässt sich die Route laden',
+  !(await page.getByRole('button', { name: /Herunterladen/ }).isDisabled()));
+await shot('07b-karten-einstellungen');
+await page.getByRole('button', { name: 'Umkreis', exact: true }).click();
+await page.getByRole('button', { name: 'Allgemein', exact: true }).click();
+await page.waitForTimeout(150);
+
 // --- Oberflächensprache ----------------------------------------------------
 await goTab(5);
 await page.waitForSelector('.card');
