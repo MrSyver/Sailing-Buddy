@@ -38,6 +38,7 @@ const state = {
 
 let container = null;
 let objectUrls = [];
+let lastTiles = null;
 
 export function view(root) {
   container = h('div');
@@ -47,6 +48,7 @@ export function view(root) {
   return () => {
     offGps();
     releaseUrls();
+    lastTiles = null;
     container = null;
   };
 }
@@ -220,10 +222,22 @@ async function paint() {
   });
 
   box.style.height = `${height}px`;
-  releaseUrls();
-  render(box);
 
-  if (state.showTiles) {
+  // Der GPS-Empfänger meldet sich im Sekundentakt. Solange sich der
+  // Ausschnitt nicht ändert, bleiben die Kacheln stehen – sonst flackert die
+  // Karte und liest bei jedem Fix die halbe Datenbank neu.
+  const key = `${z}|${Math.round(originX)}|${Math.round(originY)}|${state.showTiles}`;
+  const existing = box.querySelector('.chart-tiles');
+  const reuse = state.showTiles && existing && key === lastTiles;
+
+  box.querySelector('.chart-plot')?.remove();
+  if (!reuse) {
+    existing?.remove();
+    releaseUrls();
+  }
+  lastTiles = key;
+
+  if (state.showTiles && !reuse) {
     // Absichtlich erst zeichnen, dann nachreichen: Die Punkte stehen sofort,
     // die Bilder kommen aus der Datenbank hinterher.
     tileLayer(box, z, originX, originY, width, height);
