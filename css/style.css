@@ -589,6 +589,9 @@ table.data td.k { font-family: var(--mono); font-weight: 700; white-space: nowra
   border-radius: 12px;
   padding: 12px;
   text-align: center;
+  /* Ohne das dehnt eine lange Zahl die Spalte auf und läuft aus der Karte. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .readout .cell .label {
@@ -612,6 +615,15 @@ table.data td.k { font-family: var(--mono); font-weight: 700; white-space: nowra
 .readout .cell .sub { font-size: .76rem; color: var(--text-dim); margin-top: 3px; }
 .readout .cell.wide { grid-column: 1 / -1; }
 .readout .cell.hero .value { font-size: 2.6rem; }
+
+.readout .cell .value.mid { font-size: 1.4rem; }
+
+/* Lange Zahlen – etwa eine Entfernung über tausend Seemeilen – werden
+   kleiner gesetzt, statt umzubrechen oder aus der Kachel zu laufen. */
+.readout .cell .value.long { font-size: 1.35rem; }
+.readout .cell .value.xlong { font-size: 1.1rem; }
+.readout .cell.hero .value.long { font-size: 1.95rem; }
+.readout .cell.hero .value.xlong { font-size: 1.5rem; }
 
 .spoken-position {
   font-size: 1.25rem;
@@ -690,6 +702,43 @@ table.data td.k { font-family: var(--mono); font-weight: 700; white-space: nowra
 /* Im Nachtmodus die Schemabilder deutlich abdunkeln: Grün und Weiß darin
    würden die Dunkeladaption sonst wieder zunichtemachen. */
 [data-theme="night"] .light-view { filter: brightness(.42) saturate(.85); }
+
+.light-view .aspect-none { fill: var(--text-dim); font-family: var(--sans); }
+
+/* Bild und Umschalter gehören zusammen und stehen als Block links. */
+.light-aspect {
+  flex: none;
+  width: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Untereinander statt nebeneinander: „Von achtern“ passt neben zwei weitere
+   Schaltflächen nicht in 92 px, und Zielen im Seegang will man auch nicht. */
+.aspect-seg {
+  flex-direction: column;
+  width: 100%;
+}
+
+.aspect-seg button {
+  min-height: 30px;
+  padding: 4px 3px;
+  font-size: .7rem;
+  font-weight: 650;
+  line-height: 1.15;
+  border-right: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.aspect-seg button:last-child { border-bottom: 0; }
+
+.aspect-caption {
+  margin: 11px 0 0;
+  font-size: .8rem;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
 
 .light-pattern {
   font-weight: 650;
@@ -961,50 +1010,60 @@ details.foldout > div { padding: 0 15px 15px; }
 
 /* ------------------------------------------------- Koordinaten-Eingabe */
 
+/* Die Beschriftung steht über der Zeile, damit für Grad, Minuten,
+   Nachkommastellen und Himmelsrichtung nebeneinander genug Platz bleibt. */
 .coord-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 11px;
+  gap: 8px;
+  margin-bottom: 14px;
   flex-wrap: wrap;
 }
 
 .coord-label {
-  font-size: .82rem;
+  font-size: .74rem;
   font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: .05em;
   color: var(--text-dim);
-  width: 58px;
-  flex: none;
+  width: 100%;
+  margin-bottom: 1px;
 }
 
 .coord-fields {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex: 1;
-  min-width: 160px;
+  min-width: 0;
 }
 
 .coord-input {
   font-family: var(--mono);
-  font-size: 1.35rem;
+  font-size: 1.3rem;
   font-weight: 700;
   text-align: center;
-  padding: 9px 4px;
+  padding: 9px 2px;
   min-height: 54px;
   width: 100%;
 }
 
-.coord-fields .coord-input:first-of-type { max-width: 84px; flex: none; }
+/* Anteilig statt fest: So passen alle drei Kästchen auch auf ein schmales
+   Gerät, ohne dass die Zeile umbricht. */
+.coord-fields .coord-input { flex: 1 1 0; min-width: 0; }
+.coord-fields .coord-input:nth-of-type(1) { flex: 1.15 1 0; }
+.coord-fields .coord-input:nth-of-type(2) { flex: .85 1 0; }
 
 .coord-unit {
   font-family: var(--mono);
-  font-size: 1.1rem;
+  font-size: 1rem;
   color: var(--text-dim);
   flex: none;
 }
 
-.coord-hemi { width: 92px; flex: none; }
+.coord-unit.comma { font-weight: 700; color: var(--text); }
+
+.coord-hemi { width: 84px; flex: none; }
 .coord-hemi button { min-height: 54px; font-size: 1.05rem; font-weight: 700; }
 
 .coord-check {

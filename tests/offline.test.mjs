@@ -67,6 +67,15 @@ test('die Startseite ist mit aufgeführt', async () => {
   assert.ok(assets.includes('./index.html'), 'index.html fehlt');
 });
 
+/**
+ * Die einzige Datei, in der Adressen fremder Server stehen dürfen.
+ *
+ * Kartenkacheln müssen irgendwo herkommen, und genau dieses Herunterladen ist
+ * bewusst gewollt – aber nur dort, nur auf Knopfdruck und nur ins Gerät hinein.
+ * Alles andere lädt ausschließlich aus dem eigenen Verzeichnis.
+ */
+const TILE_SOURCE_FILE = 'js/data/tilesources.js';
+
 test('nichts wird aus dem Netz nachgeladen', async () => {
   // Eine einzige Schriftart oder Programmbibliothek von einem fremden Server
   // würde die App ohne Verbindung unbrauchbar machen.
@@ -84,11 +93,22 @@ test('nichts wird aus dem Netz nachgeladen', async () => {
       // Namensräume und Verweise in Kommentaren sind keine Ladevorgänge.
       if (url.startsWith('http://www.w3.org/')) continue;
       if (/^https:\/\/(claude\.ai|code\.claude\.com|github\.com)/.test(url)) continue;
+      if (file === TILE_SOURCE_FILE) continue;
       offenders.push(`${file}: ${url}`);
     }
   }
   assert.deepEqual(offenders, [],
     `Verweise auf fremde Server gefunden – die App wäre offline nicht vollständig:\n  ${offenders.join('\n  ')}`);
+});
+
+test('Kartenadressen stehen nur an der einen erlaubten Stelle', async () => {
+  const text = await readFile(join(ROOT, TILE_SOURCE_FILE), 'utf8');
+  const urls = [...text.matchAll(/https?:\/\/[^\s'"()]+/g)].map((m) => m[0]);
+  assert.ok(urls.length > 0, 'keine Kachelquelle hinterlegt');
+  // Kacheln werden nur geholt, wenn jemand ausdrücklich einen Bereich lädt –
+  // niemals beim Start und niemals von selbst.
+  assert.ok(/austauschen|Zugangsschlüssel/.test(text),
+    'Der Hinweis auf eine austauschbare Kachelquelle fehlt');
 });
 
 test('der Service Worker startet aus dem Cache, nicht aus dem Netz', async () => {

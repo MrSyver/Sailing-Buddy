@@ -5,7 +5,7 @@ import { audio } from '../lib/audio.js';
 import { t, loc, uiLang } from '../lib/i18n.js';
 import {
   LIGHTS, LIGHT_COLORS, LIGHT_CATEGORIES, LIGHT_TYPES, LIGHT_RANGES,
-  LIGHT_FACETS, FACET_GROUPS, filterLights, matchesFacets,
+  LIGHT_FACETS, FACET_GROUPS, matchesFacets,
 } from '../data/lights.js';
 import { SOUNDS, SOUND_GROUPS, SOUND_BASICS, DISTRESS_VISUAL } from '../data/sounds.js';
 import {
@@ -28,9 +28,10 @@ function searchAll(keys, category = 'all') {
 }
 
 const state = {
-  tab: 'lichter',        // 'lichter' | 'schall' | 'grundlagen'
+  tab: 'lichter',        // 'lichter' | 'tonnen' | 'schall' | 'grundlagen'
   facets: new Set(),     // gewählte Merkmale der Lichtersuche
   category: 'all',
+  aspect: 'bow',         // Blickrichtung auf das fremde Fahrzeug
   soundGroup: 'manoever',
   playing: null,
 };
@@ -231,7 +232,10 @@ function lightCard(l) {
   const note = loc(l, 'note');
   return h('div.card.light-card',
     h('div.light-head',
-      lightSchematic(l.view),
+      h('div.light-aspect',
+        lightSchematic(l, state.aspect),
+        aspectSwitch(),
+      ),
       h('div.txt',
         h('div.row', { style: { gap: '7px', 'align-items': 'flex-start' } },
           h('div.grow',
@@ -243,6 +247,7 @@ function lightCard(l) {
         h('p.light-pattern', loc(l, 'pattern')),
       ),
     ),
+    h('p.aspect-caption', t(`night.aspect.${state.aspect}.caption`)),
     h('ul.checklist.plain', { style: { 'margin-top': '10px' } },
       ...loc(l, 'lights').map((x) => h('li', x))),
     mnemonic && h('div.mnemonic', '„', mnemonic, '“'),
@@ -250,24 +255,126 @@ function lightCard(l) {
   );
 }
 
-/** Schematische Ansicht von vorn: Lichter als Punkte auf dunklem Grund. */
-function lightSchematic(view) {
-  const el = svg('svg.light-view', { viewBox: '0 0 100 100', 'aria-hidden': 'true' });
+/** Umschalter für die Ansicht – gilt für alle Karten zugleich. */
+function aspectSwitch() {
+  return h('div.seg.aspect-seg', {
+    role: 'group',
+    'aria-label': t('night.aspect.label'),
+  },
+  ...ASPECTS.map((key) => h('button', {
+    type: 'button',
+    'data-aspect': key,
+    'aria-pressed': String(state.aspect === key),
+    title: t(`night.aspect.${key}.title`),
+    onclick: () => { state.aspect = key; draw(); },
+  }, t(`night.aspect.${key}.short`))),
+  );
+}
 
-  // Angedeuteter Rumpf als Orientierung
-  el.appendChild(svg('path', {
-    d: 'M18 84 L82 84 L74 94 L26 94 Z',
-    fill: '#1a2433',
-    stroke: '#2b3949',
-    'stroke-width': '1',
-  }));
-  el.appendChild(svg('line', {
-    x1: '50', y1: '84', x2: '50', y2: '8',
-    stroke: '#2b3949', 'stroke-width': '1.4',
-  }));
+// -------------------------------------------------- Ansichten aus den Sektoren
 
-  (view?.lights ?? []).forEach((lt) => {
-    const hex = LIGHT_COLORS[lt.c].hex;
+export const ASPECTS = ['bow', 'beam', 'stern'];
+
+/**
+ * Welche Laterne ist aus welcher Richtung zu sehen?
+ *
+ * Grundlage sind die Sektoren der KVR Regel 21. Aus jeder Laterne werden die
+ * Lichter abgeleitet, die in der gewählten Ansicht tatsächlich brennen – so
+ * kann kein Bild etwas zeigen, was von dort gar nicht sichtbar wäre.
+ *
+ *   bow    querab bis querab über den Bug   – Topplichter, beide Seitenlichter
+ *   beam   genau querab, Steuerbordseite    – Topplichter, ein Seitenlicht
+ *   stern  über das Heck                    – Heck- und Schlepplicht
+ */
+function visibleLights(lantern, aspect, ctx = {}) {
+  const { k, c, y, at } = lantern;
+  switch (k) {
+    case 'masthead': {
+      if (aspect === 'stern') return [];
+      // Zwei Topplichter stehen längsschiffs versetzt: Das achtere steht
+      // höher. Von der Seite muss man das sehen, von vorn stehen sie in Linie.
+      const along = ctx.mastheads > 1 ? (ctx.rank === 0 ? 'mastAft' : 'mastFore') : 'mast';
+      return [{ c: 'w', y, along }];
+    }
+    case 'side':
+      if (aspect === 'stern') return [];
+      if (aspect === 'beam') return [{ c: 'g', y: 74, along: 'fore' }];
+      return [
+        // Kommt sie auf dich zu, liegt ihre Steuerbordseite links von dir.
+        { c: 'g', y: 74, across: lantern.wide ? -34 : -26 },
+        { c: 'r', y: 74, across: lantern.wide ? 34 : 26 },
+      ];
+    case 'stern':
+      return aspect === 'stern' ? [{ c: 'w', y: 70, along: 'mast' }] : [];
+    case 'towing':
+      return aspect === 'stern' ? [{ c: 'y', y: y ?? 52, along: 'mast' }] : [];
+    case 'tricolor':
+      if (aspect === 'stern') return [{ c: 'w', y, along: 'mast' }];
+      if (aspect === 'beam') return [{ c: 'g', y, along: 'mast' }];
+      return [{ c: 'g', y, across: -9 }, { c: 'r', y, across: 9 }];
+    case 'flash':
+      return [{ c: c ?? 'y', y, along: at ?? 'mast', flash: true }];
+    case 'torch':
+      return [{ c: 'w', y, along: 'mast' }];
+    case 'allround':
+    default:
+      return [{ c: c ?? 'w', y, along: at ?? 'mast' }];
+  }
+}
+
+/** Rechnet Höhe und Lage in Bildkoordinaten um. */
+function place(light, aspect) {
+  const MAST = 50;
+  if (aspect === 'beam') {
+    // Seitenansicht: Bug rechts. Vorn liegt weiter rechts, achtern links.
+    const along = {
+      mast: MAST, fore: 74, aft: 26, port: MAST - 4, stbd: MAST + 4,
+      mastAft: 38, mastFore: 62,
+    };
+    const x = light.across !== undefined
+      ? MAST + light.across * 0.55
+      : along[light.along] ?? MAST;
+    return { ...light, x };
+  }
+  // Bug- und Heckansicht: längsschiffs versetzte Laternen stehen in Linie,
+  // querschiffs versetzte spreizen sich auf.
+  const across = { port: -26, stbd: 26 };
+  const offset = light.across !== undefined
+    ? light.across
+    : (across[light.along] ?? 0);
+  // Von achtern gesehen liegt Backbord rechts – die Seite kippt.
+  return { ...light, x: MAST + (aspect === 'stern' ? -offset : offset) };
+}
+
+/**
+ * Schematische Ansicht: Lichter als Punkte auf dunklem Grund, dazu ein
+ * angedeuteter Rumpf, damit erkennbar bleibt, wohin man schaut.
+ */
+function lightSchematic(l, aspect) {
+  const el = svg('svg.light-view', {
+    viewBox: '0 0 100 100',
+    role: 'img',
+    'aria-label': `${loc(l, 'title')} – ${t(`night.aspect.${aspect}.title`)}`,
+  });
+
+  hull(el, aspect);
+
+  const lanterns = l.lanterns ?? [];
+  // Reihenfolge der Topplichter von oben nach unten – das oberste ist das
+  // achtere. Nur so lässt sich der Längsversatz richtig zeichnen.
+  const mastheads = lanterns
+    .filter((x) => x.k === 'masthead')
+    .sort((a, b) => (a.y ?? 0) - (b.y ?? 0));
+
+  const lights = lanterns
+    .flatMap((lantern) => visibleLights(lantern, aspect, {
+      mastheads: mastheads.length,
+      rank: mastheads.indexOf(lantern),
+    }))
+    .map((light) => place(light, aspect));
+
+  lights.forEach((lt) => {
+    const hex = LIGHT_COLORS[lt.c]?.hex ?? LIGHT_COLORS.w.hex;
     const g = svg('g');
     // Weicher Lichthof, damit die Punkte wie Laternen wirken
     g.appendChild(svg('circle', { cx: lt.x, cy: lt.y, r: 8.5, fill: hex, opacity: '0.22' }));
@@ -282,7 +389,35 @@ function lightSchematic(view) {
     el.appendChild(g);
   });
 
+  // Zeigt sie aus dieser Richtung gar nichts, ist das die Antwort – kein Bug.
+  if (!lights.length) {
+    el.appendChild(svg('text', {
+      class: 'aspect-none', x: 50, y: 46, 'text-anchor': 'middle', 'font-size': '9',
+    }, t('night.aspect.dark')));
+  }
+
   return el;
+}
+
+/** Rumpfandeutung je nach Blickrichtung. */
+function hull(el, aspect) {
+  const line = { fill: '#1a2433', stroke: '#2b3949', 'stroke-width': '1' };
+  if (aspect === 'beam') {
+    // Längsseits, Bug nach rechts
+    el.appendChild(svg('path', { ...line, d: 'M10 84 L84 84 L94 89 L86 95 L16 95 Z' }));
+    el.appendChild(svg('line', {
+      x1: '50', y1: '84', x2: '50', y2: '8', stroke: '#2b3949', 'stroke-width': '1.4',
+    }));
+    return;
+  }
+  // Von vorn und von achtern: schmaler Querschnitt. Das Heck steht kantiger.
+  el.appendChild(svg('path', {
+    ...line,
+    d: aspect === 'stern' ? 'M20 84 L80 84 L78 94 L22 94 Z' : 'M18 84 L82 84 L74 94 L26 94 Z',
+  }));
+  el.appendChild(svg('line', {
+    x1: '50', y1: '84', x2: '50', y2: '8', stroke: '#2b3949', 'stroke-width': '1.4',
+  }));
 }
 
 // ================================================================== Seezeichen

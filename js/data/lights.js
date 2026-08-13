@@ -2,9 +2,21 @@
  * Lichterführung nach den Kollisionsverhütungsregeln (KVR / COLREG), Regeln 20–31.
  * Zweisprachig: Deutsch direkt im Objekt, Englisch unter `en`.
  *
- * `view.lights` beschreibt eine schematische Ansicht von vorn.
- * Koordinaten in einem 100 x 100 großen Feld: x = 0 (Backbord) … 100 (Steuerbord),
- * y = 0 (Masttopp) … 100 (Wasserlinie). `c` = Farbe, `flash` = Funkel-/Blinklicht.
+ * `lanterns` beschreibt, welche Laternen ein Fahrzeug führt. Daraus leitet die
+ * App die Ansichten von vorn, von achtern und von der Seite ab – nach den
+ * Sektoren der KVR Regel 21, statt jede Ansicht einzeln zu zeichnen:
+ *
+ *   masthead  Topplicht, weiß, 225°  – von vorn und querab, nicht von achtern
+ *   side      Seitenlichter, je 112,5° – von vorn beide, querab nur eines
+ *   stern     Hecklicht, weiß, 135°  – nur von achtern
+ *   towing    Schlepplicht, gelb, 135° – nur von achtern
+ *   allround  Rundumlicht, 360°      – aus jeder Richtung
+ *   flash     Funkellicht, 360°
+ *   tricolor  Dreifarbenlaterne      – vorn rot und grün, achtern weiß
+ *   torch     weiße Handlampe
+ *
+ * `y` ist die Höhe im 100 x 100 großen Feld (0 = Masttopp, 100 = Wasserlinie),
+ * `at` die Lage längs- oder querschiffs für Sonderfälle.
  */
 
 export const LIGHT_COLORS = {
@@ -70,6 +82,7 @@ export const LIGHT_RANGES = [
 export const LIGHTS = [
   {
     id: 'power-under-50',
+    lanterns: [{ k: 'masthead', y: 26 }, { k: 'side' }, { k: 'stern' }],
     traits: ['steady', 'sidelights', 'masthead'],
     title: 'Maschinenfahrzeug in Fahrt',
     subtitle: '12 m bis unter 50 m',
@@ -83,7 +96,6 @@ export const LIGHTS = [
       'Hecklicht weiß (135°)',
       'Ein zweites, höheres Topplicht achtern ist erlaubt, aber nicht Pflicht',
     ],
-    view: { lights: [{ x: 50, y: 26, c: 'w' }, { x: 22, y: 72, c: 'r' }, { x: 78, y: 72, c: 'g' }] },
     note: 'Zwei weiße Topplichter übereinander bedeuten: Fahrzeug 50 m oder länger – das hintere steht höher, daran erkennst du auch, wohin es fährt.',
     en: {
       title: 'Power-driven vessel under way',
@@ -101,6 +113,7 @@ export const LIGHTS = [
   },
   {
     id: 'power-over-50',
+    lanterns: [{ k: 'masthead', y: 12 }, { k: 'masthead', y: 34 }, { k: 'side' }, { k: 'stern' }],
     traits: ['steady', 'sidelights', 'masthead', 'masthead2'],
     title: 'Maschinenfahrzeug in Fahrt',
     subtitle: '50 m und länger',
@@ -113,7 +126,6 @@ export const LIGHTS = [
       'Seitenlichter grün / rot',
       'Hecklicht weiß',
     ],
-    view: { lights: [{ x: 50, y: 12, c: 'w' }, { x: 50, y: 34, c: 'w' }, { x: 22, y: 72, c: 'r' }, { x: 78, y: 72, c: 'g' }] },
     note: 'Stehen die beiden Topplichter senkrecht übereinander, kommt der Frachter genau auf dich zu.',
     en: {
       title: 'Power-driven vessel under way',
@@ -130,6 +142,7 @@ export const LIGHTS = [
   },
   {
     id: 'power-under-12',
+    lanterns: [{ k: 'allround', c: 'w', y: 30 }, { k: 'side' }],
     traits: ['steady', 'sidelights', 'allround'],
     title: 'Kleines Maschinenfahrzeug',
     subtitle: 'unter 12 m',
@@ -141,7 +154,6 @@ export const LIGHTS = [
       'Weißes Rundumlicht statt Topp- und Hecklicht',
       'Seitenlichter grün / rot (dürfen in einer Laterne vereinigt sein)',
     ],
-    view: { lights: [{ x: 50, y: 30, c: 'w' }, { x: 26, y: 72, c: 'r' }, { x: 74, y: 72, c: 'g' }] },
     en: {
       title: 'Small power-driven vessel',
       subtitle: 'under 12 m',
@@ -155,6 +167,7 @@ export const LIGHTS = [
   },
   {
     id: 'sail',
+    lanterns: [{ k: 'side' }, { k: 'stern' }],
     traits: ['steady', 'sidelights'],
     title: 'Segelfahrzeug in Fahrt',
     subtitle: 'nur unter Segeln',
@@ -168,7 +181,6 @@ export const LIGHTS = [
       'Kein Topplicht – das ist der Unterschied zum Motorboot',
       'Zusätzlich erlaubt: zwei Rundumlichter im Topp, rot über grün',
     ],
-    view: { lights: [{ x: 24, y: 70, c: 'r' }, { x: 76, y: 70, c: 'g' }] },
     mnemonic: 'Rot über Grün – ein Segler ist zu seh’n.',
     note: 'Segelfahrzeuge unter 20 m dürfen die drei Farben in einer Dreifarbenlaterne im Masttopp führen – dann aber nicht zusätzlich die Rundumlichter.',
     en: {
@@ -188,6 +200,7 @@ export const LIGHTS = [
   },
   {
     id: 'sail-tricolor',
+    lanterns: [{ k: 'tricolor', y: 20 }],
     traits: ['steady', 'sidelights'],
     title: 'Segelfahrzeug mit Dreifarbenlaterne',
     subtitle: 'unter 20 m',
@@ -199,7 +212,6 @@ export const LIGHTS = [
       'Eine Laterne im Topp vereinigt Seitenlichter und Hecklicht',
       'Sitzt hoch – wirkt aus der Ferne wie ein einzelnes Licht',
     ],
-    view: { lights: [{ x: 40, y: 20, c: 'r' }, { x: 60, y: 20, c: 'g' }] },
     note: 'Achtung bei Restwelle: Die hoch sitzende Laterne wandert stark – aus der Entfernung leicht mit einem Sternenlicht zu verwechseln.',
     en: {
       title: 'Sailing vessel with a tricolour lantern',
@@ -215,6 +227,7 @@ export const LIGHTS = [
   },
   {
     id: 'sail-under-power',
+    lanterns: [{ k: 'masthead', y: 26 }, { k: 'side' }, { k: 'stern' }],
     traits: ['steady', 'sidelights', 'masthead'],
     title: 'Segelfahrzeug unter Maschine',
     subtitle: 'Segel gesetzt, Motor läuft',
@@ -226,7 +239,6 @@ export const LIGHTS = [
       'Es gelten die Lichter eines Maschinenfahrzeugs: Topplicht, Seitenlichter, Hecklicht',
       'Bei Tag: schwarzer Kegel mit der Spitze nach unten im Vorschiff',
     ],
-    view: { lights: [{ x: 50, y: 26, c: 'w' }, { x: 24, y: 72, c: 'r' }, { x: 76, y: 72, c: 'g' }] },
     note: 'Sobald der Motor mitschiebt, bist du kein Segelfahrzeug mehr – auch nicht bei den Ausweichregeln.',
     en: {
       title: 'Sailing vessel under power',
@@ -242,6 +254,7 @@ export const LIGHTS = [
   },
   {
     id: 'rowing',
+    lanterns: [{ k: 'torch', y: 55 }],
     traits: ['steady', 'single'],
     title: 'Ruderboot',
     subtitle: 'Fahrzeug unter Riemen',
@@ -253,7 +266,6 @@ export const LIGHTS = [
       'Darf die Lichter eines Segelfahrzeugs führen',
       'Sonst: eine weiße Handlampe oder Laterne rechtzeitig zeigen, um Zusammenstöße zu vermeiden',
     ],
-    view: { lights: [{ x: 50, y: 55, c: 'w' }] },
     en: {
       title: 'Vessel under oars',
       subtitle: 'rowing boat',
@@ -267,6 +279,7 @@ export const LIGHTS = [
   },
   {
     id: 'nuc',
+    lanterns: [{ k: 'allround', c: 'r', y: 24 }, { k: 'allround', c: 'r', y: 44 }],
     traits: ['steady', 'stack2'],
     title: 'Manövrierunfähiges Fahrzeug',
     subtitle: 'nicht unter Kommando',
@@ -280,7 +293,6 @@ export const LIGHTS = [
       'Niemals ein Topplicht',
       'Bei Tag: zwei schwarze Bälle senkrecht übereinander',
     ],
-    view: { lights: [{ x: 50, y: 24, c: 'r' }, { x: 50, y: 44, c: 'r' }] },
     mnemonic: 'Rot über Rot – der Kapitän ist tot.',
     note: 'Fehlen Seiten- und Hecklicht, treibt das Fahrzeug ohne Fahrt durchs Wasser. Ihm musst du ausweichen.',
     en: {
@@ -300,6 +312,7 @@ export const LIGHTS = [
   },
   {
     id: 'ram',
+    lanterns: [{ k: 'allround', c: 'r', y: 18 }, { k: 'allround', c: 'w', y: 36 }, { k: 'allround', c: 'r', y: 54 }],
     traits: ['steady', 'stack3'],
     title: 'Manövrierbehindertes Fahrzeug',
     subtitle: 'z. B. Bagger, Kabelleger, Tonnenleger',
@@ -313,7 +326,6 @@ export const LIGHTS = [
       'Bei Tag: Ball – Doppelkegel – Ball',
       'Ist eine Seite blockiert: zwei rote Rundumlichter auf der Seite des Hindernisses, zwei grüne auf der freien Seite',
     ],
-    view: { lights: [{ x: 50, y: 18, c: 'r' }, { x: 50, y: 36, c: 'w' }, { x: 50, y: 54, c: 'r' }] },
     mnemonic: 'Rot – Weiß – Rot: manövrierbehindert in Not.',
     note: 'Zwei grüne Rundumlichter übereinander zeigen dir die Seite, an der du gefahrlos vorbeikommst.',
     en: {
@@ -333,6 +345,7 @@ export const LIGHTS = [
   },
   {
     id: 'cbd',
+    lanterns: [{ k: 'allround', c: 'r', y: 10 }, { k: 'allround', c: 'r', y: 24 }, { k: 'allround', c: 'r', y: 38 }, { k: 'masthead', y: 54 }, { k: 'side' }, { k: 'stern' }],
     traits: ['steady', 'stack3', 'sidelights', 'masthead'],
     title: 'Tiefgangbehindertes Fahrzeug',
     subtitle: 'durch den Tiefgang behindert',
@@ -345,7 +358,6 @@ export const LIGHTS = [
       'Zusätzlich die normalen Fahrtlichter eines Maschinenfahrzeugs',
       'Bei Tag: ein schwarzer Zylinder',
     ],
-    view: { lights: [{ x: 50, y: 14, c: 'r' }, { x: 50, y: 30, c: 'r' }, { x: 50, y: 46, c: 'r' }, { x: 30, y: 76, c: 'r' }, { x: 70, y: 76, c: 'g' }] },
     note: 'Der Riese kann das Fahrwasser nicht verlassen – du weichst aus, immer.',
     en: {
       title: 'Vessel constrained by her draught',
@@ -362,6 +374,7 @@ export const LIGHTS = [
   },
   {
     id: 'trawler',
+    lanterns: [{ k: 'allround', c: 'g', y: 22 }, { k: 'allround', c: 'w', y: 42 }, { k: 'side' }, { k: 'stern' }],
     traits: ['steady', 'stack2', 'sidelights'],
     title: 'Fahrzeug beim Fischen mit Schleppnetz',
     subtitle: 'Trawler',
@@ -374,7 +387,6 @@ export const LIGHTS = [
       'Bei Fahrt durchs Wasser zusätzlich Seiten- und Hecklicht',
       'Bei Tag: zwei schwarze Kegel, Spitzen gegeneinander',
     ],
-    view: { lights: [{ x: 50, y: 22, c: 'g' }, { x: 50, y: 42, c: 'w' }, { x: 28, y: 76, c: 'r' }, { x: 72, y: 76, c: 'g' }] },
     mnemonic: 'Grün über Weiß – der Trawler zieht mit Fleiß.',
     en: {
       title: 'Vessel engaged in trawling',
@@ -391,6 +403,7 @@ export const LIGHTS = [
   },
   {
     id: 'fishing',
+    lanterns: [{ k: 'allround', c: 'r', y: 22 }, { k: 'allround', c: 'w', y: 42 }, { k: 'side' }, { k: 'stern' }],
     traits: ['steady', 'stack2', 'sidelights'],
     title: 'Fahrzeug beim Fischen',
     subtitle: 'ohne Schleppnetz, z. B. Netze oder Langleinen',
@@ -404,7 +417,6 @@ export const LIGHTS = [
       'Reicht das Fanggerät weiter als 150 m waagerecht hinaus: ein weißes Rundumlicht in dessen Richtung',
       'Bei Tag: zwei schwarze Kegel, Spitzen gegeneinander',
     ],
-    view: { lights: [{ x: 50, y: 22, c: 'r' }, { x: 50, y: 42, c: 'w' }, { x: 28, y: 76, c: 'r' }, { x: 72, y: 76, c: 'g' }] },
     mnemonic: 'Rot über Weiß – der Fischer ist fleißig.',
     note: 'Ein zusätzliches weißes Rundumlicht abseits zeigt die Richtung der ausliegenden Netze – dort auf keinen Fall durchfahren.',
     en: {
@@ -424,6 +436,7 @@ export const LIGHTS = [
   },
   {
     id: 'pilot',
+    lanterns: [{ k: 'allround', c: 'w', y: 22 }, { k: 'allround', c: 'r', y: 42 }, { k: 'side' }, { k: 'stern' }],
     traits: ['steady', 'stack2', 'sidelights'],
     title: 'Lotsenfahrzeug im Dienst',
     subtitle: 'Lotsenversetzboot',
@@ -436,7 +449,6 @@ export const LIGHTS = [
       'In Fahrt zusätzlich Seiten- und Hecklicht',
       'Vor Anker zusätzlich die Ankerlichter',
     ],
-    view: { lights: [{ x: 50, y: 22, c: 'w' }, { x: 50, y: 42, c: 'r' }, { x: 28, y: 76, c: 'r' }, { x: 72, y: 76, c: 'g' }] },
     mnemonic: 'Weiß über Rot – der Lotse fährt zum Boot.',
     en: {
       title: 'Pilot vessel on duty',
@@ -453,6 +465,7 @@ export const LIGHTS = [
   },
   {
     id: 'anchor',
+    lanterns: [{ k: 'allround', c: 'w', y: 30, at: 'fore' }],
     traits: ['steady', 'single', 'allround'],
     title: 'Fahrzeug vor Anker',
     subtitle: 'unter 50 m',
@@ -465,7 +478,6 @@ export const LIGHTS = [
       'Bei Tag: ein schwarzer Ball im Vorschiff',
       'Unter 7 m außerhalb von Fahrwassern und Ankerplätzen: nicht vorgeschrieben – setz es trotzdem',
     ],
-    view: { lights: [{ x: 50, y: 30, c: 'w' }] },
     note: 'Ein einzelnes stehendes weißes Licht ohne Seitenlichter: Ankerlieger. Gib ihm Raum, er schwojt.',
     en: {
       title: 'Vessel at anchor',
@@ -482,6 +494,7 @@ export const LIGHTS = [
   },
   {
     id: 'anchor-large',
+    lanterns: [{ k: 'allround', c: 'w', y: 24, at: 'fore' }, { k: 'allround', c: 'w', y: 48, at: 'aft' }],
     traits: ['steady', 'allround'],
     title: 'Fahrzeug vor Anker',
     subtitle: '50 m und länger',
@@ -494,7 +507,6 @@ export const LIGHTS = [
       'Weißes Rundumlicht achtern (niedriger)',
       'Ab 100 m Länge: Decksbeleuchtung zusätzlich einschalten',
     ],
-    view: { lights: [{ x: 34, y: 26, c: 'w' }, { x: 66, y: 50, c: 'w' }] },
     en: {
       title: 'Vessel at anchor',
       subtitle: '50 m and over',
@@ -509,6 +521,7 @@ export const LIGHTS = [
   },
   {
     id: 'aground',
+    lanterns: [{ k: 'allround', c: 'r', y: 14 }, { k: 'allround', c: 'r', y: 32 }, { k: 'allround', c: 'w', y: 54, at: 'fore' }],
     traits: ['steady', 'stack2', 'allround'],
     title: 'Festgekommenes Fahrzeug',
     subtitle: 'auf Grund gelaufen',
@@ -521,7 +534,6 @@ export const LIGHTS = [
       'Zusätzlich zwei rote Rundumlichter senkrecht übereinander',
       'Bei Tag: drei schwarze Bälle senkrecht übereinander',
     ],
-    view: { lights: [{ x: 50, y: 14, c: 'r' }, { x: 50, y: 32, c: 'r' }, { x: 50, y: 54, c: 'w' }] },
     note: 'Rot über Rot und dazu ein weißes Ankerlicht – hier ist jemand auf Grund. Also: Wassertiefe prüfen und weiträumig ausweichen.',
     en: {
       title: 'Vessel aground',
@@ -538,6 +550,7 @@ export const LIGHTS = [
   },
   {
     id: 'towing',
+    lanterns: [{ k: 'masthead', y: 14 }, { k: 'masthead', y: 32 }, { k: 'side' }, { k: 'stern' }, { k: 'towing', y: 56 }],
     traits: ['steady', 'sidelights', 'masthead', 'masthead2'],
     title: 'Schleppender Schlepper',
     subtitle: 'Schleppanhang bis 200 m',
@@ -550,7 +563,6 @@ export const LIGHTS = [
       'Seitenlichter und Hecklicht',
       'Gelbes Schlepplicht über dem Hecklicht',
     ],
-    view: { lights: [{ x: 50, y: 14, c: 'w' }, { x: 50, y: 32, c: 'w' }, { x: 26, y: 76, c: 'r' }, { x: 74, y: 76, c: 'g' }] },
     note: 'Zwischen Schlepper und Anhang läuft eine Trosse, oft kaum sichtbar und weit unter Wasser durchhängend. Niemals dazwischen durchfahren.',
     en: {
       title: 'Vessel towing',
@@ -567,6 +579,7 @@ export const LIGHTS = [
   },
   {
     id: 'towed',
+    lanterns: [{ k: 'side' }, { k: 'stern' }],
     traits: ['steady', 'sidelights'],
     title: 'Geschlepptes Fahrzeug',
     subtitle: 'Anhang im Schleppverband',
@@ -579,7 +592,6 @@ export const LIGHTS = [
       'Hecklicht weiß',
       'Kein Topplicht',
     ],
-    view: { lights: [{ x: 26, y: 72, c: 'r' }, { x: 74, y: 72, c: 'g' }] },
     en: {
       title: 'Vessel being towed',
       subtitle: 'the tow itself',
@@ -594,6 +606,7 @@ export const LIGHTS = [
   },
   {
     id: 'pushing',
+    lanterns: [{ k: 'masthead', y: 14 }, { k: 'masthead', y: 34 }, { k: 'side', wide: true }, { k: 'stern' }],
     traits: ['steady', 'sidelights', 'masthead', 'masthead2'],
     title: 'Schubverband',
     subtitle: 'Schubboot und Leichter fest verbunden',
@@ -605,7 +618,6 @@ export const LIGHTS = [
       'Topplichter, Seitenlichter und Hecklicht wie ein Maschinenfahrzeug entsprechender Länge',
       'Seitenlichter sitzen ganz vorn am Leichter – der Verband ist viel länger, als die Lichter vermuten lassen',
     ],
-    view: { lights: [{ x: 50, y: 14, c: 'w' }, { x: 50, y: 34, c: 'w' }, { x: 16, y: 76, c: 'r' }, { x: 84, y: 76, c: 'g' }] },
     en: {
       title: 'Composite unit, pushing ahead',
       subtitle: 'pusher and barge rigidly connected',
@@ -619,6 +631,7 @@ export const LIGHTS = [
   },
   {
     id: 'hovercraft',
+    lanterns: [{ k: 'flash', c: 'y', y: 16 }, { k: 'masthead', y: 38 }, { k: 'side' }, { k: 'stern' }],
     traits: ['sidelights', 'masthead', 'flash', 'quick'],
     title: 'Luftkissenfahrzeug',
     subtitle: 'im nichtverdrängenden Betrieb',
@@ -630,7 +643,6 @@ export const LIGHTS = [
       'Die normalen Lichter eines Maschinenfahrzeugs',
       'Zusätzlich ein gelbes Rundum-Funkellicht',
     ],
-    view: { lights: [{ x: 50, y: 16, c: 'y', flash: true }, { x: 50, y: 38, c: 'w' }, { x: 26, y: 76, c: 'r' }, { x: 74, y: 76, c: 'g' }] },
     note: 'Sehr schnell unterwegs – die Peilung ändert sich rasch, verlass dich nicht auf eine einmalige Beobachtung.',
     en: {
       title: 'Air-cushion vehicle',
@@ -646,6 +658,7 @@ export const LIGHTS = [
   },
   {
     id: 'minesweeper',
+    lanterns: [{ k: 'allround', c: 'g', y: 18 }, { k: 'allround', c: 'g', y: 40, at: 'port' }, { k: 'allround', c: 'g', y: 40, at: 'stbd' }, { k: 'masthead', y: 58 }, { k: 'side' }, { k: 'stern' }],
     traits: ['steady', 'sidelights', 'masthead', 'triangle'],
     title: 'Minenräumfahrzeug',
     subtitle: 'bei der Minenräumung',
@@ -658,7 +671,6 @@ export const LIGHTS = [
       'Drei grüne Rundumlichter: eines im Topp, je eines an den Rahnocken',
       'Bei Tag: drei schwarze Bälle in gleicher Anordnung',
     ],
-    view: { lights: [{ x: 50, y: 18, c: 'g' }, { x: 22, y: 40, c: 'g' }, { x: 78, y: 40, c: 'g' }, { x: 50, y: 58, c: 'w' }] },
     note: 'Nicht näher als 1000 m heranfahren.',
     en: {
       title: 'Vessel engaged in mine clearance',

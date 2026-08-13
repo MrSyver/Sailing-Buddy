@@ -6,7 +6,7 @@
  * keine Kacheln und keine Netzverbindung gebraucht.
  */
 
-import { h, svg, render, copy, toast } from '../lib/dom.js';
+import { h, svg, render, copy, toast, fit } from '../lib/dom.js';
 import { settings, waypoints } from '../lib/storage.js';
 import { gps, GPS_STATUS_KEY } from '../lib/gps.js';
 import { t, locale, uiLang, num } from '../lib/i18n.js';
@@ -192,15 +192,11 @@ function targetInput() {
   const p = state.parts;
 
   /**
-   * Behält nur Ziffern und höchstens ein Dezimalzeichen. Damit ist es egal,
-   * ob jemand Punkt oder Komma tippt – und eingefügte Gradzeichen fallen
-   * einfach weg, statt die Eingabe unbrauchbar zu machen.
+   * Jedes Feld nimmt nur Ziffern. Grad, ganze Minuten und Nachkommastellen
+   * stehen getrennt – so gibt es kein Komma zu treffen und eingefügte
+   * Gradzeichen fallen weg, statt die Eingabe unbrauchbar zu machen.
    */
-  const clean = (raw) => {
-    const kept = raw.replace(/[^\d.,]/g, '').replace(/\./g, ',');
-    const [whole, ...rest] = kept.split(',');
-    return rest.length ? `${whole},${rest.join('')}` : whole;
-  };
+  const clean = (raw) => raw.replace(/\D/g, '');
 
   /** Ein Zahlenfeld – ruft die Zifferntastatur auf, sonst nichts. */
   const numField = (key, { max, label, hint, next }) => h('input.coord-input', {
@@ -214,12 +210,16 @@ function targetInput() {
     placeholder: hint,
     'aria-label': label,
     oninput: (e) => {
-      const cleaned = clean(e.target.value);
-      if (cleaned !== e.target.value) e.target.value = cleaned;
+      const raw = e.target.value;
+      const cleaned = clean(raw);
+      if (cleaned !== raw) e.target.value = cleaned;
       state.parts = { ...state.parts, [key]: cleaned };
       applyParts({ redraw: false });
-      // Ist die Gradzahl voll, von selbst ins Minutenfeld springen.
-      if (next && cleaned.length >= max) document.getElementById(next)?.focus();
+      // Ist das Feld voll, von selbst ins nächste springen. Ein getipptes
+      // Komma oder Punkt tut dasselbe – so lässt sich „31,234“ am Stück
+      // eintippen, obwohl es zwei Felder sind.
+      const jump = cleaned.length >= max || /[.,]/.test(raw);
+      if (next && jump) document.getElementById(next)?.focus();
     },
     onfocus: (e) => e.target.select(),
   });
@@ -236,7 +236,7 @@ function targetInput() {
     }, code)),
   );
 
-  const row = (label, degKey, minKey, hemiEl, degMax, degHint) => h('div.coord-row',
+  const row = (label, degKey, minKey, decKey, hemiEl, degMax, degHint, minHint) => h('div.coord-row',
     h('span.coord-label', label),
     h('div.coord-fields',
       numField(degKey, {
@@ -246,7 +246,15 @@ function targetInput() {
         next: `coord-${minKey}`,
       }),
       h('span.coord-unit', '°'),
-      numField(minKey, { max: 7, label: `${label} – ${t('pos.minutes')}`, hint: '31,234' }),
+      numField(minKey, {
+        max: 2,
+        label: `${label} – ${t('pos.minutes')}`,
+        hint: minHint,
+        next: `coord-${decKey}`,
+      }),
+      h('span.coord-unit.comma', ','),
+      // Eigenes Kästchen für die Nachkommastellen der Minuten.
+      numField(decKey, { max: 3, label: `${label} – ${t('pos.decimals')}`, hint: '234' }),
       h('span.coord-unit', '′'),
     ),
     hemiEl,
@@ -256,8 +264,8 @@ function targetInput() {
     h('h2', t('pos.target')),
     h('p.small.muted', { style: { margin: '0 0 12px' } }, t('pos.targetHintSimple')),
 
-    row(t('pos.latitude'), 'latDeg', 'latMin', hemi('latHemi', 'N', 'S'), 2, '54'),
-    row(t('pos.longitude'), 'lonDeg', 'lonMin', hemi('lonHemi', 'E', 'W'), 3, '011'),
+    row(t('pos.latitude'), 'latDeg', 'latMin', 'latDec', hemi('latHemi', 'N', 'S'), 2, '54', '31'),
+    row(t('pos.longitude'), 'lonDeg', 'lonMin', 'lonDec', hemi('lonHemi', 'E', 'W'), 3, '011', '22'),
 
     h('p.small.coord-error', {
       style: {
@@ -404,16 +412,8 @@ function result(nav, opts) {
     h('h2', state.targetName ? t('pos.toNamed', { name: state.targetName }) : t('pos.toTarget')),
 
     h('div.readout',
-      h('div.cell.hero',
-        h('div.label', t('pos.distance')),
-        h('div.value', num(distance, distance < 10 ? 2 : 1), h('span.unit', 'sm')),
-        h('div.sub', metres(distance)),
-      ),
-      h('div.cell.hero',
-        h('div.label', t('pos.trueCourse')),
-        h('div.value', deg3(bearing), h('span.unit', '°')),
-        h('div.sub', t('pos.trueCourseSub')),
-      ),
+      heroCell(t('pos.distance'), num(distance, distance < 10 ? 2 : 1), 'sm', metres(distance)),
+      heroCell(t('pos.trueCourse'), deg3(bearing), '°', t('pos.trueCourseSub')),
     ),
 
     compassRose(bearing, opts.heading, relative),
@@ -437,34 +437,24 @@ function result(nav, opts) {
       && h('p.small.muted', { style: { margin: '7px 0 0' } }, t('pos.courseUpNeedsHeading')),
 
     h('div.readout', { style: { 'margin-top': '12px' } },
-      hasVar && h('div.cell',
-        h('div.label', t('pos.magnetic')),
-        h('div.value', deg3(courses.magnetic), h('span.unit', '°')),
-        h('div.sub', t('pos.magneticSub', { v: fmtSigned(opts.variation) })),
-      ),
-      hasDev && h('div.cell',
-        h('div.label', t('pos.compass')),
-        h('div.value', deg3(courses.compass), h('span.unit', '°')),
-        h('div.sub', t('pos.compassSub', { v: fmtSigned(opts.deviation) })),
-      ),
-      h('div.cell',
-        h('div.label', t('pos.reciprocal')),
-        h('div.value', deg3(reciprocal), h('span.unit', '°')),
-        h('div.sub', t('pos.reciprocalSub')),
-      ),
+      hasVar && cell(t('pos.magnetic'), deg3(courses.magnetic), '°',
+        t('pos.magneticSub', { v: fmtSigned(opts.variation) })),
+      hasDev && cell(t('pos.compass'), deg3(courses.compass), '°',
+        t('pos.compassSub', { v: fmtSigned(opts.deviation) })),
+      cell(t('pos.reciprocal'), deg3(reciprocal), '°', t('pos.reciprocalSub')),
       h('div.cell',
         h('div.label', t('pos.eta')),
-        h('div.value', { style: { 'font-size': '1.4rem' } }, formatDuration(eta)),
+        h('div.value.mid', formatDuration(eta)),
         h('div.sub', opts.speed ? t('pos.etaAt', { v: num(opts.speed) }) : t('pos.etaNoSpeed')),
       ),
       relative && h('div.cell.wide',
         h('div.label', t('pos.relative')),
-        h('div.value', { style: { 'font-size': '1.4rem' } }, relativeText(relative)),
+        h('div.value.mid', relativeText(relative)),
         h('div.sub', t('pos.relativeSub')),
       ),
       eta && h('div.cell.wide',
         h('div.label', t('pos.arrival')),
-        h('div.value', { style: { 'font-size': '1.4rem' } },
+        h('div.value.mid',
           new Date(Date.now() + eta * 1000).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' }),
           t('pos.clock') && h('span.unit', t('pos.clock'))),
       ),
@@ -516,7 +506,16 @@ function fmtSigned(v) {
 function cell(label, value, unit, sub) {
   return h('div.cell',
     h('div.label', label),
-    h('div.value', value, unit && h('span.unit', unit)),
+    h(`div.value${fit(value)}`, value, unit && h('span.unit', unit)),
+    sub && h('div.sub', sub),
+  );
+}
+
+/** Die beiden großen Kacheln oben: Entfernung und rechtweisender Kurs. */
+function heroCell(label, value, unit, sub) {
+  return h('div.cell.hero',
+    h('div.label', label),
+    h(`div.value${fit(value)}`, value, unit && h('span.unit', unit)),
     sub && h('div.sub', sub),
   );
 }

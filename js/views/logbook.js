@@ -7,7 +7,7 @@
  * Tiefenangaben vor, die es nicht gibt.
  */
 
-import { h, svg, render, copy, toast } from '../lib/dom.js';
+import { h, svg, render, copy, toast, fit } from '../lib/dom.js';
 import { gps } from '../lib/gps.js';
 import { settings } from '../lib/storage.js';
 import { t, locale, num } from '../lib/i18n.js';
@@ -203,7 +203,7 @@ function trackPlot(track) {
 function cell(label, value, unit) {
   return h('div.cell',
     h('div.label', label),
-    h('div.value', { style: { 'font-size': '1.5rem' } }, value, unit && h('span.unit', unit)),
+    h(`div.value.mid${fit(value)}`, value, unit && h('span.unit', unit)),
   );
 }
 

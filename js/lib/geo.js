@@ -320,12 +320,20 @@ export function parsePositionPair(input) {
 
 /**
  * Zerlegt eine Position in die Felder, die an Bord auch so abgelesen werden:
- * Grad, Dezimalminuten und Himmelsrichtung. Damit lässt sie sich ohne
- * Gradzeichen, Hochkomma und Tastaturakrobatik eintippen.
+ * Grad, ganze Minuten, Nachkommastellen und Himmelsrichtung. Damit lässt sie
+ * sich ohne Gradzeichen, Hochkomma und Tastaturakrobatik eintippen.
+ *
+ * Die Nachkommastellen stehen bewusst in einem eigenen Feld: Wer eine Position
+ * aus einem Notruf abschreibt, hört „vierundfünfzig Grad, einunddreißig Komma
+ * zwei-drei-vier Minuten“ – und tippt genau in dieser Reihenfolge weiter, ohne
+ * das Komma treffen zu müssen.
  */
 export function toParts(pos) {
   if (!pos) {
-    return { latDeg: '', latMin: '', latHemi: 'N', lonDeg: '', lonMin: '', lonHemi: 'E' };
+    return {
+      latDeg: '', latMin: '', latDec: '', latHemi: 'N',
+      lonDeg: '', lonMin: '', lonDec: '', lonHemi: 'E',
+    };
   }
   const split = (value, pad) => {
     const abs = Math.abs(value);
@@ -336,16 +344,23 @@ export function toParts(pos) {
       min = 0;
       deg += 1;
     }
-    return { deg: String(deg).padStart(pad, '0'), min: min.toFixed(3) };
+    const [whole, dec] = min.toFixed(3).split('.');
+    return {
+      deg: String(deg).padStart(pad, '0'),
+      min: whole.padStart(2, '0'),
+      dec,
+    };
   };
   const la = split(pos.lat, 2);
   const lo = split(pos.lon, 3);
   return {
     latDeg: la.deg,
     latMin: la.min,
+    latDec: la.dec,
     latHemi: pos.lat >= 0 ? 'N' : 'S',
     lonDeg: lo.deg,
     lonMin: lo.min,
+    lonDec: lo.dec,
     lonHemi: pos.lon >= 0 ? 'E' : 'W',
   };
 }
@@ -353,7 +368,9 @@ export function toParts(pos) {
 /**
  * Baut aus den Einzelfeldern wieder eine Position.
  * Rückgabe: { lat, lon } oder null, wenn etwas fehlt oder unmöglich ist.
- * Komma und Punkt werden beide als Dezimaltrenner akzeptiert.
+ *
+ * Die Nachkommastellen dürfen im eigenen Feld stehen (`latDec`) oder – aus
+ * eingefügtem Text – noch im Minutenfeld kleben. Beides ergibt dasselbe.
  */
 export function fromParts(parts) {
   if (!parts) return null;
@@ -363,14 +380,21 @@ export function fromParts(parts) {
     if (!/^\d+(\.\d+)?$/.test(text)) return NaN;
     return Number(text);
   };
+  /** Reine Nachkommastellen: „234“ wird zu 0,234. */
+  const frac = (value) => {
+    const text = String(value ?? '').trim();
+    if (text === '') return 0;
+    if (!/^\d+$/.test(text)) return NaN;
+    return Number(`0.${text}`);
+  };
 
   // Ohne Gradangabe gibt es nichts zu rechnen.
   if (String(parts.latDeg ?? '').trim() === '' || String(parts.lonDeg ?? '').trim() === '') return null;
 
   const latDeg = num(parts.latDeg);
-  const latMin = num(parts.latMin);
+  const latMin = num(parts.latMin) + frac(parts.latDec);
   const lonDeg = num(parts.lonDeg);
-  const lonMin = num(parts.lonMin);
+  const lonMin = num(parts.lonMin) + frac(parts.lonDec);
   if ([latDeg, latMin, lonDeg, lonMin].some(Number.isNaN)) return null;
   if (latMin >= 60 || lonMin >= 60) return null;
 

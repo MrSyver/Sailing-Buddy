@@ -254,7 +254,8 @@ check('Eigene Position ist groß gesetzt', ownSize >= 26, `${ownSize}px`);
 await page.locator('#coord-latDeg').fill('54');
 await page.locator('#coord-latMin').fill('26');
 await page.locator('#coord-lonDeg').fill('11');
-await page.locator('#coord-lonMin').fill('11.4');
+await page.locator('#coord-lonMin').fill('11');
+await page.locator('#coord-lonDec').fill('4');
 await page.waitForSelector('.compass');
 check('Kopfzeilen-Symbol ist sichtbar',
   await page.locator('.topbar .icon-btn svg').evaluate((el) => el.getBoundingClientRect().width) > 10);
@@ -269,11 +270,21 @@ const bearing = await page.locator('.compass .center-text').textContent();
 check('Kurs im Kompass', bearing === '097°', bearing);
 await shot('04-position');
 
-// Buchstaben werden gar nicht erst angenommen.
-await page.locator('#coord-latMin').fill('abc26,5');
+// Buchstaben werden gar nicht erst angenommen, und das volle Minutenfeld
+// reicht von selbst ins Kästchen für die Nachkommastellen weiter.
+await page.locator('#coord-latMin').fill('a2');
 check('Nur Ziffern landen im Feld',
-  (await page.locator('#coord-latMin').inputValue()) === '26,5',
+  (await page.locator('#coord-latMin').inputValue()) === '2',
   await page.locator('#coord-latMin').inputValue());
+await page.locator('#coord-latMin').fill('26');
+const jumped = await page.evaluate(() => document.activeElement?.id);
+check('Volles Minutenfeld springt weiter', jumped === 'coord-latDec', jumped);
+await page.locator('#coord-latDec').fill('5');
+check('Nachkommastellen haben ein eigenes Kästchen',
+  (await page.locator('.coord-check').innerText()).includes('26.5')
+  || (await page.locator('.coord-check').innerText()).includes("26,5"),
+  await page.locator('.coord-check').innerText());
+await page.locator('#coord-latDec').fill('');
 
 // Unmögliche Werte werden gemeldet.
 await page.locator('#coord-latDeg').fill('95');
@@ -321,6 +332,36 @@ await goTab(2);
 await page.waitForSelector('.light-card');
 const cardsAll = await page.locator('.light-card').count();
 check('Lichterliste gefüllt', cardsAll > 10, `${cardsAll} Einträge`);
+
+// Ansichten: Aus welcher Richtung sieht man welche Laternen? Die erste Karte
+// ist das Maschinenfahrzeug – von vorn Topplicht und beide Seitenlichter,
+// von achtern nur das Hecklicht.
+const firstCard = page.locator('.light-card').first();
+const lightColors = () => firstCard.locator('.light-view circle')
+  .evaluateAll((els) => els.map((el) => el.getAttribute('fill')));
+const RED = '#ff453a';
+const GREEN = '#32d74b';
+
+const bowColors = await lightColors();
+check('Von vorn sind beide Seitenlichter zu sehen',
+  bowColors.includes(RED) && bowColors.includes(GREEN), bowColors.join(' '));
+
+await firstCard.locator('.aspect-seg button[data-aspect="stern"]').click();
+const sternColors = await lightColors();
+check('Von achtern keine Seitenlichter',
+  !sternColors.includes(RED) && !sternColors.includes(GREEN), sternColors.join(' '));
+check('Von achtern bleibt weniger übrig', sternColors.length < bowColors.length,
+  `vorn ${bowColors.length}, achtern ${sternColors.length}`);
+
+await firstCard.locator('.aspect-seg button[data-aspect="beam"]').click();
+const beamColors = await lightColors();
+check('Querab nur das grüne Seitenlicht',
+  beamColors.includes(GREEN) && !beamColors.includes(RED), beamColors.join(' '));
+check('Die Ansicht wird auch in Worten erklärt',
+  (await firstCard.locator('.aspect-caption').innerText()).length > 20);
+await shot('05e-ansichten');
+
+await firstCard.locator('.aspect-seg button[data-aspect="bow"]').click();
 
 // Lichtersuche: Auswahl grenzt ein, Unmögliches verschwindet.
 await page.getByRole('button', { name: /Lichter suchen/ }).click();
