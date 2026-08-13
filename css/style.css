@@ -1,0 +1,786 @@
+/* =========================================================================
+   Sailing Buddy – Gestaltung
+   Drei Themes: hell, dunkel und Nachtmodus.
+
+   Der Nachtmodus verwendet ausschließlich langwelliges Rot auf reinem Schwarz.
+   Rotes Licht jenseits von etwa 620 nm regt die Stäbchen im Auge kaum an,
+   deshalb bleibt die Dunkeladaption erhalten. Blau, Grün und Weiß kommen im
+   Nachtmodus nirgends vor, große helle Flächen ebenfalls nicht.
+   ========================================================================= */
+
+:root {
+  --bg: #eef1f5;
+  --surface: #ffffff;
+  --surface-2: #f5f7fa;
+  --border: #d3dae3;
+  --text: #121821;
+  --text-dim: #5b6875;
+  --accent: #0a63c4;
+  --accent-contrast: #ffffff;
+  --danger: #c9252d;
+  --danger-bg: #fdeaea;
+  --warn: #a86400;
+  --warn-bg: #fdf3e0;
+  --ok: #1a7f45;
+  --shadow: 0 1px 3px rgba(16, 24, 40, .1), 0 1px 2px rgba(16, 24, 40, .06);
+  --radius: 14px;
+  --tap: 48px;
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace;
+
+  /* Im Nachtmodus auf 0 gesetzt: entfernt jede Farbe außer Rot. */
+  --chroma: 1;
+  --glow: 1;
+}
+
+[data-theme="dark"] {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #1c232c;
+  --border: #2b3441;
+  --text: #e6edf3;
+  --text-dim: #9aa7b4;
+  --accent: #4aa3ff;
+  --accent-contrast: #06121f;
+  --danger: #ff6b6b;
+  --danger-bg: #2a1416;
+  --warn: #e5a53d;
+  --warn-bg: #2a2113;
+  --ok: #46d17f;
+  --shadow: 0 1px 3px rgba(0, 0, 0, .5);
+}
+
+[data-theme="night"] {
+  --bg: #000000;
+  --surface: #0a0202;
+  --surface-2: #120303;
+  --border: #4a1005;
+  --text: #d02607;
+  --text-dim: #7d1a05;
+  --accent: #ff3b0f;
+  --accent-contrast: #180200;
+  --danger: #ff3b0f;
+  --danger-bg: #1a0402;
+  --warn: #b02205;
+  --warn-bg: #150300;
+  --ok: #a82005;
+  --shadow: none;
+  --chroma: 0;
+  --glow: 0;
+}
+
+/* ---------------------------------------------------------------- Grundlage */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overscroll-behavior-y: none;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Zusätzlicher Dimmer über allem – geht unter die Helligkeit des Betriebssystems.
+   pointer-events: none, damit die Bedienung nicht blockiert wird. */
+#dimmer {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 9999;
+  transition: opacity .2s ease;
+}
+
+.app {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: calc(72px + env(safe-area-inset-bottom));
+}
+
+/* ------------------------------------------------------------------ Kopfzeile */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  padding-top: calc(10px + env(safe-area-inset-top));
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar h1 {
+  font-size: 1.05rem;
+  font-weight: 650;
+  margin: 0;
+  letter-spacing: -.01em;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar .boat-tag {
+  font-size: .78rem;
+  color: var(--text-dim);
+  font-weight: 500;
+  display: block;
+  letter-spacing: 0;
+}
+
+.icon-btn {
+  min-width: 42px;
+  height: 42px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 11px;
+  font-size: 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0 10px;
+  font-weight: 600;
+}
+
+.icon-btn:active { transform: scale(.96); }
+.icon-btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+}
+
+/* Im Nachtmodus nirgends eine gefüllte Leuchtfläche – auch nicht beim
+   aktiven Umschalter selbst. Nur Kontur. */
+[data-theme="night"] .icon-btn[aria-pressed="true"] {
+  background: transparent;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* --------------------------------------------------------------- GPS-Leiste */
+
+.gpsbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  font-size: .82rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  color: var(--text-dim);
+  position: sticky;
+  top: calc(63px + env(safe-area-inset-top));
+  z-index: 39;
+}
+
+.gpsbar .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex: none;
+}
+
+.gpsbar.ok .dot { background: var(--ok); }
+.gpsbar.searching .dot { background: var(--warn); animation: pulse 1.4s infinite; }
+.gpsbar.bad .dot { background: var(--danger); }
+.gpsbar .pos { color: var(--text); font-weight: 600; }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+
+/* ------------------------------------------------------------------- Inhalt */
+
+main {
+  flex: 1;
+  padding: 14px;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 15px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow);
+}
+
+.card > h2, .card > h3 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+h2.section {
+  font-size: .8rem;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-dim);
+  margin: 22px 4px 9px;
+  font-weight: 650;
+}
+
+h2.section:first-child { margin-top: 4px; }
+
+.muted { color: var(--text-dim); }
+.small { font-size: .85rem; }
+.mono { font-family: var(--mono); }
+.center { text-align: center; }
+.row { display: flex; gap: 9px; align-items: center; }
+.row.wrap { flex-wrap: wrap; }
+.grow { flex: 1; }
+.stack { display: flex; flex-direction: column; gap: 9px; }
+
+/* ---------------------------------------------------------- Formularelemente */
+
+.field {
+  display: block;
+  margin-bottom: 13px;
+}
+
+.field > span {
+  display: block;
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 5px;
+}
+
+.field .hint {
+  font-weight: 400;
+  font-size: .78rem;
+  display: block;
+  margin-top: 4px;
+  color: var(--text-dim);
+}
+
+input, select, textarea {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 11px 13px;
+  font-size: 1rem;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+input.mono, textarea.mono { font-family: var(--mono); }
+textarea { min-height: 76px; resize: vertical; line-height: 1.45; }
+
+.btn {
+  min-height: var(--tap);
+  padding: 12px 18px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn:active { transform: scale(.98); }
+.btn.primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+.btn.danger { background: var(--danger); color: var(--accent-contrast); border-color: var(--danger); }
+.btn.block { width: 100%; }
+.btn.small { min-height: 38px; padding: 7px 13px; font-size: .87rem; }
+.btn:disabled { opacity: .45; cursor: default; }
+
+[data-theme="night"] .btn.primary,
+[data-theme="night"] .btn.danger {
+  /* Keine großen leuchtenden Flächen im Dunkeln – nur Kontur. */
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.seg {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.seg button {
+  flex: 1;
+  min-height: 42px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: .9rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 6px;
+  border-right: 1px solid var(--border);
+}
+
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-contrast); }
+[data-theme="night"] .seg button[aria-pressed="true"] {
+  background: transparent;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* ----------------------------------------------------------- Untere Reiter */
+
+nav.tabs {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+nav.tabs button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: .7rem;
+  font-weight: 600;
+  padding: 8px 2px 9px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-height: 62px;
+}
+
+nav.tabs button svg { width: 23px; height: 23px; stroke-width: 1.9; }
+nav.tabs button[aria-current="page"] { color: var(--accent); }
+
+/* ================================================================ Funksprüche */
+
+.phrase-list { display: grid; gap: 10px; }
+
+.phrase-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 14px 15px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  border-left-width: 5px;
+}
+
+.phrase-btn strong { display: block; font-size: 1.03rem; font-weight: 650; }
+.phrase-btn span { display: block; font-size: .84rem; color: var(--text-dim); margin-top: 2px; }
+
+.phrase-btn[data-level="distress"] { border-left-color: var(--danger); }
+.phrase-btn[data-level="urgency"] { border-left-color: var(--warn); }
+.phrase-btn[data-level="safety"] { border-left-color: var(--accent); }
+.phrase-btn[data-level="routine"] { border-left-color: var(--border); }
+
+.badge {
+  display: inline-block;
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+.badge.distress { color: var(--danger); }
+.badge.urgency { color: var(--warn); }
+.badge.safety { color: var(--accent); }
+.badge.routine { color: var(--text-dim); }
+
+/* Der Vorlese-Text: groß, ruhig, gut lesbar bei Seegang */
+.script {
+  font-size: 1.32rem;
+  line-height: 1.45;
+  font-weight: 600;
+  letter-spacing: .005em;
+}
+
+.script .line { padding: 7px 0; }
+.script .line + .line { border-top: 1px solid var(--border); }
+
+.script .fill {
+  color: var(--warn);
+  font-weight: 600;
+  font-size: 1.08rem;
+}
+
+.script .note {
+  font-size: .92rem;
+  font-weight: 500;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.script .gap { height: 10px; border: 0 !important; padding: 0; }
+
+.checklist { margin: 0; padding: 0; list-style: none; counter-reset: step; }
+
+.checklist li {
+  position: relative;
+  padding: 9px 0 9px 38px;
+  counter-increment: step;
+  border-bottom: 1px solid var(--border);
+}
+
+.checklist li:last-child { border-bottom: 0; }
+
+.checklist li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 9px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  font-size: .8rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.checklist.plain { counter-reset: none; }
+.checklist.plain li { padding-left: 20px; }
+.checklist.plain li::before {
+  content: '';
+  counter-increment: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 0;
+  top: 18px;
+  left: 3px;
+}
+
+.notice {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 11px 13px;
+  font-size: .89rem;
+  margin-bottom: 12px;
+}
+
+.notice.warn { border-left-color: var(--warn); }
+.notice.danger { border-left-color: var(--danger); }
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .9rem;
+}
+
+table.data th, table.data td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+table.data th { font-size: .76rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); }
+table.data td.k { font-family: var(--mono); font-weight: 700; white-space: nowrap; }
+
+.alphabet {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(122px, 1fr));
+  gap: 7px;
+}
+
+.alphabet div {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 7px 9px;
+  background: var(--surface-2);
+}
+
+.alphabet b { font-family: var(--mono); font-size: 1.05rem; margin-right: 7px; }
+.alphabet span { font-size: .74rem; color: var(--text-dim); display: block; }
+
+/* =================================================================== Position */
+
+.readout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.readout .cell {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  text-align: center;
+}
+
+.readout .cell .label {
+  font-size: .71rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-dim);
+  font-weight: 650;
+}
+
+.readout .cell .value {
+  font-family: var(--mono);
+  font-size: 1.85rem;
+  font-weight: 700;
+  line-height: 1.15;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.readout .cell .unit { font-size: .95rem; font-weight: 600; color: var(--text-dim); margin-left: 2px; }
+.readout .cell .sub { font-size: .76rem; color: var(--text-dim); margin-top: 3px; }
+.readout .cell.wide { grid-column: 1 / -1; }
+.readout .cell.hero .value { font-size: 2.6rem; }
+
+.posline {
+  font-family: var(--mono);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  word-spacing: .1em;
+  line-height: 1.5;
+}
+
+/* Kompassrose, rein rechnerisch – keine Kartendaten nötig */
+.compass { width: 100%; max-width: 300px; margin: 0 auto; display: block; }
+.compass .ring { fill: none; stroke: var(--border); stroke-width: 1.5; }
+.compass .tick { stroke: var(--text-dim); stroke-width: 1.2; }
+.compass .tick.major { stroke: var(--text); stroke-width: 2; }
+.compass .card-label { fill: var(--text-dim); font-size: 9px; font-weight: 700; font-family: var(--font); }
+.compass .needle { fill: var(--accent); }
+.compass .heading { stroke: var(--text-dim); stroke-width: 2; stroke-dasharray: 4 3; }
+.compass .center-text { fill: var(--text); font-family: var(--mono); font-weight: 700; text-anchor: middle; }
+.compass .center-sub { fill: var(--text-dim); font-size: 9px; text-anchor: middle; font-family: var(--font); }
+
+.wp-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.wp-item:last-child { border-bottom: 0; }
+.wp-item .wp-name { font-weight: 620; }
+.wp-item .wp-pos { font-family: var(--mono); font-size: .79rem; color: var(--text-dim); }
+.wp-item .wp-dist { font-family: var(--mono); font-weight: 700; text-align: right; white-space: nowrap; }
+.wp-item .wp-dist small { display: block; font-weight: 500; color: var(--text-dim); }
+
+/* ================================================================= Nachtfahrt */
+
+.light-card { position: relative; }
+
+.light-head { display: flex; gap: 13px; align-items: flex-start; }
+
+.light-head .txt { flex: 1; min-width: 0; }
+.light-head h3 { margin: 0; font-size: 1.02rem; font-weight: 650; }
+.light-head .sub { font-size: .82rem; color: var(--text-dim); }
+.light-head .rule {
+  font-size: .7rem;
+  font-family: var(--mono);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+.light-view {
+  width: 92px;
+  height: 92px;
+  flex: none;
+  border-radius: 11px;
+  background: #05070c;
+  border: 1px solid var(--border);
+}
+
+/* Im Nachtmodus die Schemabilder deutlich abdunkeln: Grün und Weiß darin
+   würden die Dunkeladaption sonst wieder zunichtemachen. */
+[data-theme="night"] .light-view { filter: brightness(.42) saturate(.85); }
+
+.light-pattern {
+  font-weight: 650;
+  font-size: .95rem;
+  margin: 11px 0 0;
+}
+
+.mnemonic {
+  margin-top: 10px;
+  padding: 9px 12px;
+  background: var(--surface-2);
+  border-radius: 9px;
+  border-left: 3px solid var(--accent);
+  font-size: .89rem;
+  font-style: italic;
+}
+
+.sound-item { padding: 13px 0; border-bottom: 1px solid var(--border); }
+.sound-item:last-child { border-bottom: 0; }
+
+.sound-symbol {
+  font-size: 1.6rem;
+  letter-spacing: .12em;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 3px 0 5px;
+  color: var(--accent);
+}
+
+.sound-head { display: flex; align-items: baseline; gap: 9px; }
+.sound-head h3 { margin: 0; font-size: 1rem; font-weight: 640; flex: 1; }
+
+.sound-interval {
+  display: inline-block;
+  font-size: .74rem;
+  font-weight: 650;
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  border-radius: 5px;
+  padding: 1px 6px;
+  margin-bottom: 6px;
+}
+
+.filter-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: .86rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  min-height: 38px;
+}
+
+.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.chip .swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  border: 1px solid rgba(128, 128, 128, .5);
+  vertical-align: baseline;
+}
+
+[data-theme="night"] .chip .swatch { filter: brightness(.45); }
+
+/* ================================================================ Einrichtung */
+
+.setup-hero { text-align: center; padding: 26px 16px 8px; }
+.setup-hero h2 { font-size: 1.5rem; margin: 0 0 8px; }
+.setup-hero p { color: var(--text-dim); margin: 0 auto; max-width: 380px; }
+
+.brightness-row { display: flex; align-items: center; gap: 12px; }
+.brightness-row input[type="range"] { flex: 1; min-height: 34px; padding: 0; accent-color: var(--accent); }
+.brightness-row .val { font-family: var(--mono); font-weight: 700; min-width: 46px; text-align: right; }
+
+details.foldout { border: 1px solid var(--border); border-radius: 11px; margin-bottom: 10px; background: var(--surface); }
+details.foldout > summary {
+  padding: 13px 15px;
+  font-weight: 620;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: var(--tap);
+}
+details.foldout > summary::-webkit-details-marker { display: none; }
+details.foldout > summary::after { content: '▾'; color: var(--text-dim); }
+details.foldout[open] > summary::after { content: '▴'; }
+details.foldout > div { padding: 0 15px 15px; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(14px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 11px 20px;
+  border-radius: 999px;
+  font-size: .9rem;
+  font-weight: 600;
+  z-index: 200;
+  opacity: 0;
+  transition: opacity .2s, transform .2s;
+  pointer-events: none;
+  box-shadow: var(--shadow);
+}
+
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.empty { text-align: center; padding: 26px 14px; color: var(--text-dim); font-size: .92rem; }
+
+.disclaimer {
+  font-size: .78rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+  padding: 14px 4px 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+@media (min-width: 700px) {
+  body { font-size: 17px; }
+  .phrase-list { grid-template-columns: 1fr 1fr; }
+}

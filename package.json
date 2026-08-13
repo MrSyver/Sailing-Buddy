@@ -1,0 +1,16 @@
+{
+  "name": "sailing-buddy",
+  "version": "1.0.0",
+  "description": "Offline-Helfer für Segler: Funksprüche, Position und Kurs, Lichter- und Schallsignale – als installierbare Web-App ohne Bauschritt.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "start": "python3 -m http.server 8080",
+    "icons": "python3 tools/make-icons.py"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "playwright": "^1.49.1"
+  }
+}
