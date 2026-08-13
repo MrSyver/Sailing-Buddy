@@ -1,10 +1,31 @@
 # Sind Offline-Karten möglich?
 
-Kurz: **technisch ja, rechtlich nur eingeschränkt** – und für die drei Module
-dieser App braucht es sie nicht. Deshalb ist bewusst keine Karte enthalten.
-Hier steht, was ginge und was es kosten würde.
+Kurz: **technisch ja, rechtlich nur eingeschränkt.** Die Abwägung darunter ist
+das ursprüngliche Papier zur Frage. Die Empfehlung am Ende ist inzwischen
+umgesetzt – hier steht, wie.
 
-## Warum bisher keine Karte drin ist
+## Was davon umgesetzt ist
+
+Genau die ersten beiden Stufen der Empfehlung, in dieser Reihenfolge:
+
+1. **Plot ohne Kartendaten.** Der Reiter „Karte“ zeichnet die eigene Position,
+   jede gemerkte Position und die Spur aus dem Logbuch – nordorientiert, mit
+   Maßstabsbalken, ohne jedes Kartenmaterial. Das läuft überall auf der Welt
+   und braucht keinen Speicherplatz.
+2. **Optionales OpenSeaMap-Paket.** Das Kartenbild ist ein zuschaltbarer
+   Hintergrund, kein Normalzustand. Es zeigt ausschließlich Kacheln, die unter
+   „Einstellungen → Karten“ ausdrücklich heruntergeladen wurden; aus dem
+   Kartenmodul heraus wird nie etwas aus dem Netz geholt. Fehlt ein Ausschnitt,
+   bleibt die Fläche leer und sagt das auch.
+3. Amtliche Karten bleiben in der App des Kartenherstellers. Daran ändert sich
+   nichts.
+
+Die Schonung des fremden Kachelservers ist Teil der Umsetzung: höchstens 4000
+Abrufe je Vorgang, einzeln und mit Pause, und eine austauschbare Adresse für
+alle, die regelmäßig größere Gebiete mitnehmen. `js/data/tilesources.js` ist
+die einzige Datei der App, in der Adressen fremder Server stehen dürfen.
+
+## Warum lange keine Karte drin war
 
 Die App rechnet mit Geometrie statt mit Kartenbildern: Entfernung, Kurs,
 Gegenkurs und Fahrzeit ergeben sich allein aus zwei Koordinaten. Das ist
@@ -74,10 +95,11 @@ es nicht weiß.
   keine ist, ist gefährlicher als gar keine Karte. Untiefen, Sperrgebiete und
   Betonnung sind in OpenStreetMap unvollständig und nicht amtlich gepflegt.
 
-## Empfehlung
+## Empfehlung (umgesetzt)
 
-Die drei Module so lassen, wie sie sind – sie sind sicherheitsrelevant und
-sollen nie an fehlenden Kartendaten scheitern.
+Die sicherheitsrelevanten Module so lassen, wie sie sind – sie sollen nie an
+fehlenden Kartendaten scheitern. Deshalb steht die Karte neben ihnen und nicht
+unter ihnen.
 
 Wenn eine bildliche Darstellung gewünscht ist, in dieser Reihenfolge:
 
