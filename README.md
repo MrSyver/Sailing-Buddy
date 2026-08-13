@@ -7,9 +7,9 @@ Drei Module:
 
 | Modul | Was es kann |
 |---|---|
-| **Funk** | Die wichtigsten Funksprüche mit bereits eingesetztem Schiffsnamen, Rufzeichen, MMSI und aktueller GPS-Position. Zum Vorlesen, in Deutsch oder Englisch. |
-| **Position** | Eine Position eingeben – etwa aus einem Notruf – und Entfernung, rechtweisenden Kurs, Kompasskurs und Fahrzeit dorthin ablesen. |
-| **Nachtfahrt** | Lichterführung und Schallsignale nach den Kollisionsverhütungsregeln, mit Farbfilter „Was sehe ich?“ und hörbaren Signalen. |
+| **Funk** | Die wichtigsten Funksprüche mit bereits eingesetztem Schiffsnamen, Rufzeichen, MMSI und aktueller GPS-Position. Zum Vorlesen, in Deutsch oder Englisch. Häufige Notfälle auf Antippen einsetzbar. Dazu Sprachaufnahmen für empfangene Meldungen. |
+| **Position** | Zielkoordinate in reinen Zahlenfeldern eingeben – ohne Gradzeichen und Hochkomma – und Entfernung, rechtweisenden Kurs, Kompasskurs und Fahrzeit ablesen. MOB-Taste mit gemerkter Position. |
+| **Nachtfahrt** | Lichterführung, Seezeichen und Schallsignale nach KVR und IALA. Mit einer Lichtersuche, die nach jeder Auswahl nur noch das anbietet, was überhaupt noch möglich ist. |
 
 Dazu ein **Nachtmodus**, der ausschließlich langwelliges Rot auf Schwarz
 verwendet, und ein Dimmer, der weiter herunterregelt als iOS allein.
@@ -24,16 +24,21 @@ GitHub Pages.
 
 ### Einmalig: veröffentlichen
 
-Nach `main` mergen – mehr ist nicht nötig. Der Workflow
-`.github/workflows/pages.yml` schaltet GitHub Pages beim ersten Lauf selbst
-ein, fährt alle Prüfungen, stellt die Website zusammen, prüft sie noch einmal
-im Browser (samt Kaltstart ohne Netz) und veröffentlicht sie erst dann.
+1. **Settings → Pages** öffnen und unter *Build and deployment* als *Source*
+   **GitHub Actions** auswählen.
 
-Nach ein bis zwei Minuten liegt die App unter
-`https://mrsyver.github.io/Sailing-Buddy/`.
+   Dieser Klick ist einmalig nötig und lässt sich nicht automatisieren: Der
+   `GITHUB_TOKEN` eines Workflows darf eine Pages-Seite nicht anlegen. Fehlt
+   der Schritt, bricht der Lauf mit *„Create Pages site failed – Resource not
+   accessible by integration“* ab.
 
-Sollte GitHub Pages im Repository ausdrücklich abgeschaltet sein, lässt es
-sich unter **Settings → Pages** mit *Source: GitHub Actions* einschalten.
+2. Nach `main` mergen (oder den Workflow unter *Actions* von Hand starten).
+   `.github/workflows/pages.yml` fährt alle Prüfungen, stellt die Website
+   zusammen, prüft sie noch einmal im Browser – samt Kaltstart ohne Netz –
+   und veröffentlicht sie erst dann.
+
+3. Nach ein bis zwei Minuten liegt die App unter
+   `https://mrsyver.github.io/Sailing-Buddy/`.
 
 ### Auf dem Gerät
 

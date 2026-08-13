@@ -68,6 +68,7 @@ export const LIGHT_RANGES = [
 export const LIGHTS = [
   {
     id: 'power-under-50',
+    traits: ['sidelights', 'masthead'],
     title: 'Maschinenfahrzeug in Fahrt',
     subtitle: '12 m bis unter 50 m',
     category: 'fahrt',
@@ -98,6 +99,7 @@ export const LIGHTS = [
   },
   {
     id: 'power-over-50',
+    traits: ['sidelights', 'masthead', 'masthead2'],
     title: 'Maschinenfahrzeug in Fahrt',
     subtitle: '50 m und länger',
     category: 'fahrt',
@@ -126,6 +128,7 @@ export const LIGHTS = [
   },
   {
     id: 'power-under-12',
+    traits: ['sidelights', 'allround'],
     title: 'Kleines Maschinenfahrzeug',
     subtitle: 'unter 12 m',
     category: 'fahrt',
@@ -150,6 +153,7 @@ export const LIGHTS = [
   },
   {
     id: 'sail',
+    traits: ['sidelights'],
     title: 'Segelfahrzeug in Fahrt',
     subtitle: 'nur unter Segeln',
     category: 'fahrt',
@@ -182,6 +186,7 @@ export const LIGHTS = [
   },
   {
     id: 'sail-tricolor',
+    traits: ['sidelights'],
     title: 'Segelfahrzeug mit Dreifarbenlaterne',
     subtitle: 'unter 20 m',
     category: 'fahrt',
@@ -208,6 +213,7 @@ export const LIGHTS = [
   },
   {
     id: 'sail-under-power',
+    traits: ['sidelights', 'masthead'],
     title: 'Segelfahrzeug unter Maschine',
     subtitle: 'Segel gesetzt, Motor läuft',
     category: 'fahrt',
@@ -234,6 +240,7 @@ export const LIGHTS = [
   },
   {
     id: 'rowing',
+    traits: ['single'],
     title: 'Ruderboot',
     subtitle: 'Fahrzeug unter Riemen',
     category: 'fahrt',
@@ -258,6 +265,7 @@ export const LIGHTS = [
   },
   {
     id: 'nuc',
+    traits: ['stack2'],
     title: 'Manövrierunfähiges Fahrzeug',
     subtitle: 'nicht unter Kommando',
     category: 'sonder',
@@ -290,6 +298,7 @@ export const LIGHTS = [
   },
   {
     id: 'ram',
+    traits: ['stack3'],
     title: 'Manövrierbehindertes Fahrzeug',
     subtitle: 'z. B. Bagger, Kabelleger, Tonnenleger',
     category: 'sonder',
@@ -322,6 +331,7 @@ export const LIGHTS = [
   },
   {
     id: 'cbd',
+    traits: ['stack3', 'sidelights', 'masthead'],
     title: 'Tiefgangbehindertes Fahrzeug',
     subtitle: 'durch den Tiefgang behindert',
     category: 'sonder',
@@ -350,6 +360,7 @@ export const LIGHTS = [
   },
   {
     id: 'trawler',
+    traits: ['stack2', 'sidelights'],
     title: 'Fahrzeug beim Fischen mit Schleppnetz',
     subtitle: 'Trawler',
     category: 'sonder',
@@ -378,6 +389,7 @@ export const LIGHTS = [
   },
   {
     id: 'fishing',
+    traits: ['stack2', 'sidelights'],
     title: 'Fahrzeug beim Fischen',
     subtitle: 'ohne Schleppnetz, z. B. Netze oder Langleinen',
     category: 'sonder',
@@ -410,6 +422,7 @@ export const LIGHTS = [
   },
   {
     id: 'pilot',
+    traits: ['stack2', 'sidelights'],
     title: 'Lotsenfahrzeug im Dienst',
     subtitle: 'Lotsenversetzboot',
     category: 'sonder',
@@ -438,6 +451,7 @@ export const LIGHTS = [
   },
   {
     id: 'anchor',
+    traits: ['single', 'allround'],
     title: 'Fahrzeug vor Anker',
     subtitle: 'unter 50 m',
     category: 'anker',
@@ -466,6 +480,7 @@ export const LIGHTS = [
   },
   {
     id: 'anchor-large',
+    traits: ['allround'],
     title: 'Fahrzeug vor Anker',
     subtitle: '50 m und länger',
     category: 'anker',
@@ -492,6 +507,7 @@ export const LIGHTS = [
   },
   {
     id: 'aground',
+    traits: ['stack2', 'allround'],
     title: 'Festgekommenes Fahrzeug',
     subtitle: 'auf Grund gelaufen',
     category: 'anker',
@@ -520,6 +536,7 @@ export const LIGHTS = [
   },
   {
     id: 'towing',
+    traits: ['sidelights', 'masthead', 'masthead2'],
     title: 'Schleppender Schlepper',
     subtitle: 'Schleppanhang bis 200 m',
     category: 'schlepp',
@@ -548,6 +565,7 @@ export const LIGHTS = [
   },
   {
     id: 'towed',
+    traits: ['sidelights'],
     title: 'Geschlepptes Fahrzeug',
     subtitle: 'Anhang im Schleppverband',
     category: 'schlepp',
@@ -574,6 +592,7 @@ export const LIGHTS = [
   },
   {
     id: 'pushing',
+    traits: ['sidelights', 'masthead', 'masthead2'],
     title: 'Schubverband',
     subtitle: 'Schubboot und Leichter fest verbunden',
     category: 'schlepp',
@@ -598,6 +617,7 @@ export const LIGHTS = [
   },
   {
     id: 'hovercraft',
+    traits: ['sidelights', 'masthead', 'flash'],
     title: 'Luftkissenfahrzeug',
     subtitle: 'im nichtverdrängenden Betrieb',
     category: 'sonder',
@@ -624,6 +644,7 @@ export const LIGHTS = [
   },
   {
     id: 'minesweeper',
+    traits: ['sidelights', 'masthead', 'triangle'],
     title: 'Minenräumfahrzeug',
     subtitle: 'bei der Minenräumung',
     category: 'sonder',
@@ -652,13 +673,54 @@ export const LIGHTS = [
   },
 ];
 
-/** Filteroptionen für „Was sehe ich?“. */
-export const LIGHT_FILTERS = [
-  { key: 'w', label: 'Weiß', labelEn: 'White' },
-  { key: 'r', label: 'Rot', labelEn: 'Red' },
-  { key: 'g', label: 'Grün', labelEn: 'Green' },
-  { key: 'y', label: 'Gelb', labelEn: 'Yellow' },
+/**
+ * Merkmale für die Lichtersuche.
+ *
+ * `group` bündelt sie in der Oberfläche. Farben kommen aus `seen`, alles
+ * Übrige aus `traits`. Auswahlmöglichkeiten, die zu keinem Ergebnis mehr
+ * führen könnten, blendet die Suche aus – so bleibt immer nur übrig, was
+ * tatsächlich noch in Frage kommt.
+ */
+export const LIGHT_FACETS = [
+  { key: 'w', kind: 'color', group: 'color', label: 'Weiß', labelEn: 'White' },
+  { key: 'r', kind: 'color', group: 'color', label: 'Rot', labelEn: 'Red' },
+  { key: 'g', kind: 'color', group: 'color', label: 'Grün', labelEn: 'Green' },
+  { key: 'y', kind: 'color', group: 'color', label: 'Gelb', labelEn: 'Yellow' },
+
+  { key: 'sidelights', kind: 'trait', group: 'shape', label: 'Rot und grün nebeneinander', labelEn: 'Red and green side by side' },
+  { key: 'masthead', kind: 'trait', group: 'shape', label: 'Weißes Licht darüber', labelEn: 'White light above' },
+  { key: 'masthead2', kind: 'trait', group: 'shape', label: 'Zwei weiße übereinander', labelEn: 'Two white, one above the other' },
+  { key: 'stack2', kind: 'trait', group: 'shape', label: 'Zwei Rundumlichter übereinander', labelEn: 'Two all-round lights stacked' },
+  { key: 'stack3', kind: 'trait', group: 'shape', label: 'Drei Rundumlichter übereinander', labelEn: 'Three all-round lights stacked' },
+  { key: 'triangle', kind: 'trait', group: 'shape', label: 'Drei Lichter im Dreieck', labelEn: 'Three lights in a triangle' },
+  { key: 'allround', kind: 'trait', group: 'shape', label: 'Weißes Rundumlicht', labelEn: 'All-round white light' },
+  { key: 'single', kind: 'trait', group: 'shape', label: 'Nur ein einzelnes Licht', labelEn: 'A single light only' },
+
+  { key: 'flash', kind: 'trait', group: 'special', label: 'Blinkt oder funkelt', labelEn: 'Flashing' },
 ];
+
+export const FACET_GROUPS = [
+  { key: 'color', label: 'Welche Farben siehst du?', labelEn: 'Which colours do you see?' },
+  { key: 'shape', label: 'Wie sind die Lichter angeordnet?', labelEn: 'How are the lights arranged?' },
+  { key: 'special', label: 'Besonderheiten', labelEn: 'Anything else?' },
+];
+
+/** Passt ein Eintrag zu allen gewählten Merkmalen? */
+export function matchesFacets(light, keys) {
+  return [...keys].every((key) => {
+    const facet = LIGHT_FACETS.find((f) => f.key === key);
+    if (!facet) return true;
+    return facet.kind === 'color'
+      ? light.seen.includes(key)
+      : (light.traits ?? []).includes(key);
+  });
+}
+
+/** Alle Einträge, die zur aktuellen Auswahl passen. */
+export function filterLights(keys, category = 'all') {
+  return LIGHTS.filter((l) => (category === 'all' || l.category === category)
+    && matchesFacets(l, keys));
+}
 
 export const LIGHT_CATEGORIES = [
   { key: 'all', label: 'Alle', labelEn: 'All' },

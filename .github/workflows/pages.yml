@@ -76,9 +76,12 @@ jobs:
           npx playwright install --with-deps chromium
           SMOKE_ROOT=_site node tools/smoke.mjs
 
-      # enablement: true schaltet GitHub Pages beim ersten Lauf selbst ein,
-      # damit man es nicht vorher von Hand in den Repository-Einstellungen
-      # umstellen muss.
+      # Achtung: Pages muss einmalig von Hand eingeschaltet werden –
+      # Settings → Pages → Source: GitHub Actions.
+      # enablement: true versucht das zwar selbst, aber der GITHUB_TOKEN darf
+      # keine Pages-Seite anlegen ("Resource not accessible by integration").
+      # Die Angabe bleibt stehen, weil sie in Organisationen mit erweiterten
+      # Rechten greift; verlassen kann man sich nicht darauf.
       - uses: actions/configure-pages@v5
         with:
           enablement: true

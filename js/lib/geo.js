@@ -314,6 +314,72 @@ export function parsePositionPair(input) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Koordinaten: in Einzelfelder zerlegen und wieder zusammensetzen
+// ---------------------------------------------------------------------------
+
+/**
+ * Zerlegt eine Position in die Felder, die an Bord auch so abgelesen werden:
+ * Grad, Dezimalminuten und Himmelsrichtung. Damit lässt sie sich ohne
+ * Gradzeichen, Hochkomma und Tastaturakrobatik eintippen.
+ */
+export function toParts(pos) {
+  if (!pos) {
+    return { latDeg: '', latMin: '', latHemi: 'N', lonDeg: '', lonMin: '', lonHemi: 'E' };
+  }
+  const split = (value, pad) => {
+    const abs = Math.abs(value);
+    let deg = Math.floor(abs);
+    let min = (abs - deg) * 60;
+    // Rundung kann 60,000' erzeugen – dann ein Grad hochzählen.
+    if (Number(min.toFixed(3)) >= 60) {
+      min = 0;
+      deg += 1;
+    }
+    return { deg: String(deg).padStart(pad, '0'), min: min.toFixed(3) };
+  };
+  const la = split(pos.lat, 2);
+  const lo = split(pos.lon, 3);
+  return {
+    latDeg: la.deg,
+    latMin: la.min,
+    latHemi: pos.lat >= 0 ? 'N' : 'S',
+    lonDeg: lo.deg,
+    lonMin: lo.min,
+    lonHemi: pos.lon >= 0 ? 'E' : 'W',
+  };
+}
+
+/**
+ * Baut aus den Einzelfeldern wieder eine Position.
+ * Rückgabe: { lat, lon } oder null, wenn etwas fehlt oder unmöglich ist.
+ * Komma und Punkt werden beide als Dezimaltrenner akzeptiert.
+ */
+export function fromParts(parts) {
+  if (!parts) return null;
+  const num = (value) => {
+    const text = String(value ?? '').trim().replace(',', '.');
+    if (text === '') return 0;
+    if (!/^\d+(\.\d+)?$/.test(text)) return NaN;
+    return Number(text);
+  };
+
+  // Ohne Gradangabe gibt es nichts zu rechnen.
+  if (String(parts.latDeg ?? '').trim() === '' || String(parts.lonDeg ?? '').trim() === '') return null;
+
+  const latDeg = num(parts.latDeg);
+  const latMin = num(parts.latMin);
+  const lonDeg = num(parts.lonDeg);
+  const lonMin = num(parts.lonMin);
+  if ([latDeg, latMin, lonDeg, lonMin].some(Number.isNaN)) return null;
+  if (latMin >= 60 || lonMin >= 60) return null;
+
+  const lat = (latDeg + latMin / 60) * (parts.latHemi === 'S' ? -1 : 1);
+  const lon = (lonDeg + lonMin / 60) * (parts.lonHemi === 'W' ? -1 : 1);
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat, lon };
+}
+
 /** Vollständige Navigationslösung von A nach B. */
 export function solve(from, to, opts = {}) {
   const { variation = 0, deviation = 0, speed = null, heading = null } = opts;

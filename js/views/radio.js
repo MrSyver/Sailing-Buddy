@@ -10,13 +10,23 @@ import { h, render, copy, group } from '../lib/dom.js';
 import { settings } from '../lib/storage.js';
 import { gps } from '../lib/gps.js';
 import { formatPosition, formatSpoken } from '../lib/geo.js';
-import { t, uiLang } from '../lib/i18n.js';
+import { t, uiLang, locale } from '../lib/i18n.js';
+import {
+  canRecord, recording, recordings, formatSeconds,
+} from '../lib/recorder.js';
 import {
   PHRASES, CHANNELS, EMERGENCY_CONTACTS, SPELLING_ALPHABET,
   SPELLING_NUMBERS, PROWORDS, fillPlaceholders, localized,
+  emergenciesFor,
 } from '../data/phrases.js';
 
 let openId = null;
+// Gewählter Notfall je Funkspruch. Bleibt beim Sprachwechsel erhalten.
+let emergencyId = null;
+// Aufnahmen und der Zustand der laufenden Aufnahme.
+let recList = [];
+let recTimer = null;
+let recError = null;
 
 /** Sprache der Funksprüche – unabhängig von der Oberflächensprache. */
 function phraseLang() {
@@ -43,9 +53,22 @@ export function view(root) {
   const wrap = h('div');
   render(root, wrap);
   draw(wrap);
+
+  // Gespeicherte Aufnahmen nachladen – IndexedDB antwortet erst später.
+  recordings.list().then((list) => {
+    recList = list;
+    if (!openId) draw(wrap);
+  });
+
   // Bei neuem GPS-Fix die Position im offenen Funkspruch nachziehen.
   const off = gps.onUpdate(() => { if (openId) draw(wrap); });
-  return () => off();
+  return () => {
+    off();
+    // Eine laufende Aufnahme nicht heimlich weiterlaufen lassen.
+    if (recording.active) recording.cancel();
+    clearInterval(recTimer);
+    recTimer = null;
+  };
 }
 
 function draw(wrap) {
@@ -87,7 +110,7 @@ function list(wrap) {
     'data-level': p.level,
     type: 'button',
     lang,
-    onclick: () => { openId = p.id; draw(wrap); window.scrollTo(0, 0); },
+    onclick: () => { openId = p.id; emergencyId = null; draw(wrap); window.scrollTo(0, 0); },
   },
   h('div.row', { style: { gap: '8px', 'align-items': 'baseline' } },
     h('strong.grow', localized(p, 'title', lang)),
@@ -95,6 +118,9 @@ function list(wrap) {
   ),
   h('span', localized(p, 'short', lang)),
   ))));
+
+  parts.push(h('h2.section', t('radio.recordings')));
+  parts.push(recorderCard(wrap));
 
   parts.push(h('h2.section', t('radio.reference')));
   parts.push(foldout(t('radio.ref.spelling'), spellingTable(), true));
@@ -162,6 +188,141 @@ function contactsTable() {
   )));
 }
 
+// ------------------------------------------------------------- Aufnahmen
+
+/**
+ * Sprachaufnahme. Eine empfangene Meldung ist oft schneller vorbei, als man
+ * mitschreiben kann – aufnehmen, dann in Ruhe abhören.
+ */
+function recorderCard(wrap) {
+  if (!canRecord()) {
+    return h('div.card', h('p.small.muted', { style: { margin: 0 } }, t('radio.recUnsupported')));
+  }
+
+  const active = recording.active;
+
+  const startStop = h('button', {
+    class: active ? 'btn danger block' : 'btn primary block',
+    type: 'button',
+    style: { 'min-height': '58px', 'font-size': '1.05rem' },
+    onclick: async () => {
+      recError = null;
+      if (recording.active) {
+        clearInterval(recTimer);
+        recTimer = null;
+        try {
+          await recording.stop();
+          recList = await recordings.list();
+        } catch (err) {
+          recError = err.message;
+        }
+        draw(wrap);
+        return;
+      }
+      try {
+        await recording.start();
+        // Laufzeit im Sekundentakt mitschreiben.
+        recTimer = setInterval(() => {
+          const label = document.getElementById('rec-elapsed');
+          if (label) label.textContent = formatSeconds(recording.elapsed());
+        }, 1000);
+      } catch (err) {
+        // Häufigster Fall: Mikrofonfreigabe abgelehnt.
+        recError = err.name === 'NotAllowedError' ? t('radio.recDenied') : err.message;
+      }
+      draw(wrap);
+    },
+  }, active ? t('radio.recStop') : t('radio.recStart'));
+
+  return h('div.card',
+    h('p.small.muted', { style: { margin: '0 0 10px' } }, t('radio.recHint')),
+
+    active && h('div.rec-live',
+      h('span.rec-dot', { 'aria-hidden': 'true' }),
+      h('span.grow', t('radio.recRunning')),
+      h('span.mono', { id: 'rec-elapsed' }, formatSeconds(recording.elapsed())),
+    ),
+
+    startStop,
+
+    active && h('button.btn.small.block', {
+      type: 'button',
+      style: { 'margin-top': '8px' },
+      onclick: () => {
+        clearInterval(recTimer);
+        recTimer = null;
+        recording.cancel();
+        draw(wrap);
+      },
+    }, t('radio.recDiscard')),
+
+    recError && h('p.small', { style: { color: 'var(--danger)', margin: '9px 0 0' } }, recError),
+
+    recList.length > 0 && h('div', { style: { 'margin-top': '12px' } },
+      ...recList.map((rec) => recordingRow(wrap, rec)),
+      h('button.btn.small.block', {
+        type: 'button',
+        style: { 'margin-top': '10px' },
+        onclick: async () => {
+          if (!confirm(t('radio.recConfirmClear'))) return;
+          await recordings.clear();
+          recList = await recordings.list();
+          draw(wrap);
+        },
+      }, t('radio.recDeleteAll')),
+    ),
+
+    !active && recList.length === 0
+      && h('p.small.muted', { style: { margin: '10px 0 0' } }, t('radio.recEmpty')),
+  );
+}
+
+function recordingRow(wrap, rec) {
+  const url = URL.createObjectURL(rec.blob);
+  const audio = h('audio', {
+    controls: true,
+    preload: 'none',
+    src: url,
+    style: { width: '100%', 'margin-top': '7px' },
+  });
+
+  const when = new Date(rec.ts).toLocaleString(locale(), {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+
+  return h('div.rec-item',
+    h('div.row',
+      h('div.grow',
+        h('div.rec-name', rec.name || t('radio.recUnnamed')),
+        h('div.small.muted.mono', `${when} · ${formatSeconds(rec.seconds)}`),
+      ),
+      h('button.btn.small', {
+        type: 'button',
+        'aria-label': t('radio.recRename'),
+        onclick: async () => {
+          const name = prompt(t('radio.recRename'), rec.name || '');
+          if (name === null) return;
+          await recordings.rename(rec.id, name.trim());
+          recList = await recordings.list();
+          draw(wrap);
+        },
+      }, '✎'),
+      h('button.btn.small', {
+        type: 'button',
+        'aria-label': t('radio.recDelete'),
+        onclick: async () => {
+          if (!confirm(t('radio.recConfirmDelete'))) return;
+          URL.revokeObjectURL(url);
+          await recordings.remove(rec.id);
+          recList = await recordings.list();
+          draw(wrap);
+        },
+      }, '✕'),
+    ),
+    audio,
+  );
+}
+
 // ------------------------------------------------------------------ Detail
 
 function detail(wrap, phrase) {
@@ -170,10 +331,13 @@ function detail(wrap, phrase) {
   const checklist = localized(phrase, 'checklist', lang);
   const before = localized(phrase, 'before', lang);
   const after = localized(phrase, 'after', lang);
+  const cases = emergenciesFor(phrase);
+  const chosen = cases.find((e) => e.id === emergencyId) ?? null;
   const v = values();
   const parts = [];
 
-  parts.push(h('div.row', { style: { 'margin-bottom': '12px' } },
+  // --- Kopfzeile: Zurück und Sprachumschalter -------------------------------
+  parts.push(h('div.row', { style: { 'margin-bottom': '10px' } },
     h('button.btn.small', {
       type: 'button',
       onclick: () => { openId = null; draw(wrap); window.scrollTo(0, 0); },
@@ -193,33 +357,8 @@ function detail(wrap, phrase) {
     ),
   ));
 
-  parts.push(h('div.card', { lang },
-    h('div.row', { style: { 'align-items': 'baseline', gap: '9px' } },
-      h('h2.grow', { style: { margin: 0 } }, localized(phrase, 'title', lang)),
-      h('span.badge', { class: phrase.level, lang: uiLang() }, t(`radio.level.${phrase.level}`)),
-    ),
-    h('p.small.muted', { style: { margin: '5px 0 0' } }, localized(phrase, 'short', lang)),
-    localized(phrase, 'channel', lang) && h('p.small', { style: { margin: '9px 0 0', 'font-weight': '650' } },
-      localized(phrase, 'channel', lang)),
-  ));
-
-  if (before?.length) {
-    parts.push(h('div.notice', { lang },
-      h('strong', { lang: uiLang() }, t('radio.before')),
-      h('ul.checklist.plain', { style: { 'margin-top': '6px' } },
-        ...before.map((x) => h('li', x))),
-    ));
-  }
-
-  if (checklist?.length) {
-    parts.push(h('div.card', { lang },
-      h('h3', { lang: uiLang() }, t('radio.steps')),
-      h('ol.checklist', ...checklist.map((x) => h('li', x))),
-    ));
-  }
-
+  // --- Der Funkspruch, direkt darunter --------------------------------------
   if (lines?.length) {
-    // Warnung, wenn ohne GPS-Fix eine Position im Text steht.
     const needsPos = lines.some((l) => l.text?.includes('{{position}}'));
     if (needsPos && !v.position) {
       parts.push(h('div.notice.warn',
@@ -229,57 +368,152 @@ function detail(wrap, phrase) {
     }
 
     parts.push(h('div.card',
-      h('div.script', { lang }, ...lines.map((l) => renderLine(l, v))),
+      h('div.row', { style: { 'align-items': 'baseline', gap: '8px', 'margin-bottom': '10px' } },
+        h('h2.grow', { style: { margin: 0, 'font-size': '1rem' }, lang },
+          localized(phrase, 'title', lang)),
+        h('span.badge', { class: phrase.level, lang: uiLang() }, t(`radio.level.${phrase.level}`)),
+      ),
+      h('div.script', { lang }, ...lines.map((l) => renderLine(l, v, chosen, lang))),
     ));
 
     parts.push(h('div.row.wrap', { style: { 'margin-bottom': '12px' } },
       h('button.btn.grow', {
         type: 'button',
-        onclick: () => copy(plainText(phrase, lines, v, lang), t('radio.copiedText')),
+        onclick: () => copy(plainText(phrase, lines, v, lang, chosen), t('radio.copiedText')),
       }, t('radio.copyText')),
       v.position && h('button.btn.grow', {
         type: 'button',
         onclick: () => copy(formatSpoken(gps.fix, lang), t('radio.copiedPosition')),
       }, t('radio.copyDigits')),
     ));
-
-    if (v.position) {
-      parts.push(h('div.card',
-        h('h3', t('radio.spokenTitle')),
-        h('p.small.muted', { style: { margin: '0 0 7px' } }, t('radio.spokenHint')),
-        h('div', { lang, style: { 'font-size': '1.05rem', 'font-weight': '600' } },
-          formatSpoken(gps.fix, lang)),
-      ));
-    }
+  } else {
+    // Funksprüche ohne Sprechtext (etwa der DSC-Ablauf) zeigen den Titel oben.
+    parts.push(h('div.card', { lang },
+      h('div.row', { style: { 'align-items': 'baseline', gap: '9px' } },
+        h('h2.grow', { style: { margin: 0 } }, localized(phrase, 'title', lang)),
+        h('span.badge', { class: phrase.level, lang: uiLang() }, t(`radio.level.${phrase.level}`)),
+      ),
+      h('p.small.muted', { style: { margin: '5px 0 0' } }, localized(phrase, 'short', lang)),
+    ));
   }
 
+  // --- Häufige Notfälle ------------------------------------------------------
+  if (cases.length) parts.push(emergencyPicker(wrap, cases, chosen, lang));
+
+  // --- Position zum Vorlesen -------------------------------------------------
+  if (lines?.length && v.position) {
+    parts.push(h('div.card',
+      h('h3', t('radio.spokenTitle')),
+      h('p.small.muted', { style: { margin: '0 0 7px' } }, t('radio.spokenHint')),
+      h('div.spoken-position', { lang }, formatSpoken(gps.fix, lang)),
+    ));
+  }
+
+  // --- Hinweise und Ablauf, erst danach --------------------------------------
+  const info = [];
+
+  const channel = localized(phrase, 'channel', lang);
+  if (channel) {
+    info.push(h('p.small', { style: { margin: '0 0 10px', 'font-weight': '650' }, lang }, channel));
+  }
+  if (lines?.length) {
+    info.push(h('p.small.muted', { style: { margin: '0 0 12px' }, lang },
+      localized(phrase, 'short', lang)));
+  }
+  if (before?.length) {
+    info.push(h('div.notice', { lang },
+      h('strong', { lang: uiLang() }, t('radio.before')),
+      h('ul.checklist.plain', { style: { 'margin-top': '6px' } }, ...before.map((x) => h('li', x))),
+    ));
+  }
+  if (checklist?.length) {
+    info.push(h('h3', { style: { margin: '14px 0 6px', 'font-size': '.95rem' }, lang: uiLang() },
+      t('radio.steps')));
+    info.push(h('ol.checklist', { lang }, ...checklist.map((x) => h('li', x))));
+  }
   if (after?.length) {
-    parts.push(h('div.notice', { lang },
+    info.push(h('div.notice', { lang, style: { 'margin-top': '12px' } },
       h('strong', { lang: uiLang() }, t('radio.after')),
-      h('ul.checklist.plain', { style: { 'margin-top': '6px' } },
-        ...after.map((x) => h('li', x))),
+      h('ul.checklist.plain', { style: { 'margin-top': '6px' } }, ...after.map((x) => h('li', x))),
+    ));
+  }
+
+  if (info.length) {
+    parts.push(h('details.foldout', { open: !lines?.length },
+      h('summary', t('radio.details')),
+      h('div', ...info),
     ));
   }
 
   return parts;
 }
 
-function renderLine(line, v) {
+/** Auswahl häufiger Notfälle – füllt die offenen Stellen im Funkspruch. */
+function emergencyPicker(wrap, cases, chosen, lang) {
+  return h('div.card',
+    h('h3', t('radio.emergencies')),
+    h('p.small.muted', { style: { margin: '0 0 10px' } }, t('radio.emergenciesHint')),
+    h('div.emergency-grid',
+      ...cases.map((e) => h('button.emergency', {
+        type: 'button',
+        lang,
+        'aria-pressed': String(chosen?.id === e.id),
+        onclick: () => {
+          // Nochmaliges Antippen hebt die Auswahl wieder auf.
+          emergencyId = chosen?.id === e.id ? null : e.id;
+          draw(wrap);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        },
+      },
+      h('span.ico', { 'aria-hidden': 'true' }, e.icon),
+      h('span.txt', localized(e, 'label', lang)),
+      )),
+    ),
+    chosen
+      ? h('div', { style: { 'margin-top': '11px' } },
+        chosen.dsc && h('p.small', { style: { margin: '0 0 8px', 'font-weight': '600' } },
+          t('radio.dscCategory', { v: chosen.dsc })),
+        h('button.btn.small', {
+          type: 'button',
+          onclick: () => { emergencyId = null; draw(wrap); window.scrollTo({ top: 0, behavior: 'smooth' }); },
+        }, t('radio.clearEmergency')),
+      )
+      : h('p.small.muted', { style: { margin: '11px 0 0' } }, t('radio.noEmergency')),
+  );
+}
+
+function renderLine(line, v, chosen, lang) {
   if (line.t === 'gap') return h('div.line.gap');
+
+  // Offene Stelle, die aus dem gewählten Notfall gefüllt wird.
+  if (line.t === 'slot') {
+    const filled = chosen ? localized(chosen, line.slot, lang) : null;
+    return filled
+      ? h('div.line.slot-filled', filled)
+      : h('div.line.fill', line.hint);
+  }
+
   const text = fillPlaceholders(line.text ?? '', v);
   if (line.t === 'note') return h('div.line.note', text);
   if (line.t === 'fill') return h('div.line.fill', text);
+  // Die eigene Position ist die Zeile, auf die es ankommt – größer setzen.
+  if (line.text?.includes('{{position}}')) return h('div.line.position', text);
   return h('div.line', text);
 }
 
-function plainText(phrase, lines, v, lang) {
+function plainText(phrase, lines, v, lang, chosen) {
   const title = localized(phrase, 'title', lang);
-  const body = lines
-    .map((l) => (l.t === 'gap' ? '' : fillPlaceholders(l.text ?? '', v)))
-    .join('\n');
+  const body = lines.map((l) => {
+    if (l.t === 'gap') return '';
+    if (l.t === 'slot') {
+      return chosen ? localized(chosen, l.slot, lang) : l.hint;
+    }
+    return fillPlaceholders(l.text ?? '', v);
+  }).join('\n');
   return `${title}\n${'-'.repeat(title.length)}\n${body}`;
 }
 
 export function resetView() {
   openId = null;
+  emergencyId = null;
 }

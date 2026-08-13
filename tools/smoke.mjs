@@ -81,16 +81,19 @@ const base = `http://127.0.0.1:${port}/`;
 
 // Ist im System bereits ein Chromium hinterlegt, wird dieses genommen –
 // sonst das von Playwright selbst installierte.
-const browser = await chromium.launch(
-  process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
-);
+const browser = await chromium.launch({
+  ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
+  // Stumme Ersatzquelle statt echtem Mikrofon, damit die Sprachaufnahme
+  // im Test tatsächlich durchläuft.
+  args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+});
 const context = await browser.newContext({
   viewport: { width: 390, height: 844 },       // iPhone-Format
   deviceScaleFactor: 3,
   isMobile: true,
   hasTouch: true,
   locale: 'de-DE',
-  permissions: ['geolocation'],
+  permissions: ['geolocation', 'microphone'],
   geolocation: { latitude: 54.5, longitude: 10.27, accuracy: 8 },
 });
 
@@ -154,6 +157,45 @@ check('Notruf enthält die GPS-Position', /54°3\d,\d{3}' N/.test(script), scrip
 check('Personen an Bord eingesetzt', script.includes('AN BORD SIND 4 PERSONEN'));
 await shot('02-mayday-de');
 
+// Reihenfolge: Der Funkspruch steht direkt oben, die Hinweise erst darunter.
+const detailText = await page.locator('main').innerText();
+const posOfScript = detailText.indexOf('MAYDAY – MAYDAY – MAYDAY');
+const posOfDetails = detailText.indexOf('Hinweise und Ablauf');
+check('Funkspruch steht vor den Hinweisen',
+  posOfScript > -1 && posOfDetails > posOfScript,
+  `Spruch bei ${posOfScript}, Hinweise bei ${posOfDetails}`);
+
+// Ohne Auswahl bleibt die Notfallstelle offen.
+check('Ohne Auswahl steht dort der Hinweis',
+  script.includes('hier den Notfall schildern'), script.slice(0, 300));
+
+// Notfall wählen – der Funkspruch muss sich sofort ändern.
+const cases = await page.locator('.emergency').count();
+check('Notfälle werden angeboten', cases >= 8, `${cases} Einträge`);
+await page.getByRole('button', { name: /Feuer an Bord/ }).click();
+const withFire = await page.locator('.script').innerText();
+check('Gewählter Notfall steht im Funkspruch',
+  withFire.includes('ICH HABE FEUER AN BORD'), withFire.slice(0, 300));
+check('Auch die benötigte Hilfe wird gefüllt',
+  withFire.includes('ICH BENÖTIGE SOFORTIGE HILFE BEI DER BRANDBEKÄMPFUNG'));
+check('Der Hinweis ist verschwunden', !withFire.includes('hier den Notfall schildern'));
+check('DSC-Kategorie wird genannt',
+  (await page.locator('main').innerText()).includes('Fire, explosion'));
+await shot('02b-notfall');
+
+// Auswahl wieder aufheben.
+await page.getByRole('button', { name: '✕ Auswahl aufheben' }).click();
+check('Auswahl lässt sich aufheben',
+  (await page.locator('.script').innerText()).includes('hier den Notfall schildern'));
+
+// Die eigene Position ist im Funkspruch hervorgehoben.
+const posSize = await page.locator('.script .position').evaluate(
+  (el) => parseFloat(getComputedStyle(el).fontSize));
+const lineSize = await page.locator('.script .line').first().evaluate(
+  (el) => parseFloat(getComputedStyle(el).fontSize));
+check('Position ist größer gesetzt als der übrige Text', posSize > lineSize,
+  `Position ${posSize}px, übrige Zeilen ${lineSize}px`);
+
 // Sprache der Funksprüche umschalten – die Oberfläche bleibt deutsch.
 await page.getByRole('button', { name: 'English' }).first().click();
 const scriptEn = await page.locator('.script').innerText();
@@ -165,14 +207,41 @@ await shot('03-mayday-en');
 await page.getByRole('button', { name: '‹ Zurück' }).click();
 await page.getByRole('button', { name: 'Deutsch' }).first().click();
 
+// --- Sprachaufnahme --------------------------------------------------------
+await page.getByRole('button', { name: /Aufnahme starten/ }).click();
+await page.waitForSelector('.rec-live', { timeout: 8000 })
+  .catch(() => problems.push('Aufnahme startet nicht'));
+check('Aufnahme läuft', await page.locator('.rec-live').count() === 1);
+await page.waitForTimeout(1200);
+await page.getByRole('button', { name: /Aufnahme beenden/ }).click();
+await page.waitForSelector('.rec-item', { timeout: 8000 })
+  .catch(() => problems.push('Aufnahme wurde nicht gespeichert'));
+check('Aufnahme gespeichert', await page.locator('.rec-item').count() === 1);
+check('Aufnahme hat einen Abspieler', await page.locator('.rec-item audio').count() === 1);
+await shot('02c-aufnahme');
+
+// Löschen muss gehen – sonst sammelt sich das an.
+page.once('dialog', (d) => d.accept());
+await page.locator('.rec-item').getByRole('button', { name: 'Aufnahme löschen' }).click();
+await page.waitForTimeout(400);
+check('Aufnahme wieder löschbar', await page.locator('.rec-item').count() === 0);
+
 // --- Positionsmodul --------------------------------------------------------
 await page.locator('nav.tabs button').nth(1).click();
 await page.waitForSelector('.posline');
 check('Eigene Position wird angezeigt', (await page.locator('.posline').innerText()).includes('54°'));
+const ownSize = await page.locator('.posline').evaluate(
+  (el) => parseFloat(getComputedStyle(el).fontSize));
+check('Eigene Position ist groß gesetzt', ownSize >= 26, `${ownSize}px`);
 
-await page.locator('textarea').fill(`54°26.000' N 011°11.400' E`);
-await page.getByRole('button', { name: 'Übernehmen' }).click();
+// Zieleingabe: reine Zifferneingabe, keine Sonderzeichen nötig.
+await page.locator('#coord-latDeg').fill('54');
+await page.locator('#coord-latMin').fill('26');
+await page.locator('#coord-lonDeg').fill('11');
+await page.locator('#coord-lonMin').fill('11.4');
 await page.waitForSelector('.compass');
+check('Kopfzeilen-Symbol ist sichtbar',
+  await page.locator('.topbar .icon-btn svg').evaluate((el) => el.getBoundingClientRect().width) > 10);
 
 // Der erste Messwertblock gehört zur eigenen Position, der zweite zum Ergebnis.
 const distance = await page.locator('.cell.hero').first().innerText();
@@ -184,19 +253,46 @@ const bearing = await page.locator('.compass .center-text').textContent();
 check('Kurs im Kompass', bearing === '097°', bearing);
 await shot('04-position');
 
-// Unsinnige Eingabe muss abgefangen werden.
-await page.locator('textarea').fill('völliger Unfug');
-await page.getByRole('button', { name: 'Übernehmen' }).click();
-check('Fehlerhafte Eingabe wird gemeldet',
-  await page.getByText('nicht erkannt', { exact: false }).count() > 0);
+// Buchstaben werden gar nicht erst angenommen.
+await page.locator('#coord-latMin').fill('abc26,5');
+check('Nur Ziffern landen im Feld',
+  (await page.locator('#coord-latMin').inputValue()) === '26,5',
+  await page.locator('#coord-latMin').inputValue());
 
-await page.locator('textarea').fill(`54°26.000' N 011°11.400' E`);
-await page.getByRole('button', { name: 'Übernehmen' }).click();
+// Unmögliche Werte werden gemeldet.
+await page.locator('#coord-latDeg').fill('95');
+check('Unmögliche Breite wird gemeldet',
+  await page.getByText('Breite bis 90', { exact: false }).count() > 0);
+await page.locator('#coord-latDeg').fill('54');
+await page.locator('#coord-latMin').fill('26');
 
-// MOB-Knopf legt einen Wegpunkt an.
+// Himmelsrichtung per Schaltfläche.
+await page.getByRole('button', { name: 'S', exact: true }).click();
+check('Süd kehrt das Vorzeichen um',
+  (await page.locator('.coord-check').innerText()).includes('S'),
+  await page.locator('.coord-check').innerText());
+await page.getByRole('button', { name: 'N', exact: true }).click();
+
+// Eigene Position ausgeschrieben.
+await page.getByRole('button', { name: /ausgeschrieben anzeigen/ }).click();
+check('Position ausgeschrieben',
+  (await page.locator('.spoken-position').innerText()).includes('Grad'),
+  await page.locator('.spoken-position').innerText());
+
+// MOB-Knopf merkt die Position direkt darunter.
 await page.getByRole('button', { name: /Mensch über Bord/ }).click();
-await page.waitForSelector('.wp-item');
-check('MOB-Wegpunkt angelegt', (await page.locator('.wp-item').first().innerText()).includes('MOB'));
+await page.waitForSelector('.mob-row');
+const mobRow = await page.locator('.mob-row').innerText();
+check('MOB-Position steht direkt unter der Taste', mobRow.includes('MOB'), mobRow.replace(/\n/g, ' | '));
+check('MOB-Position zeigt die Koordinaten', /54°30/.test(mobRow), mobRow.replace(/\n/g, ' | '));
+
+// Anderes Ziel setzen, dann MOB wieder übernehmen.
+await page.locator('#coord-latMin').fill('26');
+check('MOB lässt sich wieder als Ziel setzen',
+  await page.getByRole('button', { name: '→ Als Ziel' }).count() === 1);
+await page.getByRole('button', { name: '→ Als Ziel' }).click();
+check('MOB ist jetzt das Ziel',
+  await page.getByRole('button', { name: '✓ Ist Ziel' }).count() === 1);
 
 // --- Nachtfahrt ------------------------------------------------------------
 await page.locator('nav.tabs button').nth(2).click();
@@ -204,17 +300,45 @@ await page.waitForSelector('.light-card');
 const cardsAll = await page.locator('.light-card').count();
 check('Lichterliste gefüllt', cardsAll > 10, `${cardsAll} Einträge`);
 
-await page.getByRole('button', { name: /Rot$/ }).first().click();
-await page.getByRole('button', { name: /Grün$/ }).first().click();
-const cardsFiltered = await page.locator('.light-card').count();
-check('Farbfilter grenzt ein', cardsFiltered > 0 && cardsFiltered < cardsAll,
-  `${cardsFiltered} von ${cardsAll}`);
-await shot('05-lights');
+// Lichtersuche: Auswahl grenzt ein, Unmögliches verschwindet.
+await page.getByRole('button', { name: /Lichter suchen/ }).click();
+await page.waitForSelector('.sheet');
+const facetsBefore = await page.locator('.facet').count();
+await page.getByRole('button', { name: /^Rot/ }).first().click();
+await page.getByRole('button', { name: /Zwei Rundumlichter übereinander/ }).click();
+const facetsAfter = await page.locator('.facet').count();
+check('Unmögliche Merkmale fallen weg', facetsAfter < facetsBefore,
+  `vorher ${facetsBefore}, nachher ${facetsAfter}`);
 
-await page.getByRole('button', { name: '✕ zurücksetzen' }).click();
+const resultCount = Number(await page.locator('.sheet-result .n').innerText());
+check('Suchmaske zeigt die Trefferzahl', resultCount > 0 && resultCount < cardsAll,
+  `${resultCount} von ${cardsAll}`);
+await shot('05-lichtersuche');
+
+await page.getByRole('button', { name: 'Anzeigen' }).click();
+await page.waitForSelector('.light-card');
+const cardsFiltered = await page.locator('.light-card').count();
+check('Suche grenzt die Liste ein', cardsFiltered === resultCount,
+  `${cardsFiltered} angezeigt, ${resultCount} erwartet`);
+await shot('05b-lights');
+
+await page.getByRole('button', { name: /zurücksetzen/ }).first().click();
 await page.getByRole('button', { name: 'Schall' }).click();
 await page.waitForSelector('.sound-symbol');
 check('Schallsignale gelistet', await page.locator('.sound-item').count() > 5);
+
+// Seezeichen
+await page.getByRole('button', { name: 'Tonnen' }).click();
+await page.waitForSelector('.buoy-light');
+const buoyText = await page.locator('main').innerText();
+check('Kardinalzeichen vorhanden', buoyText.includes('Nordzeichen') && buoyText.includes('Westzeichen'));
+check('Lateralzeichen vorhanden', buoyText.includes('Backbordzeichen'));
+check('Gefahrenzeichen vorhanden', buoyText.includes('Einzelgefahrenstelle'));
+check('Feuerkennung wird genannt', buoyText.includes('Q(6) + LFl 15s'), '');
+check('Kennungs-Abkürzungen erklärt', buoyText.includes('Funkelfeuer'));
+const buoyCards = await page.locator('.buoy-light').count();
+check('Alle Seezeichen gelistet', buoyCards === 12, `${buoyCards} Einträge`);
+await shot('05c-tonnen');
 
 await page.getByRole('button', { name: 'Grundlagen' }).click();
 check('Grundlagen zeigen die Tragweiten',
