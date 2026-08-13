@@ -13,7 +13,9 @@ import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // Standardmäßig wird das Arbeitsverzeichnis geprüft. Mit SMOKE_ROOT lässt
@@ -23,6 +25,68 @@ const REPO = fileURLToPath(new URL('..', import.meta.url));
 const ROOT = process.env.SMOKE_ROOT ? resolve(process.env.SMOKE_ROOT) : REPO;
 const SHOTS = process.argv.includes('--shots');
 const SHOT_DIR = process.env.SHOT_DIR ?? join(REPO, 'screenshots');
+
+/**
+ * Ein kleines, echtes Kartenpaket für den Rauchtest.
+ *
+ * Der eigentliche Spiegel von OpenSeaMap ist von hier aus nicht erreichbar –
+ * also wird ein Paket derselben Bauart erzeugt und über den örtlichen Server
+ * ausgeliefert. Geprüft wird damit die ganze Kette: herunterladen, ablegen,
+ * die SQLite-Datei lesen und die Kachel auf der Karte zeigen. Nur die Adresse
+ * ist eine andere.
+ */
+const FIXTURE_DIR = mkdtempSync(join(tmpdir(), 'sb-smoke-'));
+const FIXTURE = join(FIXTURE_DIR, 'test.mbtiles');
+process.on('exit', () => rmSync(FIXTURE_DIR, { recursive: true, force: true }));
+
+function buildFixture() {
+  execFileSync('python3', ['-c', `
+import sqlite3, os, math, zlib, struct
+path = ${JSON.stringify(FIXTURE)}
+if os.path.exists(path): os.remove(path)
+
+def png(r, g, b):
+    # Ein einfarbiges 2x2-PNG, von Hand gebaut – ohne Bibliothek.
+    raw = b''.join(b'\\x00' + bytes([r, g, b]) * 2 for _ in range(2))
+    def chunk(tag, data):
+        c = tag + data
+        return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c))
+    return (b'\\x89PNG\\r\\n\\x1a\\n'
+            + chunk(b'IHDR', struct.pack('>IIBBBBB', 2, 2, 8, 2, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(raw))
+            + chunk(b'IEND', b''))
+
+def tile_x(lon, z): return int((lon + 180.0) / 360.0 * 2 ** z)
+def tile_y(lat, z):
+    r = math.radians(lat)
+    return int((1.0 - math.log(math.tan(r) + 1 / math.cos(r)) / math.pi) / 2.0 * 2 ** z)
+
+db = sqlite3.connect(path)
+db.execute("CREATE TABLE metadata (name text, value text)")
+db.executemany("INSERT INTO metadata VALUES (?,?)", [
+    ('name', 'Prüfgebiet Kiel'), ('format', 'png'),
+    ('minzoom', '8'), ('maxzoom', '14'),
+    ('bounds', '9.8,54.2,10.8,54.8'),
+])
+db.execute("CREATE TABLE tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob)")
+
+# Rund um die Position, die der Test vorgibt: 54,5 N 010,27 O
+rows = []
+for z in range(8, 15):
+    cx, cy = tile_x(10.27, z), tile_y(54.5, z)
+    for dx in range(-3, 4):
+        for dy in range(-3, 4):
+            x, y = cx + dx, cy + dy
+            if x < 0 or y < 0: continue
+            row = 2 ** z - 1 - y                    # MBTiles zaehlt von unten
+            rows.append((z, x, row, png(20, 90 + (z * 10) % 120, 160)))
+db.executemany("INSERT INTO tiles VALUES (?,?,?,?)", rows)
+db.execute("CREATE UNIQUE INDEX tile_index on tiles (zoom_level, tile_column, tile_row)")
+db.commit(); db.close()
+print(len(rows), 'Kacheln im Pruefpaket')
+`], { stdio: 'inherit' });
+  return readFileSync(FIXTURE);
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -34,9 +98,34 @@ const MIME = {
   '.png': 'image/png',
 };
 
-function serve() {
+function serve(fixture) {
   const server = createServer(async (req, res) => {
     const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+
+    // Das Prüfpaket kommt aus dem Speicher und beherrscht Bereichsabfragen –
+    // genau wie der Dateispiegel, von dem die echten Pakete stammen.
+    if (path === '/test.mbtiles' && fixture) {
+      const range = /^bytes=(\d+)-/.exec(req.headers.range ?? '');
+      const head = {
+        'Content-Type': 'application/octet-stream',
+        'Accept-Ranges': 'bytes',
+      };
+      if (range) {
+        const from = Number(range[1]);
+        const part = fixture.subarray(from);
+        res.writeHead(206, {
+          ...head,
+          'Content-Length': String(part.length),
+          'Content-Range': `bytes ${from}-${fixture.length - 1}/${fixture.length}`,
+        });
+        res.end(part);
+        return;
+      }
+      res.writeHead(200, { ...head, 'Content-Length': String(fixture.length) });
+      res.end(fixture);
+      return;
+    }
+
     const rel = normalize(path === '/' ? '/index.html' : path).replace(/^(\.\.[/\\])+/, '');
     try {
       const body = await readFile(join(ROOT, rel));
@@ -76,7 +165,7 @@ async function dumpOnFailure(page, err) {
   }
 }
 
-const { server, port } = await serve();
+const { server, port } = await serve(buildFixture());
 const base = `http://127.0.0.1:${port}/`;
 
 // Ist im System bereits ein Chromium hinterlegt, wird dieses genommen –
@@ -646,6 +735,82 @@ check('Route nimmt Punkte auf', await page.locator('.wp-item').count() >= 1);
 check('Mit Punkt lässt sich die Route laden',
   !(await page.getByRole('button', { name: /Herunterladen/ }).isDisabled()));
 await shot('07b-karten-einstellungen');
+await page.getByRole('button', { name: 'Allgemein', exact: true }).click();
+await page.waitForTimeout(150);
+
+// --- Fertiges Kartenpaket: die ganze Kette ---------------------------------
+// Herunterladen, ablegen, die SQLite-Datei lesen, die Kachel zeigen. Der
+// Spiegel von OpenSeaMap ist von hier aus nicht erreichbar, also läuft es
+// gegen ein Paket derselben Bauart vom örtlichen Server.
+await page.getByRole('button', { name: 'Karten', exact: true }).click();
+await page.waitForTimeout(200);
+check('Fertige Kartenpakete werden angeboten',
+  (await page.locator('main').innerText()).includes('Fertige Kartenpakete'));
+
+// Ein <summary> ist keine Schaltfläche – es wird über den Text angesprochen.
+await page.locator('summary', { hasText: 'Eigene Adresse verwenden' }).click();
+await page.waitForTimeout(150);
+await page.locator('input[placeholder*=".mbtiles"]').fill(`${base}test.mbtiles`);
+// Bewusst ein anderer Name als in der Datei: Gelten muss der aus der Datei.
+await page.locator('input[placeholder="z. B. Ostsee"]').fill('Egal');
+await page.locator('.foldout', { hasText: 'Eigene Adresse' })
+  .getByRole('button', { name: /Holen/ }).click();
+
+// Der Download läuft über einen Strom – kurz warten, bis er durch ist.
+await page.waitForFunction(
+  () => !document.querySelector('#pack-progress'),
+  null, { timeout: 30000 },
+).catch(() => {});
+await page.waitForTimeout(500);
+
+const packText = await page.locator('main').innerText();
+check('Kartenpaket liegt im Gerät', /vollständig/.test(packText),
+  packText.split('\n').filter((l) => /Prüfgebiet|vollständig|Nicht geklappt/.test(l)).join(' | '));
+// Der Name steht in der Datei, nicht im Eingabefeld – und übersteht den
+// Weg durch SQLite samt Umlaut.
+check('Der Name kommt aus dem Paket selbst', packText.includes('Prüfgebiet Kiel'),
+  packText.split('\n').filter((l) => /Egal|Prüfgebiet/.test(l)).join(' | '));
+await shot('07d-kartenpaket');
+
+// Und jetzt der eigentliche Beweis: Die Karte zeigt daraus Kacheln.
+await goTab(2);
+await page.waitForSelector('.chart');
+await page.getByRole('button', { name: /Seekarte einblenden/ }).click();
+await page.waitForFunction(
+  () => document.querySelectorAll('.chart-tile').length > 0,
+  null, { timeout: 15000 },
+).catch(() => {});
+const gezeigt = await page.locator('.chart-tile').count();
+check('Karte zeigt Kacheln aus dem Paket', gezeigt > 0, `${gezeigt} Kacheln`);
+check('Der Hinweis auf fehlendes Material ist weg',
+  !(await page.locator('main').innerText()).includes('Kein Kartenmaterial'));
+
+// Die Bilder müssen auch wirklich laden – eine kaputte Kachel wäre ein
+// leerer Rahmen, und den sieht man auf einem Bildschirmfoto nicht.
+const geladen = await page.locator('.chart-tile').first()
+  .evaluate((img) => img.complete && img.naturalWidth > 0);
+check('Die Kacheln sind lesbare Bilder', geladen);
+
+// An dieser Stelle läuft die App noch im Nachtmodus. Eine helle Seekarte
+// wäre dort das Schlimmste, was der Dunkeladaption passieren kann.
+const kachelFilter = await page.locator('.chart-tile').first()
+  .evaluate((el) => getComputedStyle(el).filter);
+check('Nachtmodus dämpft auch das Kartenbild',
+  /brightness\(0?\.[0-3]\d*\)/.test(kachelFilter), kachelFilter);
+await shot('04c-karte-mit-paket');
+
+await page.getByRole('button', { name: /Seekarte ausblenden/ }).click();
+
+// Wieder weg damit, damit die folgenden Prüfungen nichts erben.
+await goTab(5);
+await page.getByRole('button', { name: 'Karten', exact: true }).click();
+await page.waitForTimeout(200);
+page.once('dialog', (d) => d.accept());
+await page.locator('.wp-item', { hasText: 'Prüfgebiet Kiel' })
+  .getByRole('button', { name: '✕' }).first().click();
+await page.waitForTimeout(600);
+check('Kartenpaket wieder löschbar',
+  !(await page.locator('main').innerText()).includes('Prüfgebiet Kiel'));
 await page.getByRole('button', { name: 'Allgemein', exact: true }).click();
 await page.waitForTimeout(150);
 

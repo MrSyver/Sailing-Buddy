@@ -24,6 +24,8 @@ import {
   lonToTileX, latToTileY, tileXToLon, tileYToLat, tileStore,
 } from '../lib/tiles.js';
 import { layers, ATTRIBUTION } from '../data/tilesources.js';
+import { openAll } from '../lib/packs.js';
+import { mediaType } from '../lib/mbtiles.js';
 
 const TILE = 256;
 const MIN_Z = 3;
@@ -268,24 +270,48 @@ async function tileLayer(box, z, originX, originY, width, height) {
 
   let found = 0;
   const sources = layers(settings.all());
+  // Fertige Kartenpakete liegen als einzelne Datei im Gerät und werden
+  // seitenweise gelesen. Sie kommen zuunterst, einzeln geladene Kacheln
+  // darüber – die sind gezielt für diese Stelle geholt worden.
+  const packs = await openAll().catch(() => []);
+
+  const place = (blob, tile, type) => {
+    const url = URL.createObjectURL(
+      blob instanceof Blob ? blob : new Blob([blob], { type }),
+    );
+    objectUrls.push(url);
+    wrap.appendChild(h('img.chart-tile', {
+      src: url,
+      alt: '',
+      style: {
+        left: `${tile.x * TILE - originX}px`,
+        top: `${tile.y * TILE - originY}px`,
+      },
+    }));
+  };
 
   for (const tile of wanted) {
+    let hit = false;
+
+    for (const { pack } of packs) {
+      if (z < pack.minzoom || z > pack.maxzoom) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const bytes = await pack.getTile(z, tile.x, tile.y);
+      if (!bytes) continue;
+      place(bytes, tile, mediaType(pack.format));
+      hit = true;
+      break;
+    }
+
     for (const layer of sources) {
       // eslint-disable-next-line no-await-in-loop
       const blob = await tileStore.get(layer.id, z, tile.x, tile.y);
       if (!blob) continue;
-      if (layer.id === 'base') found += 1;
-      const url = URL.createObjectURL(blob);
-      objectUrls.push(url);
-      wrap.appendChild(h('img.chart-tile', {
-        src: url,
-        alt: '',
-        style: {
-          left: `${tile.x * TILE - originX}px`,
-          top: `${tile.y * TILE - originY}px`,
-        },
-      }));
+      if (layer.id === 'base') hit = true;
+      place(blob, tile);
     }
+
+    if (hit) found += 1;
   }
 
   // Fehlt das meiste, ist das keine Karte mehr – dann lieber sagen, warum.

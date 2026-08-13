@@ -9,7 +9,7 @@ Fünf Module:
 |---|---|
 | **Funk** | Die wichtigsten Funksprüche mit bereits eingesetztem Schiffsnamen, Rufzeichen, MMSI und aktueller GPS-Position. Zum Vorlesen, in Deutsch oder Englisch. Häufige Notfälle auf Antippen einsetzbar. Dazu Sprachaufnahmen für empfangene Meldungen. |
 | **Position** | Zielkoordinate in reinen Zahlenfeldern eingeben – Grad, ganze Minuten und Nachkommastellen je in einem eigenen Kästchen, ohne Gradzeichen und Hochkomma – und Entfernung, rechtweisenden Kurs, Kompasskurs und Fahrzeit ablesen. MOB-Taste mit gemerkter Position. |
-| **Karte** | Alle gemerkten Positionen und die eigene auf einer Zeichnung, nordorientiert, mit Maßstab. Das Kartenbild von OpenSeaMap ist zuschaltbar und stammt ausschließlich aus dem, was vorher heruntergeladen wurde. Zum Herunterladen stehen 38 fertige Reviere bereit – von der Kieler Bucht über die Dalmatinische Küste bis zu den Kleinen Antillen –, dazu ein Umkreis um die eigene Position und ein Streifen entlang einer Route. |
+| **Karte** | Alle gemerkten Positionen und die eigene auf einer Zeichnung, nordorientiert, mit Maßstab. Das Kartenbild von OpenSeaMap ist zuschaltbar und stammt ausschließlich aus dem, was vorher heruntergeladen wurde. Kartenmaterial kommt am besten als **fertiges Paket** von OpenSeaMap – eine MBTiles-Datei je Seegebiet, mit Zoomstufe 14 an der Küste und 16 in den Häfen. Daneben gibt es 38 fertige Reviere, einen Umkreis um die eigene Position und einen Streifen entlang einer Route, alle kachelweise geladen und deshalb gröber. |
 | **Nachtfahrt** | Lichterführung, Seezeichen und Schallsignale nach KVR und IALA. Die Lichtersuche geht über Fahrzeuge und Tonnen zugleich und bietet nach jeder Auswahl nur noch an, was überhaupt möglich ist. Die Lichterbilder werden aus den Sektoren der Laternen abgeleitet und lassen sich zwischen „von vorn“, „querab“ und „von achtern“ umschalten. Jede Feuerkennung als Balken. |
 | **Logbuch** | Positionen von Hand oder in festem Takt mitschreiben, als Spur zeichnen, als Text oder Tabelle ausgeben. |
 
@@ -153,6 +153,9 @@ js/lib/gps.js            Geolocation
 js/lib/i18n.js           Sprache der Oberfläche
 js/lib/logbook.js        Logbuch samt automatischem Takt und Spurberechnung
 js/lib/tiles.js          Kachelrechnung, Kachelspeicher und Herunterladen
+js/lib/sqlite.js         lesender Zugriff auf SQLite-Dateien, seitenweise
+js/lib/mbtiles.js        Kartenpakete lesen (MBTiles)
+js/lib/packs.js          Kartenpakete holen, ablegen und wiederfinden
 js/lib/offline.js        prüft und sichert die Offline-Bereitschaft
 js/lib/recorder.js       Sprachaufnahmen (IndexedDB)
 js/lib/storage.js        Einstellungen und Wegpunkte (bleiben auf dem Gerät)
@@ -163,6 +166,7 @@ js/views/                die fünf Module und die Einstellungen
 js/data/                 Funksprüche, Lichterführung, Seezeichen, Schallsignale
 js/data/tilesources.js   die einzige Stelle mit Adressen fremder Server
 js/data/searegions.js    fertige Seegebiete zum Herunterladen
+js/data/chartpacks.js    fertige Kartenpakete von OpenSeaMap
 tools/make-icons.py      erzeugt die App-Symbole
 tools/build-single-file.mjs  baut dist/sailing-buddy.html
 tools/smoke.mjs          Rauchtest im echten Browser
@@ -170,6 +174,8 @@ tests/geo.test.mjs       Prüfungen der Navigationsrechnung
 tests/offline.test.mjs   wacht über die Vollständigkeit der Offline-Kopie
 tests/tiles.test.mjs     Prüfungen der Kachelrechnung
 tests/searegions.test.mjs rechnet nach, dass jedes Revier am Stück ladbar ist
+tests/sqlite.test.mjs    liest von Python erzeugte SQLite-Dateien wieder ein
+tests/mbtiles.test.mjs   beide Bauformen von MBTiles, samt Zeilenzählung
 ```
 
 ### Sprachen
