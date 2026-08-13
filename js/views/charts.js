@@ -27,6 +27,12 @@ import {
 import {
   SEA_REGIONS, REGION_GROUPS, regionArea, regionContains,
 } from '../data/searegions.js';
+import {
+  CHART_PACKS, PACK_GROUPS, packUrl, DEFAULT_PACK_BASE, PACK_ATTRIBUTION,
+} from '../data/chartpacks.js';
+import {
+  packsAvailable, listPacks, downloadPack, removePack, forgetOpen, storageEstimate,
+} from '../lib/packs.js';
 
 const state = {
   kind: 'region',        // 'region' | 'radius' | 'route'
@@ -40,6 +46,11 @@ const state = {
   loaded: false,
   busy: null,            // { done, total, stored, bytes, name }
   abort: null,
+  // Fertige Kartenpakete
+  packs: [],
+  space: null,
+  packBusy: null,        // { id, name, done, total }
+  packAbort: null,
 };
 
 const en = () => locale().startsWith('en');
@@ -58,6 +69,8 @@ export function chartsTab() {
 
 async function refresh() {
   state.areas = await areaStore.list();
+  state.packs = packsAvailable() ? await listPacks().catch(() => []) : [];
+  state.space = await storageEstimate();
   state.loaded = true;
   paint();
 }
@@ -65,12 +78,240 @@ async function refresh() {
 function paint() {
   if (!host) return;
   render(host,
+    packCard(),
+    state.packBusy ? packProgressCard() : null,
     downloadCard(),
     state.busy ? progressCard() : null,
     areasCard(),
     sourceCard(),
     h('p.disclaimer', t('charts.disclaimer')),
   );
+}
+
+// ------------------------------------------------------- Fertige Kartenpakete
+
+/**
+ * Der Hauptweg: ein Paket je Seegebiet, als eine Datei.
+ *
+ * Das ist der Weg, den OpenSeaMap selbst dafür vorsieht – ein Download von
+ * einem Dateispiegel statt zehntausender Einzelabrufe auf dem Kachelserver,
+ * und dabei Zoomstufe 14 an der Küste statt 11.
+ */
+function packCard() {
+  if (!packsAvailable()) {
+    return h('div.card',
+      h('h2', t('packs.title')),
+      h('div.notice.warn', t('packs.unsupported')),
+    );
+  }
+
+  const s = settings.all();
+  const have = new Map(state.packs.map((p) => [p.id, p]));
+  const online = navigator.onLine !== false;
+
+  const row = (pack) => {
+    const mine = have.get(pack.id);
+    const busy = state.packBusy?.id === pack.id;
+    return h('div.wp-item',
+      h('div.grow',
+        h('div.wp-name', mine?.complete ? `✓ ${packName(pack)}` : packName(pack)),
+        h('div.small.muted', packHint(pack)),
+        h('div.small.muted',
+          mine
+            ? t('packs.have', {
+              size: formatBytes(mine.bytes),
+              state: mine.complete ? t('packs.stateDone') : t('packs.statePart'),
+            })
+            : t('packs.about', { size: formatBytes(pack.bytes) })),
+      ),
+      !mine?.complete && h('button.btn.small', {
+        type: 'button',
+        disabled: Boolean(state.packBusy) || !online,
+        onclick: () => startPack(pack),
+      }, busy ? t('packs.running') : (mine ? t('packs.resume') : t('packs.get'))),
+      mine && h('button.btn.small', {
+        type: 'button',
+        'aria-label': `${packName(pack)} – ${t('common.delete')}`,
+        disabled: Boolean(state.packBusy),
+        onclick: async () => {
+          if (!confirm(t('packs.confirmDelete'))) return;
+          forgetOpen(pack.id);
+          await removePack(pack.id);
+          toast(t('packs.deleted'));
+          await refresh();
+        },
+      }, '✕'),
+    );
+  };
+
+  // Pakete, die es im Katalog nicht gibt – etwa selbst eingetragene.
+  const known = new Set(CHART_PACKS.map((p) => p.id));
+  const strangers = state.packs.filter((p) => !known.has(p.id));
+
+  return h('div.card',
+    h('h2', t('packs.title')),
+    h('p.small.muted', { style: { margin: '0 0 12px' } }, t('packs.intro')),
+
+    state.space && h('p.small.muted', { style: { margin: '0 0 12px' } },
+      t('packs.space', {
+        free: formatBytes(state.space.free),
+        used: formatBytes(state.space.usage),
+      })),
+
+    !online && h('div.notice.warn', { style: { 'margin-bottom': '10px' } }, t('charts.offline')),
+
+    ...PACK_GROUPS.map((group) => {
+      const items = CHART_PACKS.filter((p) => p.group === group.key);
+      if (!items.length) return null;
+      const anyHere = items.some((p) => have.has(p.id));
+      return h('details.foldout.region-fold', { open: anyHere || group.key === 'nordost' },
+        h('summary', en() ? group.labelEn : group.label),
+        h('div', ...items.map(row)),
+      );
+    }).filter(Boolean),
+
+    strangers.length > 0 && h('div', { style: { 'margin-top': '10px' } },
+      h('h4', { style: { margin: '0 0 6px', 'font-size': '.74rem', 'text-transform': 'uppercase', color: 'var(--text-dim)' } },
+        t('packs.own')),
+      ...strangers.map((p) => h('div.wp-item',
+        h('div.grow',
+          h('div.wp-name', p.complete ? `✓ ${p.name}` : p.name),
+          h('div.small.muted', t('packs.have', {
+            size: formatBytes(p.bytes),
+            state: p.complete ? t('packs.stateDone') : t('packs.statePart'),
+          })),
+        ),
+        h('button.btn.small', {
+          type: 'button',
+          disabled: Boolean(state.packBusy),
+          onclick: async () => {
+            if (!confirm(t('packs.confirmDelete'))) return;
+            forgetOpen(p.id);
+            await removePack(p.id);
+            await refresh();
+          },
+        }, '✕'),
+      )),
+    ),
+
+    // Eine eigene Adresse – die Rettung, falls oben etwas nicht stimmt.
+    h('details.foldout', { style: { 'margin-top': '10px', 'margin-bottom': 0 } },
+      h('summary', t('packs.ownTitle')),
+      h('div',
+        h('p.small.muted', { style: { 'margin-top': 0 } }, t('packs.ownHint')),
+        ownPackForm(s),
+      ),
+    ),
+
+    h('p.small.muted', { style: { margin: '12px 0 0' } }, PACK_ATTRIBUTION),
+  );
+}
+
+const packName = (p) => (en() ? p.nameEn : p.name);
+const packHint = (p) => (en() ? p.hintEn : p.hint);
+
+function ownPackForm(s) {
+  let url = '';
+  let name = '';
+  return h('div',
+    h('label.field',
+      h('span', t('packs.ownUrl')),
+      h('input.mono', {
+        inputmode: 'url',
+        autocapitalize: 'off',
+        autocorrect: 'off',
+        spellcheck: false,
+        placeholder: `${DEFAULT_PACK_BASE}Baltic_Sea.mbtiles`,
+        oninput: (e) => { url = e.target.value.trim(); },
+      }),
+    ),
+    h('label.field',
+      h('span', t('packs.ownName')),
+      h('input', {
+        placeholder: t('packs.ownNamePlaceholder'),
+        oninput: (e) => { name = e.target.value.trim(); },
+      }),
+    ),
+    h('button.btn.small', {
+      type: 'button',
+      onclick: () => {
+        if (!url) { toast(t('packs.ownNeedsUrl')); return; }
+        const id = `eigen-${Date.now().toString(36)}`;
+        startPack({ id, name: name || t('packs.ownDefault'), url, bytes: null });
+      },
+    }, t('packs.get')),
+    h('label.field', { style: { 'margin-top': '14px' } },
+      h('span', t('packs.baseUrl')),
+      h('input.mono', {
+        value: s.packBaseUrl ?? '',
+        inputmode: 'url',
+        autocapitalize: 'off',
+        autocorrect: 'off',
+        spellcheck: false,
+        placeholder: DEFAULT_PACK_BASE,
+        onchange: (e) => { settings.set('packBaseUrl', e.target.value.trim()); paint(); },
+      }),
+      h('span.hint', t('packs.baseHint')),
+    ),
+  );
+}
+
+async function startPack(pack) {
+  const controller = new AbortController();
+  state.packAbort = controller;
+  state.packBusy = {
+    id: pack.id, name: pack.name ?? packName(pack), done: 0, total: pack.bytes ?? 0,
+  };
+  paint();
+
+  try {
+    await downloadPack({
+      id: pack.id,
+      name: pack.name ?? packName(pack),
+      url: pack.url ?? packUrl(pack, settings.all()),
+      expectedBytes: pack.bytes ?? null,
+    }, {
+      signal: controller.signal,
+      onProgress: (p) => {
+        state.packBusy = { ...state.packBusy, ...p };
+        const bar = host?.querySelector('#pack-progress');
+        if (bar) render(bar, ...packProgressContent());
+      },
+    });
+    toast(t('packs.done'));
+  } catch (err) {
+    if (err.name === 'AbortError') toast(t('packs.stopped'));
+    else toast(t('packs.failed', { v: err.message }));
+  } finally {
+    state.packBusy = null;
+    state.packAbort = null;
+    await refresh();
+  }
+}
+
+function packProgressCard() {
+  return h('div.card', h('div', { id: 'pack-progress' }, ...packProgressContent()));
+}
+
+function packProgressContent() {
+  const b = state.packBusy;
+  if (!b) return [];
+  const pct = b.total ? Math.round((b.done / b.total) * 100) : 0;
+  return [
+    h('h2', { style: { margin: '0 0 8px' } }, t('packs.loading')),
+    h('p.small.muted', { style: { margin: '0 0 10px' } }, b.name),
+    h('div.progress', h('div.bar', { style: { width: `${pct}%` } })),
+    h('p.small', { style: { margin: '8px 0 0' } },
+      b.total
+        ? t('packs.progress', { done: formatBytes(b.done), total: formatBytes(b.total), pct })
+        : t('packs.progressUnknown', { done: formatBytes(b.done) })),
+    h('p.small.muted', { style: { margin: '4px 0 0' } }, t('packs.resumeHint')),
+    h('button.btn.small.block', {
+      type: 'button',
+      style: { 'margin-top': '10px' },
+      onclick: () => { state.packAbort?.abort(); },
+    }, t('charts.stop')),
+  ];
 }
 
 // ------------------------------------------------------------- Neuer Bereich

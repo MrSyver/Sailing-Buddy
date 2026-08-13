@@ -28,6 +28,8 @@ const DEFAULTS = {
   // Karten – leer heißt: die voreingestellte Quelle aus js/data/tilesources.js
   tileBaseUrl: '',
   tileSeamarkUrl: '',
+  packBaseUrl: '',      // Verzeichnis der fertigen Kartenpakete
+  packUrls: {},         // einzelne Pakete mit abweichender Adresse
   setupDone: false,
   waypoints: [],       // [{ id, name, lat, lon, kind, ts }]
 };

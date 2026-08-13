@@ -74,7 +74,7 @@ test('die Startseite ist mit aufgeführt', async () => {
  * bewusst gewollt – aber nur dort, nur auf Knopfdruck und nur ins Gerät hinein.
  * Alles andere lädt ausschließlich aus dem eigenen Verzeichnis.
  */
-const TILE_SOURCE_FILE = 'js/data/tilesources.js';
+const TILE_SOURCE_FILES = ['js/data/tilesources.js', 'js/data/chartpacks.js'];
 
 test('nichts wird aus dem Netz nachgeladen', async () => {
   // Eine einzige Schriftart oder Programmbibliothek von einem fremden Server
@@ -93,7 +93,7 @@ test('nichts wird aus dem Netz nachgeladen', async () => {
       // Namensräume und Verweise in Kommentaren sind keine Ladevorgänge.
       if (url.startsWith('http://www.w3.org/')) continue;
       if (/^https:\/\/(claude\.ai|code\.claude\.com|github\.com)/.test(url)) continue;
-      if (file === TILE_SOURCE_FILE) continue;
+      if (TILE_SOURCE_FILES.includes(file)) continue;
       offenders.push(`${file}: ${url}`);
     }
   }
@@ -101,14 +101,17 @@ test('nichts wird aus dem Netz nachgeladen', async () => {
     `Verweise auf fremde Server gefunden – die App wäre offline nicht vollständig:\n  ${offenders.join('\n  ')}`);
 });
 
-test('Kartenadressen stehen nur an der einen erlaubten Stelle', async () => {
-  const text = await readFile(join(ROOT, TILE_SOURCE_FILE), 'utf8');
-  const urls = [...text.matchAll(/https?:\/\/[^\s'"()]+/g)].map((m) => m[0]);
-  assert.ok(urls.length > 0, 'keine Kachelquelle hinterlegt');
-  // Kacheln werden nur geholt, wenn jemand ausdrücklich einen Bereich lädt –
-  // niemals beim Start und niemals von selbst.
-  assert.ok(/austauschen|Zugangsschlüssel/.test(text),
-    'Der Hinweis auf eine austauschbare Kachelquelle fehlt');
+test('Kartenadressen stehen nur an den erlaubten Stellen', async () => {
+  for (const file of TILE_SOURCE_FILES) {
+    // eslint-disable-next-line no-await-in-loop
+    const text = await readFile(join(ROOT, file), 'utf8');
+    const urls = [...text.matchAll(/https?:\/\/[^\s'"()]+/g)].map((m) => m[0]);
+    assert.ok(urls.length > 0, `${file}: keine Quelle hinterlegt`);
+    // Beide Dateien müssen sagen, dass sich die Adresse austauschen lässt –
+    // sonst steht man bei einer Änderung beim Anbieter im Regen.
+    assert.ok(/austauschbar|austauschen|Zugangsschlüssel|änderbar/.test(text),
+      `${file}: Der Hinweis auf eine austauschbare Adresse fehlt`);
+  }
 });
 
 test('der Service Worker startet aus dem Cache, nicht aus dem Netz', async () => {
