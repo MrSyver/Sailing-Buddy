@@ -12,13 +12,17 @@
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const ROOT = fileURLToPath(new URL('..', import.meta.url));
+// Standardmäßig wird das Arbeitsverzeichnis geprüft. Mit SMOKE_ROOT lässt
+// sich stattdessen ein zusammengestelltes Website-Verzeichnis prüfen – also
+// genau das, was später wirklich veröffentlicht wird.
+const REPO = fileURLToPath(new URL('..', import.meta.url));
+const ROOT = process.env.SMOKE_ROOT ? resolve(process.env.SMOKE_ROOT) : REPO;
 const SHOTS = process.argv.includes('--shots');
-const SHOT_DIR = process.env.SHOT_DIR ?? join(ROOT, 'screenshots');
+const SHOT_DIR = process.env.SHOT_DIR ?? join(REPO, 'screenshots');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',

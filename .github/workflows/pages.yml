@@ -56,16 +56,35 @@ jobs:
         with:
           node-version: '20'
 
-      # Die Einzeldatei wird mitveröffentlicht, damit sie sich ohne
-      # Bauwerkzeug herunterladen und als Sicherung ablegen lässt.
-      - name: Einzeldatei bauen
+      # Nur das veröffentlichen, was die App zum Laufen braucht – keine Tests,
+      # keine Werkzeuge und vor allem kein node_modules.
+      - name: Website zusammenstellen
         run: |
           npm install --no-audit --no-fund
           npm run build:single
+          mkdir -p _site/dist
+          cp index.html manifest.webmanifest sw.js _site/
+          cp -r css js icons _site/
+          cp dist/sailing-buddy.html _site/dist/
+          echo "Veröffentlicht wird:" && find _site -type f | sort
 
+      # Nicht auf gut Glück veröffentlichen: Das zusammengestellte
+      # Verzeichnis wird noch einmal im Browser geprüft, samt Kaltstart
+      # ohne Netz und ohne Server.
+      - name: Zusammengestellte Website prüfen
+        run: |
+          npx playwright install --with-deps chromium
+          SMOKE_ROOT=_site node tools/smoke.mjs
+
+      # enablement: true schaltet GitHub Pages beim ersten Lauf selbst ein,
+      # damit man es nicht vorher von Hand in den Repository-Einstellungen
+      # umstellen muss.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: '_site'
       - id: deployment
         uses: actions/deploy-pages@v4
