@@ -146,6 +146,11 @@ export function tilesAlongRoute(points, corridorNm, zMin, zMax) {
  */
 export function areaCovers(area, pos) {
   if (!area || !pos) return false;
+  if (area.kind === 'bounds') {
+    const b = area.bounds;
+    if (!b) return false;
+    return pos.lat >= b.south && pos.lat <= b.north && pos.lon >= b.west && pos.lon <= b.east;
+  }
   if (area.kind === 'route') {
     const points = area.points ?? [];
     if (points.length === 0) return false;
@@ -304,6 +309,9 @@ export async function downloadTiles(tiles, layers, {
 export function tilesForArea(area) {
   if (area.kind === 'route') {
     return tilesAlongRoute(area.points, area.corridorNm, area.zMin, area.zMax);
+  }
+  if (area.kind === 'bounds') {
+    return tilesForBounds(area.bounds, area.zMin, area.zMax);
   }
   return tilesForBounds(boundsAround(area.center, area.radiusNm), area.zMin, area.zMax);
 }
