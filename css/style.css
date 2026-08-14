@@ -553,6 +553,10 @@ nav.tabs button[aria-current="page"] { color: var(--accent); }
 
 table.data {
   width: 100%;
+  /* Ohne feste Aufteilung richtet sich eine Tabelle nach ihrem breitesten
+     Wort und wächst über die Karte hinaus. Auf einem Telefon läuft sie dann
+     rechts aus dem Bild, und dorthin kommt man mit dem Daumen nicht. */
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: .9rem;
 }
@@ -562,10 +566,18 @@ table.data th, table.data td {
   padding: 8px 6px;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 
 table.data th { font-size: .76rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); }
-table.data td.k { font-family: var(--mono); font-weight: 700; white-space: nowrap; }
+
+/* Die Schlüsselspalte darf umbrechen: „STATION CALLING“ in einer Zeile zu
+   halten wäre die Breite nicht wert, die es den übrigen Spalten nimmt. */
+table.data td.k { font-family: var(--mono); font-weight: 700; }
+
+/* Schlüssel und Erklärung: Der Schlüssel braucht wenig, der Text viel. */
+table.data.kv th:first-child,
+table.data.kv td:first-child { width: 30%; }
 
 .alphabet {
   display: grid;
@@ -1069,6 +1081,20 @@ details.foldout > div { padding: 0 15px 15px; }
   width: 100%;
 }
 
+/*
+ * Der Platzhalter muss als Platzhalter zu erkennen sein.
+ *
+ * In der vollen Schriftstärke der Eingabe sah „54“ aus wie eine bereits
+ * eingetragene Breite – man rechnet dann mit einer Position, die nie
+ * eingegeben wurde. Deutlich blasser und ohne Fettung: sichtbar genug als
+ * Beispiel, nie zu verwechseln mit einem Wert.
+ */
+.coord-input::placeholder {
+  color: var(--text-dim);
+  opacity: .42;
+  font-weight: 400;
+}
+
 /* Anteilig statt fest: So passen alle drei Kästchen auch auf ein schmales
    Gerät, ohne dass die Zeile umbricht. */
 .coord-fields .coord-input { flex: 1 1 0; min-width: 0; }
@@ -1111,26 +1137,6 @@ details.foldout > div { padding: 0 15px 15px; }
 .mob-row .mob-pos { font-size: .84rem; color: var(--text-dim); margin-top: 2px; }
 
 /* ================================================================ Aufnahmen */
-
-.rec-live {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 13px;
-  margin-bottom: 10px;
-  border: 1px solid var(--danger);
-  border-radius: 11px;
-  font-weight: 650;
-}
-
-.rec-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--danger);
-  flex: none;
-  animation: pulse 1.2s infinite;
-}
 
 .rec-item {
   padding: 11px 0;
@@ -1511,6 +1517,61 @@ details.foldout > div { padding: 0 15px 15px; }
    nach unten drängen. */
 .rec-card { padding: 12px 13px; }
 
+.rec-head { display: flex; align-items: center; gap: 12px; }
+.rec-head .grow { min-width: 0; }
+.rec-title { font-weight: 650; font-size: .96rem; line-height: 1.25; }
+.rec-teaser { font-size: .8rem; color: var(--text-dim); line-height: 1.3; }
+
+/*
+ * Der Aufnahmeknopf.
+ *
+ * Ein Ring mit rotem Punkt darin – das Zeichen kennt jeder, es braucht keine
+ * Übersetzung und ist auch mit klammen Fingern zu treffen. Beim Laufen wird
+ * aus dem Punkt ein Viereck, an derselben Stelle und in derselben Größe: Zum
+ * Beenden muss man nicht suchen.
+ */
+.rec-trigger {
+  flex: none;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--surface-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.rec-trigger:active { transform: scale(.94); }
+
+.rec-glyph {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--danger);
+  transition: border-radius .15s ease, width .15s ease, height .15s ease;
+}
+
+.rec-trigger.running {
+  border-color: var(--danger);
+  animation: pulse 1.4s infinite;
+}
+
+/* Aus dem Punkt wird das Viereck fürs Beenden. */
+.rec-trigger.running .rec-glyph {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+
+/* Im Dunkeln keine leuchtende Fläche – nur so viel Rot, wie das Zeichen
+   braucht. Der Nachtmodus kennt ohnehin nur langwelliges Rot. */
+[data-theme="night"] .rec-trigger { background: transparent; }
+[data-theme="night"] .rec-glyph { background: transparent; box-shadow: inset 0 0 0 4px var(--danger); }
+
 .rec-player {
   display: flex;
   align-items: center;
@@ -1622,3 +1683,53 @@ details.foldout > div { padding: 0 15px 15px; }
 
 /* Hinter dem Vollbild soll nichts mitscrollen. */
 body.chart-open { overflow: hidden; }
+
+/* ====================================================== Zeichen bei Tage */
+
+/* Tag oder Nacht steht über allem anderen – das ist keine Auswahl unter
+   Gleichen, sondern die Frage, welcher Satz Zeichen überhaupt gilt. */
+.mode-seg button { font-weight: 650; }
+
+/* Die Zeichnung bei Tage: heller Himmel statt Nachtblau, damit ein schwarzer
+   Signalkörper überhaupt als schwarz zu erkennen ist. */
+.day-view { background: var(--surface-2); }
+.day-hull { fill: var(--text-dim); opacity: .55; }
+.day-mast { stroke: var(--text-dim); stroke-width: 1.4; }
+
+/*
+ * Der Signalkörper selbst.
+ *
+ * Schwarz mit heller Kontur: Im dunklen Schema und erst recht im Nachtmodus
+ * wäre eine schwarze Fläche sonst nicht von ihrem Hintergrund zu
+ * unterscheiden. Die Kontur trägt die Form, nicht die Füllung.
+ */
+.day-shape { fill: #10151c; stroke: var(--text); stroke-width: 1.1; }
+.day-shape .flag-white { fill: #ffffff; }
+.day-shape .flag-blue { fill: #1263d2; }
+
+[data-theme="night"] .day-shape { fill: transparent; stroke: var(--accent); stroke-width: 1.6; }
+[data-theme="night"] .day-shape .flag-white,
+[data-theme="night"] .day-shape .flag-blue { fill: transparent; }
+[data-theme="night"] .day-view { background: transparent; }
+[data-theme="night"] .day-hull { fill: transparent; stroke: var(--accent); }
+
+.shape-glyph { flex: none; }
+.shape-legend { display: flex; flex-direction: column; gap: 12px; }
+.shape-legend-item { display: flex; align-items: center; gap: 12px; }
+
+/* --------------------------------------------------------------- Flaggen */
+
+.flag-card { display: flex; align-items: flex-start; gap: 14px; }
+.flag-card h3 { font-size: 1.15rem; font-family: var(--mono); }
+
+.flag-view {
+  flex: none;
+  width: 72px;
+  height: 48px;
+  border-radius: 3px;
+}
+
+.flag-frame { stroke: var(--border); stroke-width: 1; }
+
+/* Im Nachtmodus keine bunten Flächen – die Farben stehen im Text. */
+[data-theme="night"] .flag-view { filter: saturate(0) brightness(.35) sepia(1) hue-rotate(-30deg); }

@@ -8,7 +8,7 @@
 import { h, svg, render } from './lib/dom.js';
 import { settings } from './lib/storage.js';
 import { gps, GPS_STATUS_KEY } from './lib/gps.js';
-import { applyTheme, toggleNight } from './lib/theme.js';
+import { applyTheme, applyAutoNight, toggleNight } from './lib/theme.js';
 import { formatPosition } from './lib/geo.js';
 import { t } from './lib/i18n.js';
 import { initOffline, onOfflineChange } from './lib/offline.js';
@@ -39,7 +39,12 @@ const app = document.getElementById('app');
 // -------------------------------------------------------------------- Start
 
 applyTheme();
+// Steht die letzte bekannte Position schon fest, gleich nach der Sonne
+// entscheiden – sonst blitzt beim Öffnen in der Nacht ein heller Bildschirm
+// auf, bevor der erste Fix da ist.
+applyAutoNight(settings.get('lastPos'));
 gps.start();
+watchDaylight();
 // Das Logbuch schreibt unabhängig vom gerade sichtbaren Reiter mit.
 logbook.startAuto();
 boot();
@@ -241,5 +246,31 @@ onOfflineChange((offline) => {
 
 // GPS beim Zurückkehren aus dem Hintergrund neu anstoßen (iOS pausiert die Ortung).
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') gps.start();
+  if (document.visibilityState === 'visible') {
+    gps.start();
+    // Zurückkehren ist Aufschlagen: Wer die App nach dem Abendessen wieder
+    // hervorholt, soll sie im Nachtmodus vorfinden.
+    applyAutoNight(gps.fix ?? settings.get('lastPos'));
+  }
 });
+
+/**
+ * Die Position für die Sonnenrechnung mitführen.
+ *
+ * Beim Öffnen ist noch kein Fix da – der Empfänger braucht seine Sekunden.
+ * Deshalb wird die zuletzt bekannte Position abgelegt und beim Start
+ * verwendet; ein paar Seemeilen daneben ändern am Sonnenuntergang nichts.
+ * Geschrieben wird einmal je Sitzung, nicht bei jedem Fix: Das Logbuch führt
+ * die Spur, die Einstellungen nur den Anhaltspunkt.
+ */
+function watchDaylight() {
+  let gemerkt = false;
+  const off = gps.onUpdate(({ fix }) => {
+    if (!fix) return;
+    applyAutoNight(fix);
+    if (gemerkt) return;
+    gemerkt = true;
+    settings.set('lastPos', { lat: fix.lat, lon: fix.lon, ts: Date.now() });
+    off();
+  });
+}

@@ -3,7 +3,15 @@
  *
  * Die Sprache der Funksprüche ist von der Sprache der Oberfläche unabhängig:
  * Die Menüs können auf Deutsch stehen, während der Notruf auf Englisch
- * vorgelesen wird. Umgeschaltet wird hier im Modul, oben über der Liste.
+ * vorgelesen wird. Umgeschaltet wird oben in der Kopfzeile.
+ *
+ * Die Trennlinie verläuft dabei zwischen Sprechen und Lesen. In der Sprache
+ * der Funksprüche steht ausschließlich, was ins Mikrofon gesprochen wird –
+ * der Sprechtext selbst und die Formulierungen, die in seine offenen Stellen
+ * eingesetzt werden. Alles andere ist Erklärung: Name, Beschreibung, Kanal,
+ * Ablauf, Hinweise davor und danach. Das steht in der Sprache der Oberfläche,
+ * denn wer die Menüs auf Deutsch führt, sucht auch die Beschreibung auf
+ * Deutsch – auch dann, wenn er gleich Englisch sprechen wird.
  */
 
 import { h, render, copy, toast } from '../lib/dom.js';
@@ -34,6 +42,17 @@ let spokenPosition = false;
 /** Sprache der Funksprüche – unabhängig von der Oberflächensprache. */
 function phraseLang() {
   return settings.get('phraseLang') === 'en' ? 'en' : 'de';
+}
+
+/**
+ * Ein Feld in der Sprache der Oberfläche.
+ *
+ * Für alles, was über einen Funkspruch gesagt wird statt in ihm: Name,
+ * Beschreibung, Kanal, Ablauf, Hinweise. Der Sprechtext geht weiter über
+ * `localized(…, phraseLang())`.
+ */
+function menu(phrase, field) {
+  return localized(phrase, field, uiLang());
 }
 
 /** Die zuletzt gemerkte MOB-Position, falls es eine gibt. */
@@ -132,14 +151,14 @@ function list(wrap) {
   parts.push(h('div.phrase-list', ...PHRASES.map((p) => h('button.phrase-btn', {
     'data-level': p.level,
     type: 'button',
-    lang,
+    lang: uiLang(),
     onclick: () => { openId = p.id; emergencyId = null; draw(wrap); window.scrollTo(0, 0); },
   },
   h('div.row', { style: { gap: '8px', 'align-items': 'baseline' } },
-    h('strong.grow', localized(p, 'title', lang)),
+    h('strong.grow', menu(p, 'title')),
     h('span.badge', { class: p.level, lang: uiLang() }, t(`radio.level.${p.level}`)),
   ),
-  h('span', localized(p, 'short', lang)),
+  h('span', menu(p, 'short')),
   ))));
 
   parts.push(h('h2.section', t('radio.reference')));
@@ -171,6 +190,15 @@ function spellingTable() {
 function prowordsTable() {
   const en = uiLang() === 'en';
   return h('table.data',
+    // Die Spaltenbreiten stehen fest, sonst richtet sich die Tabelle nach
+    // ihrem breitesten Wort und läuft auf dem Telefon rechts aus dem Bild.
+    // Die Erklärung bekommt die Hälfte – sie ist der Grund für die Tabelle.
+    en
+      ? h('colgroup', h('col', { style: { width: '34%' } }), h('col'))
+      : h('colgroup',
+        h('col', { style: { width: '26%' } }),
+        h('col', { style: { width: '24%' } }),
+        h('col')),
     h('thead', h('tr',
       h('th', t('radio.table.word')),
       !en && h('th', t('radio.table.german')),
@@ -187,7 +215,7 @@ function prowordsTable() {
 
 function channelTable() {
   const en = uiLang() === 'en';
-  return h('table.data',
+  return h('table.data.kv',
     h('thead', h('tr', h('th', t('radio.table.channel')), h('th', t('radio.table.usage')))),
     h('tbody', ...CHANNELS.map((c) =>
       h('tr', h('td.k', c.ch), h('td.small', en ? c.useEn : c.use)))),
@@ -221,9 +249,15 @@ function recorderCard(wrap) {
 
   const active = recording.active;
 
-  const startStop = h('button', {
-    class: active ? 'btn danger grow' : 'btn primary grow',
+  // Ein runder Knopf mit rotem Punkt statt einer Schaltfläche mit Text: Das
+  // Zeichen fürs Aufnehmen kennt jeder, es braucht keine Übersetzung, und es
+  // ist auch mit klammen Fingern zu treffen. Beim Laufen wird daraus ein
+  // Viereck – dieselbe Stelle, dieselbe Größe, kein Suchen.
+  const startStop = h('button.rec-trigger', {
+    class: active ? 'rec-trigger running' : 'rec-trigger',
     type: 'button',
+    'aria-label': active ? t('radio.recStop') : t('radio.recStart'),
+    title: active ? t('radio.recStop') : t('radio.recStart'),
     onclick: async () => {
       recError = null;
       if (recording.active) {
@@ -251,11 +285,19 @@ function recorderCard(wrap) {
       }
       draw(wrap);
     },
-  }, active ? t('radio.recStop') : t('radio.recStart'));
+  }, h('span.rec-glyph', { 'aria-hidden': 'true' }));
 
   return h('div.card.rec-card',
-    h('div.row',
+    h('div.rec-head',
       startStop,
+      // Der Anreißer sagt in einer Zeile, wofür das gut ist. Ohne ihn ist ein
+      // roter Punkt neben Notrufen nur ein roter Punkt.
+      h('div.grow',
+        h('div.rec-title', active ? t('radio.recRunning') : t('radio.recordings')),
+        active
+          ? h('div.rec-teaser.mono', { id: 'rec-elapsed' }, formatSeconds(recording.elapsed()))
+          : h('div.rec-teaser', t('radio.recTeaser')),
+      ),
       active && h('button.btn.small', {
         type: 'button',
         onclick: () => {
@@ -265,12 +307,6 @@ function recorderCard(wrap) {
           draw(wrap);
         },
       }, t('radio.recDiscard')),
-    ),
-
-    active && h('div.rec-live', { style: { 'margin-top': '9px', 'margin-bottom': 0 } },
-      h('span.rec-dot', { 'aria-hidden': 'true' }),
-      h('span.grow', t('radio.recRunning')),
-      h('span.mono', { id: 'rec-elapsed' }, formatSeconds(recording.elapsed())),
     ),
 
     recError && h('p.small', { style: { color: 'var(--danger)', margin: '9px 0 0' } }, recError),
@@ -393,10 +429,12 @@ function recordingRow(wrap, rec) {
 
 function detail(wrap, phrase) {
   const lang = phraseLang();
+  // Gesprochen wird in der Sprache der Funksprüche, gelesen in der der
+  // Oberfläche. Der Ablauf und die Hinweise werden gelesen.
   const lines = localized(phrase, 'lines', lang);
-  const checklist = localized(phrase, 'checklist', lang);
-  const before = localized(phrase, 'before', lang);
-  const after = localized(phrase, 'after', lang);
+  const checklist = menu(phrase, 'checklist');
+  const before = menu(phrase, 'before');
+  const after = menu(phrase, 'after');
   const cases = emergenciesFor(phrase);
   const chosen = cases.find((e) => e.id === emergencyId) ?? null;
   const v = values(phrase);
@@ -430,8 +468,8 @@ function detail(wrap, phrase) {
 
     parts.push(h('div.card',
       h('div.row', { style: { 'align-items': 'baseline', gap: '8px', 'margin-bottom': '10px' } },
-        h('h2.grow', { style: { margin: 0, 'font-size': '1rem' }, lang },
-          localized(phrase, 'title', lang)),
+        h('h2.grow', { style: { margin: 0, 'font-size': '1rem' }, lang: uiLang() },
+          menu(phrase, 'title')),
         h('span.badge', { class: phrase.level, lang: uiLang() }, t(`radio.level.${phrase.level}`)),
       ),
       h('div.script', { lang }, ...lines.map((l) => renderLine(l, v, chosen, lang))),
@@ -483,12 +521,12 @@ function detail(wrap, phrase) {
     }
   } else {
     // Funksprüche ohne Sprechtext (etwa der DSC-Ablauf) zeigen den Titel oben.
-    parts.push(h('div.card', { lang },
+    parts.push(h('div.card', { lang: uiLang() },
       h('div.row', { style: { 'align-items': 'baseline', gap: '9px' } },
-        h('h2.grow', { style: { margin: 0 } }, localized(phrase, 'title', lang)),
+        h('h2.grow', { style: { margin: 0 } }, menu(phrase, 'title')),
         h('span.badge', { class: phrase.level, lang: uiLang() }, t(`radio.level.${phrase.level}`)),
       ),
-      h('p.small.muted', { style: { margin: '5px 0 0' } }, localized(phrase, 'short', lang)),
+      h('p.small.muted', { style: { margin: '5px 0 0' } }, menu(phrase, 'short')),
     ));
   }
 
@@ -498,16 +536,18 @@ function detail(wrap, phrase) {
   // --- Hinweise und Ablauf, erst danach --------------------------------------
   const info = [];
 
-  const channel = localized(phrase, 'channel', lang);
+  const channel = menu(phrase, 'channel');
   if (channel) {
-    info.push(h('p.small', { style: { margin: '0 0 10px', 'font-weight': '650' }, lang }, channel));
+    info.push(h('p.small', {
+      style: { margin: '0 0 10px', 'font-weight': '650' }, lang: uiLang(),
+    }, channel));
   }
   if (lines?.length) {
-    info.push(h('p.small.muted', { style: { margin: '0 0 12px' }, lang },
-      localized(phrase, 'short', lang)));
+    info.push(h('p.small.muted', { style: { margin: '0 0 12px' }, lang: uiLang() },
+      menu(phrase, 'short')));
   }
   if (before?.length) {
-    info.push(h('div.notice', { lang },
+    info.push(h('div.notice', { lang: uiLang() },
       h('strong', { lang: uiLang() }, t('radio.before')),
       h('ul.checklist.plain', { style: { 'margin-top': '6px' } }, ...before.map((x) => h('li', x))),
     ));
@@ -515,10 +555,10 @@ function detail(wrap, phrase) {
   if (checklist?.length) {
     info.push(h('h3', { style: { margin: '14px 0 6px', 'font-size': '.95rem' }, lang: uiLang() },
       t('radio.steps')));
-    info.push(h('ol.checklist', { lang }, ...checklist.map((x) => h('li', x))));
+    info.push(h('ol.checklist', { lang: uiLang() }, ...checklist.map((x) => h('li', x))));
   }
   if (after?.length) {
-    info.push(h('div.notice', { lang, style: { 'margin-top': '12px' } },
+    info.push(h('div.notice', { lang: uiLang(), style: { 'margin-top': '12px' } },
       h('strong', { lang: uiLang() }, t('radio.after')),
       h('ul.checklist.plain', { style: { 'margin-top': '6px' } }, ...after.map((x) => h('li', x))),
     ));
@@ -542,7 +582,7 @@ function emergencyPicker(wrap, cases, chosen, lang) {
     h('div.emergency-grid',
       ...cases.map((e) => h('button.emergency', {
         type: 'button',
-        lang,
+        lang: uiLang(),
         'aria-pressed': String(chosen?.id === e.id),
         onclick: () => {
           // Nochmaliges Antippen hebt die Auswahl wieder auf.
@@ -552,7 +592,7 @@ function emergencyPicker(wrap, cases, chosen, lang) {
         },
       },
       h('span.ico', { 'aria-hidden': 'true' }, e.icon),
-      h('span.txt', localized(e, 'label', lang)),
+      h('span.txt', localized(e, 'label', uiLang())),
       )),
     ),
     chosen
