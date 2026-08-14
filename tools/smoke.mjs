@@ -450,6 +450,24 @@ await page.locator('.rec-item').getByRole('button', { name: 'Aufnahme löschen' 
 await page.waitForTimeout(400);
 check('Aufnahme wieder löschbar', await page.locator('.rec-item').count() === 0);
 
+// Die Nachschlagewerke stehen alle eingeklappt da – auch die Buchstabiertafel,
+// die längste von allen. Aufgeklappt schöbe sie die übrigen unter den
+// Bildrand, und gesucht wird ohnehin gezielt.
+const klappen = await page.locator('.foldout').evaluateAll(
+  (els) => els.map((el) => el.open));
+check('Die Nachschlagewerke sind eingeklappt',
+  klappen.length >= 4 && klappen.every((offen) => offen === false),
+  `${klappen.filter(Boolean).length} von ${klappen.length} offen`);
+check('Die Buchstabiertafel ist erst nach dem Aufklappen da',
+  await page.locator('.alphabet').first().isVisible() === false);
+await page.locator('summary', { hasText: 'Buchstabier' }).click();
+await page.waitForTimeout(250);
+check('Und dann steht sie vollständig darin',
+  await page.locator('.alphabet div').count() >= 36,
+  `${await page.locator('.alphabet div').count()} Felder`);
+await page.locator('summary', { hasText: 'Buchstabier' }).click();
+await page.waitForTimeout(150);
+
 // Die Verkehrswörter stehen in einer Tabelle, und die lief auf dem Telefon
 // rechts aus dem Bild – dorthin kommt man mit dem Daumen nicht.
 await page.locator('summary', { hasText: 'Verkehrswörter' }).click();
