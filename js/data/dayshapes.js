@@ -77,6 +77,14 @@ export const DAY_CATEGORIES = [
  * kennt man ja gerade nicht.
  */
 export const DAY_FACETS = [
+  // Bei Tage ist die Farbe das Erste, was man sieht – lange bevor man eine
+  // Form erkennt. Signalkörper sind immer schwarz, Tonnen und Tafeln nicht.
+  { key: 'r', kind: 'color', label: 'Rot', labelEn: 'Red' },
+  { key: 'g', kind: 'color', label: 'Grün', labelEn: 'Green' },
+  { key: 'y', kind: 'color', label: 'Gelb', labelEn: 'Yellow' },
+  { key: 'b', kind: 'color', label: 'Schwarz', labelEn: 'Black' },
+  { key: 'w', kind: 'color', label: 'Weiß', labelEn: 'White' },
+  { key: 'bu', kind: 'color', label: 'Blau', labelEn: 'Blue' },
   { key: 'ball', kind: 'shape', label: 'Ball', labelEn: 'Ball' },
   { key: 'cone', kind: 'shape', label: 'Kegel', labelEn: 'Cone' },
   { key: 'biconic', kind: 'shape', label: 'Doppelkegel', labelEn: 'Two cones' },
@@ -90,6 +98,7 @@ export const DAY_FACETS = [
 ];
 
 export const DAY_FACET_GROUPS = [
+  { kind: 'color', label: 'Welche Farbe?', labelEn: 'Which colour?' },
   { kind: 'shape', label: 'Welche Form?', labelEn: 'Which shape?' },
   { kind: 'count', label: 'Wie viele?', labelEn: 'How many?' },
   { kind: 'form', label: 'Wie angeordnet?', labelEn: 'How arranged?' },
@@ -100,10 +109,10 @@ export const DAY_SHAPES = [
     id: 'sail-under-power',
     category: 'fahrt',
     shapes: [{ k: 'cone-down', y: 34 }],
-    traits: ['cone', 'one', 'forward'],
+    traits: ['b', 'cone', 'one', 'forward'],
     title: 'Segelfahrzeug unter Maschine',
     subtitle: 'Segel gesetzt und Maschine läuft',
-    rule: 'Regel 25 Absatz 5',
+    rule: 'Regel 25 (5)',
     pattern: 'Ein schwarzer Kegel, Spitze nach unten, vorn im Schiff',
     signs: [
       'Ein Kegel mit der Spitze nach unten, so weit vorn wie möglich',
@@ -128,10 +137,10 @@ export const DAY_SHAPES = [
     id: 'anchor',
     category: 'liegend',
     shapes: [{ k: 'ball', y: 30 }],
-    traits: ['ball', 'one', 'forward'],
+    traits: ['b', 'ball', 'one', 'forward'],
     title: 'Fahrzeug vor Anker',
     subtitle: 'Ankerball',
-    rule: 'Regel 30 Absatz 1',
+    rule: 'Regel 30 (1)',
     pattern: 'Ein schwarzer Ball, vorn im Schiff',
     signs: [
       'Ein Ball im Vorschiff, dort wo er am besten zu sehen ist',
@@ -154,10 +163,10 @@ export const DAY_SHAPES = [
     id: 'aground',
     category: 'liegend',
     shapes: [{ k: 'ball', y: 16 }, { k: 'ball', y: 38 }, { k: 'ball', y: 60 }],
-    traits: ['ball', 'three', 'vertical'],
+    traits: ['b', 'ball', 'three', 'vertical'],
     title: 'Fahrzeug auf Grund',
     subtitle: 'Festgekommen',
-    rule: 'Regel 30 Absatz 4',
+    rule: 'Regel 30 (4)',
     pattern: 'Drei schwarze Bälle senkrecht übereinander',
     signs: [
       'Drei Bälle senkrecht übereinander, dort wo sie am besten zu sehen sind',
@@ -182,10 +191,10 @@ export const DAY_SHAPES = [
     id: 'nuc',
     category: 'behindert',
     shapes: [{ k: 'ball', y: 24 }, { k: 'ball', y: 48 }],
-    traits: ['ball', 'two', 'vertical'],
+    traits: ['b', 'ball', 'two', 'vertical'],
     title: 'Manövrierunfähiges Fahrzeug',
     subtitle: 'Ruder- oder Maschinenschaden',
-    rule: 'Regel 27 Absatz 1',
+    rule: 'Regel 27 (1)',
     pattern: 'Zwei schwarze Bälle senkrecht übereinander',
     signs: [
       'Zwei Bälle senkrecht übereinander, dort wo sie am besten zu sehen sind',
@@ -210,10 +219,10 @@ export const DAY_SHAPES = [
     id: 'ram',
     category: 'behindert',
     shapes: [{ k: 'ball', y: 16 }, { k: 'diamond', y: 38 }, { k: 'ball', y: 60 }],
-    traits: ['ball', 'diamond', 'three', 'vertical'],
+    traits: ['b', 'ball', 'diamond', 'three', 'vertical'],
     title: 'Manövrierbehindertes Fahrzeug',
     subtitle: 'Baggern, Legen von Kabeln, Versorgung in See',
-    rule: 'Regel 27 Absatz 2',
+    rule: 'Regel 27 (2)',
     pattern: 'Ball – Rhombus – Ball senkrecht übereinander',
     signs: [
       'Von oben nach unten: Ball, Rhombus, Ball',
@@ -238,7 +247,7 @@ export const DAY_SHAPES = [
     id: 'cbd',
     category: 'behindert',
     shapes: [{ k: 'cylinder', y: 30 }],
-    traits: ['cylinder', 'one'],
+    traits: ['b', 'cylinder', 'one'],
     title: 'Durch Tiefgang behindertes Fahrzeug',
     subtitle: 'Nur im Fahrwasser',
     rule: 'Regel 28',
@@ -266,7 +275,7 @@ export const DAY_SHAPES = [
     id: 'fishing',
     category: 'arbeit',
     shapes: [{ k: 'biconic', y: 32 }],
-    traits: ['biconic', 'cone', 'one'],
+    traits: ['b', 'biconic', 'cone', 'one'],
     title: 'Fahrzeug beim Fischfang',
     subtitle: 'Trawler und andere Fischerei',
     rule: 'Regel 26',
@@ -294,10 +303,10 @@ export const DAY_SHAPES = [
     id: 'fishing-gear',
     category: 'arbeit',
     shapes: [{ k: 'biconic', y: 26 }, { k: 'cone-up', y: 58 }],
-    traits: ['biconic', 'cone', 'two', 'vertical'],
+    traits: ['b', 'biconic', 'cone', 'two', 'vertical'],
     title: 'Fischer mit weit ausstehendem Geschirr',
     subtitle: 'Netze weiter als 150 m',
-    rule: 'Regel 26 Absatz 2 c',
+    rule: 'Regel 26 (2c)',
     pattern: 'Doppelkegel und darunter ein Kegel, Spitze nach oben, in Richtung des Geschirrs',
     signs: [
       'Der Doppelkegel wie bei jedem Fischer',
@@ -322,10 +331,10 @@ export const DAY_SHAPES = [
     id: 'towing',
     category: 'arbeit',
     shapes: [{ k: 'diamond', y: 30 }],
-    traits: ['diamond', 'one'],
+    traits: ['b', 'diamond', 'one'],
     title: 'Schleppzug über 200 m',
     subtitle: 'Schlepper und Anhang',
-    rule: 'Regel 24 Absatz 1 e',
+    rule: 'Regel 24 (1e)',
     pattern: 'Ein schwarzer Rhombus – auf dem Schlepper und auf dem Anhang',
     signs: [
       'Ein Rhombus auf dem schleppenden Fahrzeug, wenn die Schlepplänge 200 m überschreitet',
@@ -350,10 +359,10 @@ export const DAY_SHAPES = [
     id: 'minesweeper',
     category: 'arbeit',
     shapes: [{ k: 'ball', y: 18 }, { k: 'ball', y: 44, at: 'port' }, { k: 'ball', y: 44, at: 'stb' }],
-    traits: ['ball', 'three'],
+    traits: ['b', 'ball', 'three'],
     title: 'Fahrzeug beim Minenräumen',
     subtitle: 'Drei Bälle, aber nicht übereinander',
-    rule: 'Regel 27 Absatz 6',
+    rule: 'Regel 27 (6)',
     pattern: 'Ein Ball am Fockmast, je einer an den Nocken der Rah',
     signs: [
       'Ein Ball an der Spitze des vorderen Mastes',
@@ -378,10 +387,10 @@ export const DAY_SHAPES = [
     id: 'diving',
     category: 'arbeit',
     shapes: [{ k: 'flag-a', y: 30 }],
-    traits: ['one'],
+    traits: ['w', 'bu', 'one'],
     title: 'Taucher unter Wasser',
     subtitle: 'Flagge A als fester Körper',
-    rule: 'Regel 27 Absatz 5',
+    rule: 'Regel 27 (5)',
     pattern: 'Ein steifes Abbild der Flagge „A“, mindestens 1 m hoch',
     signs: [
       'Ein fester Nachbau der Flagge Alfa – weiß und blau, am Ende eingeschnitten',
@@ -509,5 +518,28 @@ export const SIGNAL_FLAGS = [
 /** Trifft ein Eintrag alle gewählten Merkmale? */
 export function matchesDayFacets(item, keys) {
   if (!keys || keys.size === 0) return true;
-  return [...keys].every((k) => item.traits.includes(k));
+  const traits = item.traits ?? [];
+  return [...keys].every((k) => traits.includes(k));
+}
+
+/**
+ * Die Tagmerkmale einer Tonne – abgeleitet, nicht eingetragen.
+ *
+ * Die Farben stehen schon in den Farbbändern und die Form im Toppzeichen; sie
+ * ein zweites Mal von Hand einzutragen hieße, sie ein zweites Mal falsch
+ * eintragen zu können.
+ */
+export function buoyDayTraits(buoy) {
+  const traits = new Set(buoy.bands ?? []);
+  const top = buoy.topmark ?? '';
+  if (top.includes('cone')) { traits.add('cone'); traits.add('biconic'); }
+  if (top.includes('ball') || top.includes('sphere')) traits.add('ball');
+  if (top.includes('cylinder') || top.includes('can')) traits.add('cylinder');
+  if (top.includes('cross') || top.includes('x')) traits.add('diamond');
+  return [...traits];
+}
+
+/** Dasselbe für eine Tafel am Ufer: Ihre Farben stehen im Datensatz. */
+export function signDayTraits(sign) {
+  return [...(sign.colors ?? [])];
 }
