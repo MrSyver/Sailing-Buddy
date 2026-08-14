@@ -7,7 +7,7 @@
  */
 
 import { h, svg, render, copy, toast, fit } from '../lib/dom.js';
-import { createChart } from '../lib/chartview.js';
+import { createChart, fullscreenButton } from '../lib/chartview.js';
 import { settings, waypoints } from '../lib/storage.js';
 import { gps, GPS_STATUS_KEY } from '../lib/gps.js';
 import { t, locale, uiLang, num } from '../lib/i18n.js';
@@ -25,13 +25,14 @@ const state = {
   target: null,      // { lat, lon }
   targetName: '',
   error: null,
-  raw: '',           // nur für das Einfügen aus einer Nachricht
   showSpoken: false, // eigene Position ausgeschrieben zum Vorlesen
-  showChart: false,  // Karte als Beigabe zum Kompass, auf Knopfdruck
+  // Was an der Stelle des Kompasses steht: 'kompass' oder 'karte'.
+  resultView: 'kompass',
 };
 
 let container = null;
 let chart = null;
+let chartFrame = null;
 
 export function view(root) {
   container = h('div');
@@ -40,8 +41,10 @@ export function view(root) {
   const off = gps.onUpdate(() => draw());
   return () => {
     off();
+    clearTimeout(chartTimer);
     chart?.destroy();
     chart = null;
+    chartFrame = null;
     container = null;
   };
 }
@@ -80,35 +83,20 @@ function chartPoints() {
 }
 
 /**
- * Die Karte neben dem Kompass.
+ * Die Karte an der Stelle des Kompasses.
  *
- * Der Kompass sagt, wohin – die Karte, wo das im Verhältnis zum Übrigen
- * liegt. Beides zusammen beantwortet mehr als jedes für sich, aber die Karte
- * ist die Beigabe: Sie kommt erst auf Knopfdruck und bleibt danach an.
+ * Sie wird einmal angelegt und danach nur noch umgehängt. Beim Tippen baut
+ * sich die Ergebniskarte ständig neu auf – würde die Karte jedes Mal
+ * mitgehen, flackerte sie und läse bei jedem Zeichen die Kacheln neu.
  */
-function chartCard() {
-  const card = h('div.card');
-
-  const knopf = h('button.btn.block', {
-    type: 'button',
-    'aria-pressed': String(state.showChart),
-    onclick: () => { state.showChart = !state.showChart; draw(); },
-  }, state.showChart ? t('pos.chartHide') : t('pos.chartShow'));
-
-  if (!state.showChart) {
-    chart?.destroy();
-    chart = null;
-    return h('div.card', knopf);
-  }
-
-  chart?.destroy();
-  chart = createChart({ collect: chartPoints, size: 'klein' });
-
-  card.append(
-    knopf,
-    h('div.chart-frame', { style: { 'margin-top': '10px' } },
+function chartBlock() {
+  if (!chart) {
+    chart = createChart({ collect: chartPoints, size: 'klein' });
+    chartFrame = h('div.chart-frame');
+    chartFrame.append(
       chart.el,
       h('div.chart-controls',
+        fullscreenButton(chartFrame, chart),
         h('button.chart-btn', {
           type: 'button', 'aria-label': t('map.zoomIn'), onclick: () => chart.zoomBy(1),
         }, '＋'),
@@ -122,10 +110,22 @@ function chartCard() {
           onclick: () => chart.fit(),
         }, '⤢'),
       ),
-    ),
-    chart.note,
-  );
-  return card;
+    );
+  }
+  return [chartFrame, chart.note];
+}
+
+/**
+ * Beim Tippen nicht bei jedem Zeichen neu zeichnen.
+ *
+ * Wer eine Koordinate eintippt, erzeugt ein halbes Dutzend Zwischenstände,
+ * die alle woanders liegen. Die Karte springt sonst wild umher und holt
+ * Kacheln für Orte, die nie gemeint waren.
+ */
+let chartTimer = null;
+function paintChartSoon() {
+  clearTimeout(chartTimer);
+  chartTimer = setTimeout(() => chart?.paint(), 400);
 }
 
 /** Missweisung, Ablenkung und Geschwindigkeit aus den Einstellungen. */
@@ -154,7 +154,6 @@ function draw() {
     // Eigener Container, damit sich das Ergebnis beim Tippen auffrischen lässt,
     // ohne die Eingabefelder neu zu bauen.
     h('div', { id: 'nav-result' }, nav ? result(nav, opts) : hintCard(fix)),
-    chartCard(),
     // Eigener Container: Beim Tippen ändert sich, welcher Eintrag gerade das
     // Ziel ist – das muss mitziehen, ohne die Eingabefelder neu zu bauen.
     h('div', { id: 'wp-slot' }, waypointList(fix, opts)),
@@ -162,7 +161,7 @@ function draw() {
   );
 
   // Erst nach dem Einhängen zeichnen: Vorher hat die Fläche keine Größe.
-  chart?.paint();
+  if (state.resultView === 'karte') chart?.paint();
 }
 
 // --------------------------------------------------------- Mensch über Bord
@@ -392,18 +391,44 @@ function targetInput() {
       style: { display: state.target ? '' : 'none' },
     }, state.target ? `✓ ${formatPosition(state.target)}` : ''),
 
-    h('div.row.wrap', { style: { 'margin-top': '12px' } },
-      state.target && h('button.btn.small.grow', {
+    // Eigener Container: Der Merken-Knopf hängt davon ab, ob die Eingabe
+    // schon eine gültige Position ergibt – und das ändert sich beim Tippen.
+    // Vorher wurde nur das Ergebnis darunter aufgefrischt, dieser Bereich
+    // nicht: Der Knopf erschien nie, solange man nur tippte.
+    h('div', { id: 'target-actions' }, targetActions()),
+  );
+}
+
+/** Speichern und Leeren – wird beim Tippen mit aufgefrischt. */
+function targetActions() {
+  const p = state.parts;
+  const etwasGetippt = Boolean(state.target || p.latDeg || p.lonDeg);
+
+  return h('div', { style: { 'margin-top': '12px' } },
+    // Eigene Zeile: Der Name bricht sonst um und der Knopf wird klobig.
+    h('button.btn.primary.block', {
+      type: 'button',
+      disabled: !state.target,
+      onclick: () => {
+        const name = prompt(t('pos.wpNamePrompt'), state.targetName || t('pos.wpDefault'));
+        if (name === null) return;
+        waypoints.add({ ...state.target, name });
+        toast(t('pos.wpSaved'));
+        draw();
+      },
+    }, t('pos.saveTarget')),
+
+    h('div.row.wrap', { style: { 'margin-top': '8px' } },
+      // Aus einer Nachricht übernehmen: ein Knopf statt eines Aufklappfelds.
+      // Im Notfall zählt jeder Griff, und die Zwischenablage hat den Text
+      // ohnehin schon.
+      h('button.btn.small.grow', {
         type: 'button',
-        onclick: () => {
-          const name = prompt(t('pos.wpNamePrompt'), state.targetName || t('pos.wpDefault'));
-          if (name === null) return;
-          waypoints.add({ ...state.target, name });
-          toast(t('pos.wpSaved'));
-          draw();
-        },
-      }, t('common.save')),
-      (state.target || p.latDeg || p.lonDeg) && h('button.btn.small.grow', {
+        title: t('pos.pasteTitle'),
+        onclick: pasteFromClipboard,
+      }, t('common.paste')),
+
+      etwasGetippt && h('button.btn.small.grow', {
         type: 'button',
         onclick: () => {
           state.parts = toParts(null);
@@ -414,63 +439,37 @@ function targetInput() {
         },
       }, t('pos.clearTarget')),
     ),
-
-    // Aus einer Nachricht oder einem Notruf übernehmen – da stehen die
-    // Sonderzeichen dann eben doch drin, aber getippt werden muss nichts.
-    h('details.foldout', { style: { 'margin-top': '12px', 'margin-bottom': 0 } },
-      h('summary', t('pos.pasteTitle')),
-      h('div',
-        h('p.small.muted', { style: { 'margin-top': 0 } }, t('pos.pasteHint')),
-        pasteBox(),
-      ),
-    ),
   );
 }
 
-/** Freitextfeld für kopierte Positionen. */
-function pasteBox() {
-  const field = h('textarea.mono', {
-    value: state.raw,
-    rows: 2,
-    placeholder: `54°31.234' N   011°22.345' E`,
-    spellcheck: false,
-    oninput: (e) => { state.raw = e.target.value; },
-  });
+/**
+ * Position aus der Zwischenablage übernehmen.
+ *
+ * Schreibweise egal – Gradzeichen, Hochkommata, Dezimalgrad. Genau das kommt
+ * aus einer Nachricht oder einem mitgeschriebenen Notruf.
+ */
+async function pasteFromClipboard() {
+  let text = '';
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    // Manche Browser geben die Zwischenablage nicht ohne Weiteres her.
+    text = prompt(t('pos.pasteHint'), '') ?? '';
+  }
+  if (!text.trim()) return;
 
-  const take = () => {
-    const parsed = parsePositionPair(field.value);
-    if (!parsed) {
-      state.error = t('pos.parseError');
-      draw();
-      return;
-    }
-    state.target = parsed;
-    state.parts = toParts(parsed);
-    state.targetName = '';
-    state.error = null;
-    state.raw = '';
+  const parsed = parsePositionPair(text);
+  if (!parsed) {
+    state.error = t('pos.parseError');
     draw();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  return h('div',
-    field,
-    h('div.row.wrap', { style: { 'margin-top': '9px' } },
-      h('button.btn.small.grow', { type: 'button', onclick: take }, t('common.apply')),
-      h('button.btn.small', {
-        type: 'button',
-        onclick: async () => {
-          try {
-            field.value = await navigator.clipboard.readText();
-            state.raw = field.value;
-            take();
-          } catch {
-            toast(t('common.clipboardUnreadable'));
-          }
-        },
-      }, t('common.paste')),
-    ),
-  );
+    return;
+  }
+  state.target = parsed;
+  state.parts = toParts(parsed);
+  state.targetName = '';
+  state.error = null;
+  toast(t('pos.pasteTaken'));
+  draw();
 }
 
 /** Rechnet die Einzelfelder in eine Position um. */
@@ -498,6 +497,9 @@ function updateResultOnly() {
 
   const slot = container.querySelector('#nav-result');
   if (slot) render(slot, nav ? result(nav, opts) : hintCard(fix));
+  // Die Karte hängt wieder im Ergebnis – aber erst zeichnen, wenn das Tippen
+  // zur Ruhe gekommen ist.
+  if (state.resultView === 'karte') paintChartSoon();
 
   const check = container.querySelector('.coord-check');
   if (check) {
@@ -519,6 +521,11 @@ function updateResultOnly() {
 
   const wpSlot = container.querySelector('#wp-slot');
   if (wpSlot) render(wpSlot, waypointList(fix, opts));
+
+  // Der Merken-Knopf wird erst brauchbar, wenn die Eingabe eine gültige
+  // Position ergibt. Ohne diese Zeile erschien er beim Tippen nie.
+  const actions = container.querySelector('#target-actions');
+  if (actions) render(actions, targetActions());
 }
 
 // ----------------------------------------------------------- Rechenergebnis
@@ -536,25 +543,45 @@ function result(nav, opts) {
       heroCell(t('pos.trueCourse'), deg3(bearing), '°', t('pos.trueCourseSub')),
     ),
 
-    compassRose(bearing, opts.heading, relative),
-
-    // Nordorientiert oder mitdrehend – auf einem krängenden Schiff ist die
-    // mitdrehende Ansicht leichter zu lesen, weil oben immer voraus ist.
-    h('div.seg', { style: { 'margin-top': '10px' } },
+    // Kompass oder Karte an derselben Stelle. Der Kompass sagt, wohin; die
+    // Karte, wo das im Verhältnis zum Übrigen liegt. Beides braucht denselben
+    // Platz, also teilen sie ihn sich statt untereinander zu stehen.
+    h('div.seg', { style: { margin: '14px 0 10px' } },
       h('button', {
         type: 'button',
-        'aria-pressed': String(!settings.get('compassCourseUp')),
-        onclick: () => { settings.set('compassCourseUp', false); draw(); },
-      }, t('pos.northUp')),
+        'data-view': 'kompass',
+        'aria-pressed': String(state.resultView !== 'karte'),
+        onclick: () => { state.resultView = 'kompass'; draw(); },
+      }, t('pos.viewCompass')),
       h('button', {
         type: 'button',
-        disabled: opts.heading === null || opts.heading === undefined,
-        'aria-pressed': String(Boolean(settings.get('compassCourseUp'))),
-        onclick: () => { settings.set('compassCourseUp', true); draw(); },
-      }, t('pos.courseUp')),
+        'data-view': 'karte',
+        'aria-pressed': String(state.resultView === 'karte'),
+        onclick: () => { state.resultView = 'karte'; draw(); },
+      }, t('pos.viewChart')),
     ),
-    (opts.heading === null || opts.heading === undefined)
-      && h('p.small.muted', { style: { margin: '7px 0 0' } }, t('pos.courseUpNeedsHeading')),
+
+    state.resultView === 'karte' ? chartBlock() : [
+      compassRose(bearing, opts.heading, relative),
+
+      // Nordorientiert oder mitdrehend – auf einem krängenden Schiff ist die
+      // mitdrehende Ansicht leichter zu lesen, weil oben immer voraus ist.
+      h('div.seg', { style: { 'margin-top': '10px' } },
+        h('button', {
+          type: 'button',
+          'aria-pressed': String(!settings.get('compassCourseUp')),
+          onclick: () => { settings.set('compassCourseUp', false); draw(); },
+        }, t('pos.northUp')),
+        h('button', {
+          type: 'button',
+          disabled: opts.heading === null || opts.heading === undefined,
+          'aria-pressed': String(Boolean(settings.get('compassCourseUp'))),
+          onclick: () => { settings.set('compassCourseUp', true); draw(); },
+        }, t('pos.courseUp')),
+      ),
+      (opts.heading === null || opts.heading === undefined)
+        && h('p.small.muted', { style: { margin: '7px 0 0' } }, t('pos.courseUpNeedsHeading')),
+    ],
 
     h('div.readout', { style: { 'margin-top': '12px' } },
       hasVar && cell(t('pos.magnetic'), deg3(courses.magnetic), '°',

@@ -466,3 +466,42 @@ export function createChart({ collect, size = 'klein' }) {
 
   return { el, note, paint, fit, zoomBy, centerOn, destroy };
 }
+
+/**
+ * Ein Knopf, der die Karte über den ganzen Bildschirm legt.
+ *
+ * Bewusst über eine Klasse und nicht über die Vollbild-Schnittstelle des
+ * Browsers: Safari auf dem iPhone kennt `requestFullscreen` für einzelne
+ * Elemente nicht. Eine feste Fläche über allem tut hier dasselbe, läuft
+ * überall und lässt sich mit demselben Knopf wieder schließen.
+ */
+export function fullscreenButton(frame, chart) {
+  const btn = h('button.chart-btn', {
+    type: 'button',
+    'aria-pressed': 'false',
+    'aria-label': t('map.fullscreen'),
+    title: t('map.fullscreen'),
+  }, '⛶');
+
+  const setzen = (an) => {
+    frame.classList.toggle('chart-full', an);
+    document.body.classList.toggle('chart-open', an);
+    btn.textContent = an ? '✕' : '⛶';
+    btn.setAttribute('aria-pressed', String(an));
+    btn.setAttribute('aria-label', an ? t('map.fullscreenExit') : t('map.fullscreen'));
+    // Erst nach dem Umbruch messen – vorher hat die Fläche die alte Größe.
+    requestAnimationFrame(() => chart.paint());
+  };
+
+  btn.onclick = () => setzen(!frame.classList.contains('chart-full'));
+
+  // Die Zurück-Taste des Geräts soll das Vollbild schließen und nicht die
+  // Seite verlassen – dafür genügt die Escape-Taste auf dem Rechner.
+  const onKey = (e) => {
+    if (e.key === 'Escape' && frame.classList.contains('chart-full')) setzen(false);
+  };
+  document.addEventListener('keydown', onKey);
+  btn._detach = () => document.removeEventListener('keydown', onKey);
+
+  return btn;
+}

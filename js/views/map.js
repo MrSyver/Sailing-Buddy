@@ -20,7 +20,7 @@ import { waypoints } from '../lib/storage.js';
 import { t, num } from '../lib/i18n.js';
 import { formatPosition, rhumbLine } from '../lib/geo.js';
 import { logbook } from '../lib/logbook.js';
-import { createChart } from '../lib/chartview.js';
+import { createChart, fullscreenButton } from '../lib/chartview.js';
 import { ATTRIBUTION } from '../data/tilesources.js';
 
 const state = {
@@ -73,50 +73,57 @@ function draw() {
   chart?.destroy();
   chart = createChart({ collect, size: 'gross' });
 
+  const frame = h('div.chart-frame');
+
   render(container,
     marks.length === 0
       ? h('div.card', h('div.empty', t('map.nothing')))
-      : h('div.chart-frame',
-        chart.el,
-        // Die Bedienung liegt auf der Karte, nicht darüber – jede Zeile
-        // darüber wäre eine Zeile weniger Karte.
-        h('div.chart-controls',
-          h('button.chart-btn', {
-            type: 'button', 'aria-label': t('map.zoomIn'), onclick: () => chart.zoomBy(1),
-          }, '＋'),
-          h('button.chart-btn', {
-            type: 'button', 'aria-label': t('map.zoomOut'), onclick: () => chart.zoomBy(-1),
-          }, '－'),
-          h('button.chart-btn', {
-            type: 'button',
-            'aria-label': t('map.centerOwn'),
-            title: t('map.centerOwn'),
-            onclick: () => {
-              const fix = gps.fix;
-              if (!fix) { toast(t('map.noFix')); return; }
-              chart.centerOn(fix);
-            },
-          }, '◎'),
-          h('button.chart-btn', {
-            type: 'button',
-            'aria-label': t('map.fitAll'),
-            title: t('map.fitAll'),
-            onclick: () => chart.fit(),
-          }, '⤢'),
-          h('button.chart-btn', {
-            type: 'button',
-            'aria-pressed': String(state.showTrack),
-            'aria-label': t('map.trackToggle'),
-            title: t('map.trackToggle'),
-            onclick: () => { state.showTrack = !state.showTrack; draw(); },
-          }, '〜'),
-        ),
-      ),
+      : frame,
 
     chart.note,
     marks.length > 0 && h('p.small.muted.chart-credit', ATTRIBUTION),
     legend(marks, track),
   );
+
+  if (marks.length > 0) {
+    frame.append(
+      chart.el,
+      // Die Bedienung liegt auf der Karte, nicht darüber – jede Zeile
+      // darüber wäre eine Zeile weniger Karte.
+      h('div.chart-controls',
+        fullscreenButton(frame, chart),
+        h('button.chart-btn', {
+          type: 'button', 'aria-label': t('map.zoomIn'), onclick: () => chart.zoomBy(1),
+        }, '＋'),
+        h('button.chart-btn', {
+          type: 'button', 'aria-label': t('map.zoomOut'), onclick: () => chart.zoomBy(-1),
+        }, '－'),
+        h('button.chart-btn', {
+          type: 'button',
+          'aria-label': t('map.centerOwn'),
+          title: t('map.centerOwn'),
+          onclick: () => {
+            const fix = gps.fix;
+            if (!fix) { toast(t('map.noFix')); return; }
+            chart.centerOn(fix);
+          },
+        }, '◎'),
+        h('button.chart-btn', {
+          type: 'button',
+          'aria-label': t('map.fitAll'),
+          title: t('map.fitAll'),
+          onclick: () => chart.fit(),
+        }, '⤢'),
+        h('button.chart-btn', {
+          type: 'button',
+          'aria-pressed': String(state.showTrack),
+          'aria-label': t('map.trackToggle'),
+          title: t('map.trackToggle'),
+          onclick: () => { state.showTrack = !state.showTrack; draw(); },
+        }, '〜'),
+      ),
+    );
+  }
 
   chart.paint();
 }

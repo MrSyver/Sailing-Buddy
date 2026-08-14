@@ -492,6 +492,9 @@ const eigeneY = await page.locator('.posline').evaluate((el) => el.getBoundingCl
 check('Mensch über Bord steht über der eigenen Position', mobY < eigeneY,
   `MOB bei ${Math.round(mobY)}, eigene Position bei ${Math.round(eigeneY)}`);
 
+const mobBeschriftung = await page.locator('.mob-card .mob-btn').innerText();
+check('Die MOB-Taste heißt nur noch „Mensch über Bord“',
+  !/merken/i.test(mobBeschriftung), mobBeschriftung);
 await page.locator('.mob-card').getByRole('button', { name: /Mensch über Bord/ }).click();
 await page.waitForSelector('.mob-row');
 const mobRow = await page.locator('.mob-row').innerText();
@@ -504,11 +507,35 @@ await page.locator('.mob-row').getByRole('button', { name: '→ Als Ziel' }).cli
 check('MOB lässt sich wieder als Ziel setzen',
   await page.locator('.mob-row').getByRole('button', { name: '✓ Ist Ziel' }).count() === 1);
 
+// Der Knopf zum Merken muss schon beim Tippen dastehen. Vorher wurde nur das
+// Ergebnis darunter aufgefrischt, dieser Bereich nicht – der Knopf erschien
+// erst, wenn irgendetwas anderes die Seite neu aufbaute.
+await page.locator('#coord-latMin').fill('35');
+await page.waitForTimeout(250);
+const merkenKnopf = page.getByRole('button', { name: /Position merken/ });
+check('Merken steht schon beim Tippen bereit',
+  await merkenKnopf.count() === 1 && !(await merkenKnopf.isDisabled()));
+check('Der Kompass zeigt gleich mit', await page.locator('.compass').count() === 1);
+
+// Ohne gültige Eingabe ist er gesperrt statt verschwunden – dann sucht
+// niemand, wo er hin ist.
+await page.locator('#coord-latDeg').fill('');
+await page.waitForTimeout(250);
+check('Ohne Eingabe ist Merken gesperrt, nicht weg',
+  await merkenKnopf.count() === 1 && await merkenKnopf.isDisabled());
+await page.locator('#coord-latDeg').fill('54');
+await page.waitForTimeout(250);
+
+// Kein Aufklappfeld mehr für das Einfügen – ein Knopf genügt.
+check('Kein Aufklappfeld für das Einfügen mehr',
+  (await page.locator('main').innerText()).indexOf('Position aus einer Nachricht') === -1);
+check('Einfügen steht als Knopf da',
+  await page.getByRole('button', { name: /Einfügen/ }).count() === 1);
+
 // Ein gemerktes Ziel anlegen – und prüfen, dass die MOB-Position dort nicht
 // mit auftaucht. Zwei Listen im Ernstfall wären eine zu viel.
-await page.locator('#coord-latMin').fill('35');
 page.once('dialog', (d) => d.accept('Ansteuerung Kiel'));
-await page.getByRole('button', { name: /Merken/ }).click();
+await merkenKnopf.click();
 await page.waitForSelector('.wp-item');
 const zielListe = await page.locator('.wp-item').allInnerTexts();
 check('Gemerktes Ziel steht in der Liste',
@@ -529,19 +556,40 @@ check('Übernehmen füllt die Eingabefelder',
   (await page.locator('#coord-latMin').inputValue()) === '35',
   `Minutenfeld: ${await page.locator('#coord-latMin').inputValue()}`);
 
-// Die Karte als Beigabe zum Kompass – erst auf Knopfdruck.
-check('Ohne Knopfdruck keine Karte auf der Positionsseite',
-  await page.locator('.chart').count() === 0);
-await page.getByRole('button', { name: /Karte einblenden/ }).click();
-await page.waitForTimeout(400);
-check('Karte lässt sich auf der Positionsseite einblenden',
-  await page.locator('.chart-klein').count() === 1);
+// Kompass und Karte teilen sich denselben Platz und werden oben umgeschaltet.
+check('Zunächst steht dort der Kompass',
+  await page.locator('.compass').count() === 1 && await page.locator('.chart').count() === 0);
+check('Der Umschalter steht über der Anzeige',
+  await page.locator('#nav-result button[data-view="karte"]').count() === 1);
+
+const umschalterY = await page.locator('#nav-result button[data-view="karte"]')
+  .evaluate((el) => el.getBoundingClientRect().top);
+const kompassY = await page.locator('.compass').evaluate((el) => el.getBoundingClientRect().top);
+check('Der Umschalter steht über dem Kompass', umschalterY < kompassY,
+  `Umschalter bei ${Math.round(umschalterY)}, Kompass bei ${Math.round(kompassY)}`);
+
+await page.locator('#nav-result button[data-view="karte"]').click();
+await page.waitForTimeout(600);
+check('Umgeschaltet steht dort die Karte',
+  await page.locator('.chart-klein').count() === 1 && await page.locator('.compass').count() === 0);
 check('Sie zeigt die eigene Position und das Ziel',
   await page.locator('.chart-mark').count() >= 2,
   `${await page.locator('.chart-mark').count()} Punkte`);
+check('Auch hier gibt es das Vollbild',
+  await page.locator('#nav-result').getByRole('button', { name: 'Karte im Vollbild' }).count() === 1);
 await shot('04d-position-karte');
-await page.getByRole('button', { name: /Karte ausblenden/ }).click();
-check('Und wieder ausblenden', await page.locator('.chart').count() === 0);
+
+// Die Karte darf beim Tippen nicht verschwinden – sie hängt in derselben
+// Karte, die sich bei jedem Zeichen neu aufbaut.
+await page.locator('#coord-latMin').fill('28');
+await page.waitForTimeout(700);
+check('Die Karte übersteht das Tippen',
+  await page.locator('.chart-klein').count() === 1);
+
+await page.locator('#nav-result button[data-view="kompass"]').click();
+await page.waitForTimeout(300);
+check('Und wieder zurück auf den Kompass',
+  await page.locator('.compass').count() === 1 && await page.locator('.chart').count() === 0);
 
 // --- Karte -----------------------------------------------------------------
 // Die untere Leiste muss unten stehen und dort bleiben. Ein früherer Versuch,
@@ -595,6 +643,27 @@ check('Kein Ein- und Ausschalten der Seekarte auf der Kartenseite',
   await page.getByRole('button', { name: /Seekarte/ }).count() === 0);
 check('Die Bedienung liegt auf der Karte',
   await page.locator('.chart-frame .chart-controls .chart-btn').count() >= 4);
+
+// Vollbild: Die Karte legt sich über alles und lässt sich wieder schließen.
+const vollbildKnopf = page.getByRole('button', { name: 'Karte im Vollbild' });
+check('Es gibt einen Knopf für das Vollbild', await vollbildKnopf.count() === 1);
+const vorherHoch = chartHoehe;
+await vollbildKnopf.click();
+await page.waitForTimeout(400);
+const vollHoehe = await page.locator('.chart-gross').evaluate(
+  (el) => Math.round(el.getBoundingClientRect().height));
+check('Im Vollbild ist die Karte höher', vollHoehe > vorherHoch,
+  `vorher ${vorherHoch} px, im Vollbild ${vollHoehe} px`);
+check('Im Vollbild deckt die Karte den Bildschirm',
+  await page.locator('.chart-frame.chart-full').evaluate((el) => {
+    const b = el.getBoundingClientRect();
+    return Math.round(b.top) === 0 && Math.round(b.height) === Math.round(window.innerHeight);
+  }));
+await shot('04e-karte-vollbild');
+await page.getByRole('button', { name: 'Vollbild verlassen' }).click();
+await page.waitForTimeout(400);
+check('Vollbild lässt sich wieder verlassen',
+  await page.locator('.chart-frame.chart-full').count() === 0);
 
 // Die App versucht nachzuholen; die echten Kachelserver sind abgeklemmt.
 // Gewartet wird auf die endgültige Aussage, nicht auf eine feste Zeit.
