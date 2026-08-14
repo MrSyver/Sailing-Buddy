@@ -27,6 +27,10 @@ import {
 import { layers } from '../data/tilesources.js';
 import { openAll } from './packs.js';
 import { mediaType } from './mbtiles.js';
+import { LOG_EVENTS } from './logbook.js';
+
+/** Die Zeichen der Logbuchereignisse – für die Spur auf der Karte. */
+const EVENT_SYMBOL = new Map(LOG_EVENTS.map((e) => [e.key, e.sym]));
 
 const TILE = 256;
 const MIN_Z = 3;
@@ -334,6 +338,24 @@ export function createChart({ collect, size = 'klein' }) {
         }).join(' '),
       }));
     }
+
+    // Ereignisse an der Stelle, an der sie passiert sind.
+    //
+    // Das ist der Unterschied zwischen einer Spur und einem Logbuch: Man sieht,
+    // wo gewendet und wo geankert wurde. Nur Ereignisse, nicht jeder Punkt –
+    // eine Saison hat Tausende Punkte und ein paar Dutzend Ereignisse.
+    track.forEach((p) => {
+      if (!p.event) return;
+      const q = toXY(p);
+      if (q.x < -20 || q.y < -20 || q.x > width + 20 || q.y > height + 20) return;
+      plot.appendChild(svg('circle', { class: 'plot-dot manual', cx: q.x, cy: q.y, r: 4 }));
+      const sym = EVENT_SYMBOL.get(p.event);
+      if (sym) {
+        plot.appendChild(svg('text', {
+          class: 'plot-event', x: q.x, y: q.y - 8, 'text-anchor': 'middle', 'font-size': '12',
+        }, sym));
+      }
+    });
 
     // Die eigene Position zuletzt: Liegt sie auf einem Wegpunkt – etwa direkt
     // nach dem MOB-Knopf –, darf sie nicht darunter verschwinden.

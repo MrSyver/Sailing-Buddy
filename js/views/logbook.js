@@ -1,10 +1,11 @@
 /**
  * Modul „Logbuch“ – Törns, Einträge, Ereignisse, Wetter, Spur.
  *
- * Die Spur wird ohne jedes Kartenmaterial gezeichnet: eigene Positionen,
- * Linien dazwischen, Nordpfeil und Maßstabsbalken. Das läuft überall auf der
- * Welt, braucht keinen Speicherplatz für Kacheln und täuscht vor allem keine
- * Tiefenangaben vor, die es nicht gibt.
+ * Die Spur liegt auf derselben Karte wie im Kartenreiter und hält sich an
+ * dieselbe Reihenfolge: Was als Paket im Gerät liegt, wird genommen; was
+ * einzeln abgelegt ist, danach; erst dann wird geholt, und nur mit Verbindung.
+ * Ohne Kartenmaterial bleibt der Grund leer – die Spur steht trotzdem
+ * maßstäblich darauf, denn die Abstände stimmen auch ohne Küste.
  *
  * Zwei Dinge bestimmen den Aufbau. Erstens: Was man unterwegs braucht, steht
  * oben und geht mit einem Griff – die Ereignisse als Reihe von Tasten, nicht
@@ -12,21 +13,27 @@
  * Törnverwaltung – steht unten und darf ruhig ein paar Griffe kosten.
  */
 
-import { h, svg, render, toast, fit } from '../lib/dom.js';
+import { h, render, toast, fit } from '../lib/dom.js';
 import { gps } from '../lib/gps.js';
 import { settings } from '../lib/storage.js';
 import { t, locale, num } from '../lib/i18n.js';
 import { formatPosition, formatDuration, formatLat, formatLon } from '../lib/geo.js';
 import { shareFile, downloadFile, stamped } from '../lib/share.js';
+import { createChart, fullscreenButton } from '../lib/chartview.js';
+import { ATTRIBUTION } from '../data/tilesources.js';
 import { buildMilesPdf } from '../lib/miles.js';
 import { ROLES, QUALIFICATIONS, OTHER } from '../data/milesfields.js';
 import {
-  logbook, trackDistance, projectTrack, niceScaleStep, dailyRuns, stats,
+  logbook, trackDistance, dailyRuns, stats,
   toGpx, toCsv, LOG_INTERVALS, LOG_EVENTS, WIND_DIRECTIONS, VISIBILITY_STEPS,
 } from '../lib/logbook.js';
 
 let container = null;
 let noteDraft = '';
+/** Die Karte unter der Spur – sie überlebt das Neuzeichnen der Seite. */
+let chart = null;
+let chartScope = null;
+let frisch = true;
 /**
  * Was gerade gezeigt wird.
  *
@@ -62,8 +69,29 @@ export function view(root) {
   scope = turn ? { turnId: turn.id } : (trip ? { tripId: trip.id } : {});
   draw();
   const offLog = logbook.onChange(() => draw());
-  const offGps = gps.onUpdate(() => draw());
-  return () => { offLog(); offGps(); container = null; };
+  // Nur neu zeichnen, wenn sich etwas Sichtbares geändert hat.
+  //
+  // Vorher hing hier ein schlichtes `draw()`, und der Empfänger meldet sich
+  // jede Sekunde. Damit wurde die ganze Seite jede Sekunde neu gebaut – und
+  // jedes aufgeklappte Feld fiel dabei wieder zu, mitten im Ausfüllen der
+  // Meilenbestätigung. Vom Fix hängt hier nur eines ab: ob es überhaupt einen
+  // gibt. Genau darauf wird gehorcht.
+  let hatteFix = Boolean(gps.fix);
+  const offGps = gps.onUpdate(() => {
+    const jetzt = Boolean(gps.fix);
+    if (jetzt === hatteFix) return;
+    hatteFix = jetzt;
+    draw();
+  });
+  return () => {
+    offLog();
+    offGps();
+    chart?.destroy();
+    chart = null;
+    chartScope = null;
+    frisch = true;
+    container = null;
+  };
 }
 
 /** Die Einträge, die gerade gezeigt werden – neueste zuerst. */
@@ -87,10 +115,25 @@ function scopeName() {
   return '';
 }
 
+/**
+ * Was aufgeklappt war, bleibt aufgeklappt.
+ *
+ * Das Logbuch zeichnet sich neu, sobald ein Eintrag dazukommt – und der Takt
+ * schreibt von selbst mit. Ohne dieses Gedächtnis fiele mitten im Ausfüllen
+ * der Meilenbestätigung das Feld wieder zu, und man fienge von vorn an.
+ */
+const offen = new Set();
+
 function draw() {
   if (!container) return;
   const entries = selection();
   const track = [...entries].sort((a, b) => a.ts - b.ts);
+
+  // Wo der Finger gerade war, muss er nachher wieder sein.
+  const aktiv = document.activeElement;
+  const merkFeld = container.contains(aktiv) ? aktiv?.dataset?.miles : null;
+  const merkPos = merkFeld ? aktiv.selectionStart : null;
+
   render(container,
     tripCard(),
     recorderCard(),
@@ -98,6 +141,24 @@ function draw() {
     entriesCard(entries),
     outputCard(track),
   );
+
+  container.querySelectorAll('details.foldout[data-fold]').forEach((el) => {
+    el.open = offen.has(el.dataset.fold);
+    el.addEventListener('toggle', () => {
+      if (el.open) offen.add(el.dataset.fold);
+      else offen.delete(el.dataset.fold);
+    });
+  });
+
+  if (merkFeld) {
+    const feld = container.querySelector(`[data-miles="${merkFeld}"]`);
+    if (feld) {
+      feld.focus();
+      if (merkPos !== null && feld.setSelectionRange) {
+        try { feld.setSelectionRange(merkPos, merkPos); } catch { /* Auswahlfelder können das nicht */ }
+      }
+    }
+  }
 }
 
 // -------------------------------------------------------------------- Törn
@@ -180,7 +241,7 @@ function tripCard() {
       }, `↳ ${et.name || whenShort(et.startTs)}`)),
     ),
 
-    trips.length > 0 && h('details.foldout', { style: { 'margin-top': '12px', 'margin-bottom': 0 } },
+    trips.length > 0 && h('details.foldout', { 'data-fold': 'trips', style: { 'margin-top': '12px', 'margin-bottom': 0 } },
       h('summary', t('log.tripList', { v: trips.length })),
       h('div',
         ...trips.map((r) => h('div',
@@ -485,7 +546,7 @@ function trackCard(track) {
       name && h('span.rule', name),
     ),
 
-    trackPlot(track),
+    spurAnsicht(track),
 
     // Immer dieselben Kästchen, immer gleich groß – wie im Ergebnis auf der
     // Positionsseite. Was fehlt, steht als Strich da.
@@ -504,7 +565,7 @@ function trackCard(track) {
 
     // Etmal: der klassische Eintrag – wie weit ist das Schiff seit gestern
     // gekommen. Nur zeigen, wenn es mehr als einen Tag zu zeigen gibt.
-    etmale.length > 1 && h('details.foldout', { style: { 'margin-top': '12px', 'margin-bottom': 0 } },
+    etmale.length > 1 && h('details.foldout', { 'data-fold': 'etmale', style: { 'margin-top': '12px', 'margin-bottom': 0 } },
       h('summary', t('log.etmal')),
       h('div',
         ...etmale.map((d) => h('div.wp-item',
@@ -525,82 +586,74 @@ function dayLabel(key) {
   });
 }
 
-/** Die Spur als Zeichnung: Linien zwischen den Positionen, Norden oben. */
-function trackPlot(track) {
-  const W = 320;
-  const H = 260;
-  const projected = projectTrack(track, W, H);
-  if (!projected) return null;
+/**
+ * Die Spur – auf der Seekarte, wenn eine da ist.
+ *
+ * Bisher stand hier nur die nackte Zeichnung: Linien zwischen den Positionen,
+ * Norden oben, kein Kartenmaterial. Das war ehrlich, aber es beantwortet die
+ * Frage nicht, die man ans Logbuch stellt – *wo* war ich? Eine Spur ohne Küste
+ * daneben ist ein Muster.
+ *
+ * Die Karte darunter ist dieselbe wie im Kartenreiter und hält sich damit an
+ * dieselbe Reihenfolge: Was als Paket im Gerät liegt, wird genommen; was
+ * einzeln abgelegt ist, danach; erst dann wird geholt, und nur wenn eine
+ * Verbindung besteht. Ist keine da, bleibt der Grund leer – und die Spur steht
+ * trotzdem maßstäblich darauf. Die Abstände stimmen auch ohne Küste.
+ *
+ * Die Karte wird über Aufrufe von `draw()` hinweg behalten: Wer im Logbuch
+ * hineingezoomt hat, will nicht bei jedem neuen Eintrag wieder ganz herauskommen.
+ */
+function spurAnsicht(track) {
+  const kennung = `${scope.turnId ?? scope.tripId ?? 'alles'}`;
 
-  const el = svg('svg.track-plot', {
-    viewBox: `0 0 ${W} ${H}`,
-    role: 'img',
-    'aria-label': t('log.track'),
-  });
-
-  el.appendChild(svg('rect', { x: 0, y: 0, width: W, height: H, class: 'plot-bg' }));
-
-  // Linien zwischen den Positionen
-  if (projected.points.length > 1) {
-    el.appendChild(svg('polyline', {
-      class: 'plot-line',
-      points: projected.points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' '),
-    }));
+  if (!chart || chartScope !== kennung) {
+    chart?.destroy();
+    chartScope = kennung;
+    chart = createChart({ collect: spurInhalt, size: 'klein' });
+    frisch = true;
   }
 
-  // Die Positionen selbst; von Hand gesetzte Einträge größer.
-  projected.points.forEach((p, i) => {
-    const manual = p.point.kind === 'manual';
-    const last = i === projected.points.length - 1;
-    el.appendChild(svg('circle', {
-      class: last ? 'plot-dot now' : `plot-dot${manual ? ' manual' : ''}`,
-      cx: p.x.toFixed(1),
-      cy: p.y.toFixed(1),
-      r: last ? 6 : (manual ? 4.5 : 2.6),
-    }));
+  // Der Rahmen zuerst: Der Vollbildknopf braucht ihn, um ihn aufziehen zu
+  // können, und bekäme ihn sonst erst, wenn er schon gebaut ist.
+  const rahmen = h('div.chart-frame', chart.el);
+  rahmen.appendChild(h('div.chart-controls',
+    fullscreenButton(rahmen, chart),
+    h('button.chart-btn', {
+      type: 'button', 'aria-label': t('map.zoomIn'), onclick: () => chart.zoomBy(1),
+    }, '＋'),
+    h('button.chart-btn', {
+      type: 'button', 'aria-label': t('map.zoomOut'), onclick: () => chart.zoomBy(-1),
+    }, '－'),
+    h('button.chart-btn', {
+      type: 'button', 'aria-label': t('map.fit'), title: t('map.fit'), onclick: () => chart.fit(),
+    }, '⤢'),
+  ));
+
+  // Erst zeichnen, wenn der Rahmen im Baum steht und eine Höhe hat.
+  requestAnimationFrame(() => {
+    if (frisch) { frisch = false; chart.fit(); } else chart.paint();
   });
 
-  // Ereignisse bekommen ihr Zeichen an die Stelle, an der sie passiert sind.
-  // Das ist der Unterschied zwischen einer Spur und einem Logbuch: Man sieht,
-  // wo gewendet und wo geankert wurde.
-  const symbols = new Map(LOG_EVENTS.map((e) => [e.key, e.sym]));
-  projected.points.forEach((p) => {
-    if (!p.point.event) return;
-    el.appendChild(svg('text', {
-      class: 'plot-event',
-      x: p.x.toFixed(1),
-      y: (p.y - 9).toFixed(1),
-      'text-anchor': 'middle',
-    }, symbols.get(p.point.event) ?? '•'));
-  });
+  return h('div',
+    rahmen,
+    chart.note,
+    h('p.small.muted.chart-credit', { style: { margin: '6px 0 0' } }, ATTRIBUTION),
+  );
+}
 
-  // Start kennzeichnen
-  const first = projected.points[0];
-  el.appendChild(svg('text', {
-    class: 'plot-label', x: first.x + 8, y: first.y - 6,
-  }, t('log.start')));
-
-  // Nordpfeil – die Zeichnung ist immer nordorientiert.
-  el.appendChild(svg('path', {
-    class: 'plot-north', d: `M${W - 22} 30 L${W - 22} 10 M${W - 27} 16 L${W - 22} 10 L${W - 17} 16`,
-  }));
-  el.appendChild(svg('text', { class: 'plot-label', x: W - 22, y: 44, 'text-anchor': 'middle' }, 'N'));
-
-  // Maßstabsbalken
-  const step = niceScaleStep(projected.spanNm);
-  const barPx = step * projected.scale;
-  if (barPx > 12 && barPx < W - 40) {
-    const y = H - 16;
-    el.appendChild(svg('path', {
-      class: 'plot-scale',
-      d: `M14 ${y - 5} V${y} H${14 + barPx} V${y - 5}`,
-    }));
-    el.appendChild(svg('text', {
-      class: 'plot-label', x: 14, y: y - 9,
-    }, `${step < 1 ? num(step, 2) : num(step, step < 10 ? 1 : 0)} sm`));
+/** Was auf der Logbuchkarte liegt: die Spur des Ausschnitts und ihre Enden. */
+function spurInhalt() {
+  const spur = [...selection()].sort((a, b) => a.ts - b.ts);
+  const marks = [];
+  if (spur.length) {
+    const erst = spur[0];
+    const letzt = spur[spur.length - 1];
+    marks.push({ kind: 'wp', lat: erst.lat, lon: erst.lon, name: t('log.trackStart') });
+    if (spur.length > 1) {
+      marks.push({ kind: 'own', lat: letzt.lat, lon: letzt.lon, name: t('log.trackEnd') });
+    }
   }
-
-  return el;
+  return { marks, track: spur };
 }
 
 function cell(label, value, unit, sub) {
@@ -843,7 +896,7 @@ function milesBlock(track, s) {
     ),
   );
 
-  return h('details.foldout', { style: { 'margin-top': '18px', 'margin-bottom': 0 } },
+  return h('details.foldout', { 'data-fold': 'miles', style: { 'margin-top': '18px', 'margin-bottom': 0 } },
     h('summary', t('log.miles')),
     h('div',
       h('p.small.muted', { style: { 'margin-top': 0 } }, t('log.milesHint')),
@@ -851,7 +904,7 @@ function milesBlock(track, s) {
       feld('person', t('log.milesPerson'), t('log.milesPersonHint'), ''),
       auswahl('role', t('log.milesRole'), ROLES, 'role', null),
       feld('skipper', t('log.milesSkipper'), t('log.milesSkipperHint'), ''),
-      auswahl('qualification', t('log.milesQual'), QUALIFICATIONS, 'qual', null),
+      auswahl('qualification', t('log.milesQual'), QUALIFICATIONS, 'qual', t('log.milesQualHint')),
 
       h('label.field',
         h('span', t('log.milesNotes')),
@@ -865,7 +918,7 @@ function milesBlock(track, s) {
         h('span.hint', t('log.milesNotesHint')),
       ),
 
-      h('details.foldout', { style: { 'margin-bottom': '12px' } },
+      h('details.foldout', { 'data-fold': 'milesMore', style: { 'margin-bottom': '12px' } },
         h('summary', t('log.milesMore')),
         h('div',
           feld('area', t('log.milesArea'), null, t('log.milesAreaPlaceholder')),

@@ -26,19 +26,28 @@ export const ROLES = [
 /**
  * Womit der Schiffsführer fährt.
  *
+ * Hier steht nur, was jemanden befähigt, ein Fahrzeug zu führen – denn genau
+ * das ist die Frage, die eine Prüfungsstelle an dieses Feld stellt: Durfte
+ * der, der unterschreibt, das Schiff überhaupt führen?
+ *
+ * Deshalb sind das Funkzeugnis (SRC, LRC) und der Binnenschein wieder heraus.
+ * Ein SRC sagt, dass jemand ein Funkgerät bedienen darf, und kein Wort
+ * darüber, ob er ein Schiff führen darf; der SBF Binnen gilt auf Flüssen und
+ * Seen und damit auf keiner einzigen der Seemeilen, um die es auf diesem
+ * Blatt geht. Beide standen hier und haben nur Platz gekostet.
+ *
  * Die deutschen Scheine in der Reihenfolge, in der man sie macht, dahinter
- * die gängigen internationalen. „Andere“ fängt alles Übrige.
+ * die gängigen internationalen und die beruflichen. „Anderes“ fängt den Rest.
  */
 export const QUALIFICATIONS = [
-  'sbfBinnen',
   'sbfSee',
   'sks',
   'sss',
   'shs',
-  'src',
-  'lrc',
   'iccBareboat',
   'yachtmaster',
+  'instructor',
+  'professional',
 ];
 
 /** Der Schlüssel, hinter dem sich ein freies Textfeld auftut. */
