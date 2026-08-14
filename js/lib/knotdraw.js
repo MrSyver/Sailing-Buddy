@@ -72,19 +72,23 @@ export function knotFigure(drawing, bis = Infinity, { titel = '' } = {}) {
     'aria-hidden': titel ? null : 'true',
   });
 
-  // Woran die Leine liegt – Poller, Ring, Rundholz – gehört hinter alles.
-  (drawing.props ?? []).forEach((prop) => el.appendChild(requisit(prop, bis)));
-
   const sichtbar = (drawing.strands ?? []).filter((s) => (s.n ?? 0) <= bis);
 
   // Erst alle Ränder, dann alle Kerne? Nein – dann läge jeder Rand über jedem
   // Kern und die Leine wäre gestrichelt. Rand und Kern gehören paarweise
   // übereinander, und die Paare in der Tiefe hintereinander.
-  sichtbar.forEach((strand) => {
+  const zeichne = (strand) => {
     const d = smooth(strand.p, strand.spannung ?? 1);
     el.appendChild(svg('path.knot-casing', { d }));
-    el.appendChild(svg('path.knot-core', { d }));
-  });
+    el.appendChild(svg(`path.knot-core${strand.leine === 2 ? '.knot-core-b' : ''}`, { d }));
+  };
+
+  // Was hinter dem Rundholz herläuft, gehört unter das Rundholz. Ohne diese
+  // Trennung liefe jeder Törn vor der Spiere entlang, und man sähe nicht, dass
+  // die Leine sie umschlingt.
+  sichtbar.filter((s) => s.hinter).forEach(zeichne);
+  (drawing.props ?? []).forEach((prop) => el.appendChild(requisit(prop, bis)));
+  sichtbar.filter((s) => !s.hinter).forEach(zeichne);
 
   // Das lose Ende bekommt einen Abschluss: Ohne ihn sieht ein abgeschnittener
   // Part aus wie ein Part, der hinter etwas verschwindet.
