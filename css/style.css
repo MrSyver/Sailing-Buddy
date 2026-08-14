@@ -1477,3 +1477,30 @@ details.foldout > div { padding: 0 15px 15px; }
 }
 
 .chart-mark.target .dot { fill: var(--accent); stroke: var(--bg); stroke-width: 1.5; }
+
+/* ------------------------------------------------------------ Karte im Vollbild */
+
+/* Bewusst über eine Klasse statt über die Vollbild-Schnittstelle: Safari auf
+   dem iPhone kennt requestFullscreen für einzelne Elemente nicht. */
+.chart-frame.chart-full {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  margin: 0 !important;
+  background: var(--bg);
+}
+
+.chart-frame.chart-full .chart {
+  height: 100%;
+  border-radius: 0;
+  border: 0;
+}
+
+/* Damit die Knöpfe nicht unter der Aussparung des Geräts liegen. */
+.chart-frame.chart-full .chart-controls {
+  top: calc(9px + env(safe-area-inset-top));
+  right: calc(9px + env(safe-area-inset-right));
+}
+
+/* Hinter dem Vollbild soll nichts mitscrollen. */
+body.chart-open { overflow: hidden; }

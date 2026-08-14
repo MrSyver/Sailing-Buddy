@@ -7,7 +7,7 @@
  */
 
 import { h, svg, render, copy, toast, fit } from '../lib/dom.js';
-import { createChart } from '../lib/chartview.js';
+import { createChart, fullscreenButton } from '../lib/chartview.js';
 import { settings, waypoints } from '../lib/storage.js';
 import { gps, GPS_STATUS_KEY } from '../lib/gps.js';
 import { t, locale, uiLang, num } from '../lib/i18n.js';
@@ -25,7 +25,6 @@ const state = {
   target: null,      // { lat, lon }
   targetName: '',
   error: null,
-  raw: '',           // nur für das Einfügen aus einer Nachricht
   showSpoken: false, // eigene Position ausgeschrieben zum Vorlesen
   showChart: false,  // Karte als Beigabe zum Kompass, auf Knopfdruck
 };
@@ -104,26 +103,29 @@ function chartCard() {
   chart?.destroy();
   chart = createChart({ collect: chartPoints, size: 'klein' });
 
+  const frame = h('div.chart-frame', { style: { 'margin-top': '10px' } });
   card.append(
     knopf,
-    h('div.chart-frame', { style: { 'margin-top': '10px' } },
-      chart.el,
-      h('div.chart-controls',
-        h('button.chart-btn', {
-          type: 'button', 'aria-label': t('map.zoomIn'), onclick: () => chart.zoomBy(1),
-        }, '＋'),
-        h('button.chart-btn', {
-          type: 'button', 'aria-label': t('map.zoomOut'), onclick: () => chart.zoomBy(-1),
-        }, '－'),
-        h('button.chart-btn', {
-          type: 'button',
-          'aria-label': t('map.fitAll'),
-          title: t('map.fitAll'),
-          onclick: () => chart.fit(),
-        }, '⤢'),
-      ),
-    ),
+    frame,
     chart.note,
+  );
+  frame.append(
+    chart.el,
+    h('div.chart-controls',
+      fullscreenButton(frame, chart),
+      h('button.chart-btn', {
+        type: 'button', 'aria-label': t('map.zoomIn'), onclick: () => chart.zoomBy(1),
+      }, '＋'),
+      h('button.chart-btn', {
+        type: 'button', 'aria-label': t('map.zoomOut'), onclick: () => chart.zoomBy(-1),
+      }, '－'),
+      h('button.chart-btn', {
+        type: 'button',
+        'aria-label': t('map.fitAll'),
+        title: t('map.fitAll'),
+        onclick: () => chart.fit(),
+      }, '⤢'),
+    ),
   );
   return card;
 }
@@ -392,85 +394,82 @@ function targetInput() {
       style: { display: state.target ? '' : 'none' },
     }, state.target ? `✓ ${formatPosition(state.target)}` : ''),
 
-    h('div.row.wrap', { style: { 'margin-top': '12px' } },
-      state.target && h('button.btn.small.grow', {
-        type: 'button',
-        onclick: () => {
-          const name = prompt(t('pos.wpNamePrompt'), state.targetName || t('pos.wpDefault'));
-          if (name === null) return;
-          waypoints.add({ ...state.target, name });
-          toast(t('pos.wpSaved'));
-          draw();
-        },
-      }, t('common.save')),
-      (state.target || p.latDeg || p.lonDeg) && h('button.btn.small.grow', {
-        type: 'button',
-        onclick: () => {
-          state.parts = toParts(null);
-          state.target = null;
-          state.targetName = '';
-          state.error = null;
-          draw();
-        },
-      }, t('pos.clearTarget')),
-    ),
-
-    // Aus einer Nachricht oder einem Notruf übernehmen – da stehen die
-    // Sonderzeichen dann eben doch drin, aber getippt werden muss nichts.
-    h('details.foldout', { style: { 'margin-top': '12px', 'margin-bottom': 0 } },
-      h('summary', t('pos.pasteTitle')),
-      h('div',
-        h('p.small.muted', { style: { 'margin-top': 0 } }, t('pos.pasteHint')),
-        pasteBox(),
-      ),
-    ),
+    // Eigener Container: Der Merken-Knopf hängt davon ab, ob die Eingabe
+    // schon eine gültige Position ergibt – und das ändert sich beim Tippen.
+    // Vorher wurde nur das Ergebnis darunter aufgefrischt, dieser Bereich
+    // nicht: Der Knopf erschien nie, solange man nur tippte.
+    h('div', { id: 'target-actions' }, targetActions()),
   );
 }
 
-/** Freitextfeld für kopierte Positionen. */
-function pasteBox() {
-  const field = h('textarea.mono', {
-    value: state.raw,
-    rows: 2,
-    placeholder: `54°31.234' N   011°22.345' E`,
-    spellcheck: false,
-    oninput: (e) => { state.raw = e.target.value; },
-  });
+/** Speichern und Leeren – wird beim Tippen mit aufgefrischt. */
+function targetActions() {
+  const p = state.parts;
+  const etwasGetippt = Boolean(state.target || p.latDeg || p.lonDeg);
 
-  const take = () => {
-    const parsed = parsePositionPair(field.value);
-    if (!parsed) {
-      state.error = t('pos.parseError');
-      draw();
-      return;
-    }
-    state.target = parsed;
-    state.parts = toParts(parsed);
-    state.targetName = '';
-    state.error = null;
-    state.raw = '';
-    draw();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  return h('div.row.wrap', { style: { 'margin-top': '12px' } },
+    h('button.btn.primary.grow', {
+      type: 'button',
+      disabled: !state.target,
+      onclick: () => {
+        const name = prompt(t('pos.wpNamePrompt'), state.targetName || t('pos.wpDefault'));
+        if (name === null) return;
+        waypoints.add({ ...state.target, name });
+        toast(t('pos.wpSaved'));
+        draw();
+      },
+    }, t('pos.saveTarget')),
 
-  return h('div',
-    field,
-    h('div.row.wrap', { style: { 'margin-top': '9px' } },
-      h('button.btn.small.grow', { type: 'button', onclick: take }, t('common.apply')),
-      h('button.btn.small', {
-        type: 'button',
-        onclick: async () => {
-          try {
-            field.value = await navigator.clipboard.readText();
-            state.raw = field.value;
-            take();
-          } catch {
-            toast(t('common.clipboardUnreadable'));
-          }
-        },
-      }, t('common.paste')),
-    ),
+    // Aus einer Nachricht übernehmen: ein Knopf statt eines Aufklappfelds.
+    // Im Notfall zählt jeder Griff, und die Zwischenablage hat den Text
+    // ohnehin schon.
+    h('button.btn.small', {
+      type: 'button',
+      title: t('pos.pasteTitle'),
+      onclick: pasteFromClipboard,
+    }, t('common.paste')),
+
+    etwasGetippt && h('button.btn.small', {
+      type: 'button',
+      onclick: () => {
+        state.parts = toParts(null);
+        state.target = null;
+        state.targetName = '';
+        state.error = null;
+        draw();
+      },
+    }, t('pos.clearTarget')),
   );
+}
+
+/**
+ * Position aus der Zwischenablage übernehmen.
+ *
+ * Schreibweise egal – Gradzeichen, Hochkommata, Dezimalgrad. Genau das kommt
+ * aus einer Nachricht oder einem mitgeschriebenen Notruf.
+ */
+async function pasteFromClipboard() {
+  let text = '';
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    // Manche Browser geben die Zwischenablage nicht ohne Weiteres her.
+    text = prompt(t('pos.pasteHint'), '') ?? '';
+  }
+  if (!text.trim()) return;
+
+  const parsed = parsePositionPair(text);
+  if (!parsed) {
+    state.error = t('pos.parseError');
+    draw();
+    return;
+  }
+  state.target = parsed;
+  state.parts = toParts(parsed);
+  state.targetName = '';
+  state.error = null;
+  toast(t('pos.pasteTaken'));
+  draw();
 }
 
 /** Rechnet die Einzelfelder in eine Position um. */
@@ -519,6 +518,11 @@ function updateResultOnly() {
 
   const wpSlot = container.querySelector('#wp-slot');
   if (wpSlot) render(wpSlot, waypointList(fix, opts));
+
+  // Der Merken-Knopf wird erst brauchbar, wenn die Eingabe eine gültige
+  // Position ergibt. Ohne diese Zeile erschien er beim Tippen nie.
+  const actions = container.querySelector('#target-actions');
+  if (actions) render(actions, targetActions());
 }
 
 // ----------------------------------------------------------- Rechenergebnis
