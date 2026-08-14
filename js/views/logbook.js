@@ -17,8 +17,9 @@ import { gps } from '../lib/gps.js';
 import { settings } from '../lib/storage.js';
 import { t, locale, num } from '../lib/i18n.js';
 import { formatPosition, formatDuration, formatLat, formatLon } from '../lib/geo.js';
-import { shareFile, stamped } from '../lib/share.js';
+import { shareFile, downloadFile, stamped } from '../lib/share.js';
 import { buildMilesPdf } from '../lib/miles.js';
+import { ROLES, QUALIFICATIONS, OTHER } from '../data/milesfields.js';
 import {
   logbook, trackDistance, projectTrack, niceScaleStep, dailyRuns, stats,
   toGpx, toCsv, LOG_INTERVALS, LOG_EVENTS, WIND_DIRECTIONS, VISIBILITY_STEPS,
@@ -44,7 +45,11 @@ let showWeather = false;
  * nichts an.
  */
 const miles = {
-  person: '', role: '', area: '', skipper: '', qualification: '', place: '',
+  person: '', area: '', skipper: '', place: '', notes: '', detail: false,
+  // Funktion und Befähigung kommen aus einer Liste; „other“ macht daneben ein
+  // Textfeld auf, in dem der freie Wert steht.
+  role: '', roleOther: '',
+  qualification: '', qualificationOther: '',
 };
 
 export function view(root) {
@@ -771,9 +776,71 @@ function milesBlock(track, s) {
       value: miles[key],
       placeholder,
       autocapitalize: 'words',
+      'data-miles': key,
       oninput: (e) => { miles[key] = e.target.value; },
     }),
     hint && h('span.hint', hint),
+  );
+
+  /**
+   * Ein Feld zum Aussuchen, mit Textfeld hinter „Anderes“.
+   *
+   * Die Liste deckt ab, was auf einer Yacht vorkommt; wer eine Funktion hat,
+   * die darin fehlt, soll sie hinschreiben können statt sich für die falsche
+   * zu entscheiden.
+   */
+  const auswahl = (key, label, optionen, praefix, hint) => {
+    const otherKey = `${key}Other`;
+    const frei = h('input', {
+      value: miles[otherKey],
+      placeholder: t(`log.miles${key === 'role' ? 'Role' : 'Qual'}Placeholder`),
+      autocapitalize: 'words',
+      style: { 'margin-top': '8px', display: miles[key] === OTHER ? '' : 'none' },
+      'aria-label': t('log.milesOtherLabel', { v: label }),
+      'data-miles': otherKey,
+      oninput: (e) => { miles[otherKey] = e.target.value; },
+    });
+    return h('div.field',
+      h('label',
+        h('span', label),
+        h('select', {
+          value: miles[key],
+          'data-miles': key,
+          onchange: (e) => {
+            miles[key] = e.target.value;
+            frei.style.display = miles[key] === OTHER ? '' : 'none';
+            if (miles[key] === OTHER) frei.focus();
+          },
+        },
+        h('option', { value: '' }, t('log.milesPick')),
+        ...optionen.map((o) => h('option', { value: o }, t(`${praefix}.${o}`))),
+        h('option', { value: OTHER }, t('log.milesOther')),
+        ),
+      ),
+      frei,
+      hint && h('span.hint', hint),
+    );
+  };
+
+  /**
+   * Der ausführliche Nachweis.
+   *
+   * Freiwillig, weil er nicht immer gebraucht wird: Manche Prüfungsstelle
+   * will genau ein Blatt mit einer Unterschrift, und mehr wäre dort im Weg.
+   * Wer den Törn dagegen belegen oder in zehn Jahren wiederfinden will,
+   * bekommt Route, Etappen und jeden Eintrag hinten angehängt.
+   */
+  const ausfuehrlich = h('label.check',
+    h('input', {
+      type: 'checkbox',
+      checked: miles.detail,
+      'data-miles': 'detail',
+      onchange: (e) => { miles.detail = e.target.checked; },
+    }),
+    h('span.grow',
+      h('span', t('log.milesDetail')),
+      h('span.hint', t('log.milesDetailHint')),
+    ),
   );
 
   return h('details.foldout', { style: { 'margin-top': '18px', 'margin-bottom': 0 } },
@@ -782,17 +849,31 @@ function milesBlock(track, s) {
       h('p.small.muted', { style: { 'margin-top': 0 } }, t('log.milesHint')),
 
       feld('person', t('log.milesPerson'), t('log.milesPersonHint'), ''),
+      auswahl('role', t('log.milesRole'), ROLES, 'role', null),
       feld('skipper', t('log.milesSkipper'), t('log.milesSkipperHint'), ''),
+      auswahl('qualification', t('log.milesQual'), QUALIFICATIONS, 'qual', null),
+
+      h('label.field',
+        h('span', t('log.milesNotes')),
+        h('textarea', {
+          rows: 3,
+          value: miles.notes,
+          placeholder: t('log.milesNotesPlaceholder'),
+          'data-miles': 'notes',
+          oninput: (e) => { miles.notes = e.target.value; },
+        }),
+        h('span.hint', t('log.milesNotesHint')),
+      ),
 
       h('details.foldout', { style: { 'margin-bottom': '12px' } },
         h('summary', t('log.milesMore')),
         h('div',
-          feld('role', t('log.milesRole'), null, t('log.milesRolePlaceholder')),
           feld('area', t('log.milesArea'), null, t('log.milesAreaPlaceholder')),
-          feld('qualification', t('log.milesQual'), null, t('log.milesQualPlaceholder')),
           feld('place', t('log.milesPlace'), null, ''),
         ),
       ),
+
+      ausfuehrlich,
 
       h('button.btn.primary.block', {
         type: 'button',
@@ -803,6 +884,14 @@ function milesBlock(track, s) {
       h('p.small.muted', { style: { margin: '10px 0 0' } }, t('log.milesDisclaimer')),
     ),
   );
+}
+
+/** Der Wert eines Auswahlfeldes als Text – aufgelöst, nicht als Schlüssel. */
+function milesChoice(key, praefix) {
+  const wert = miles[key];
+  if (!wert) return '';
+  if (wert === OTHER) return miles[`${key}Other`].trim();
+  return t(`${praefix}.${wert}`);
 }
 
 async function makeMiles(track, s) {
@@ -816,22 +905,41 @@ async function makeMiles(track, s) {
     },
     person: miles.person.trim(),
     skipper: miles.skipper.trim(),
-    qualification: miles.qualification.trim(),
+    qualification: milesChoice('qualification', 'qual'),
     area: miles.area.trim() || scopeName(),
-    role: miles.role.trim(),
+    role: milesChoice('role', 'role'),
     place: miles.place.trim() || s.homeport || '',
+    notes: miles.notes.trim(),
+    detail: miles.detail,
+    // Nur die Etappen, die im gewählten Ausschnitt überhaupt vorkommen –
+    // sonst stünden im Nachweis einer Etappe die Namen der ganzen Saison.
+    turns: milesTurns(track),
     locale: locale(),
     texte: milesTexts(),
   });
   if (!bytes) { toast(t('log.emptyTrack')); return; }
 
+  // Direkt herunterladen, nicht erst das Teilen-Blatt zeigen.
+  //
+  // Die anderen Ausgaben – GPX, CSV, Sicherung – gehen meist weiter: in die
+  // Navigations-App, in eine Mail. Eine Meilenbestätigung will man erst
+  // einmal haben. Ein Blatt, das sich zwischen Klick und Datei schiebt, ist
+  // da ein Griff zu viel; teilen kann man sie hinterher aus „Dateien“.
   try {
     const name = stamped(`Meilen ${miles.person.trim()}`, 'pdf');
-    const art = await shareFile(name, 'application/pdf', bytes);
-    if (art !== 'abgebrochen') toast(t(art === 'geteilt' ? 'log.shared' : 'log.downloaded'));
+    downloadFile(name, 'application/pdf', bytes);
+    toast(t('log.downloaded'));
   } catch (err) {
     toast(t('log.shareFailed', { v: err.message }));
   }
+}
+
+/** Die Etappen, in deren Zeitraum der gezeigte Ausschnitt fällt – älteste zuerst. */
+function milesTurns(track) {
+  const ids = new Set(track.map((e) => e.turnId).filter(Boolean));
+  return logbook.turns()
+    .filter((r) => ids.has(r.id))
+    .sort((a, b) => a.startTs - b.startTs);
 }
 
 /** Alle Beschriftungen des Dokuments – das PDF-Modul übersetzt nicht selbst. */
@@ -839,10 +947,20 @@ function milesTexts() {
   const keys = [
     'title', 'subtitle', 'sectionPerson', 'person', 'role', 'area', 'sectionBoat',
     'boatName', 'boatCallsign', 'boatLoa', 'boatHome', 'sectionTrip', 'from', 'to',
-    'milesTotal', 'milesNight', 'milesEngine', 'daysAboard', 'daysUnit', 'numbersHint',
-    'declarationHead', 'declaration', 'skipper', 'placeDate', 'signature', 'footer',
+    'milesTotal', 'milesNight', 'milesEngine', 'daysAboard', 'daysUnit',
+    'notesHead', 'declarationHead', 'declaration', 'skipper', 'placeDate',
+    'signature', 'footer',
+    // Die Anlage.
+    'detailTitle', 'routeHead', 'routeStart', 'routeEnd', 'north', 'noRoute',
+    'legsHead', 'legUnnamed', 'legNone', 'wholeTrip',
+    'colLeg', 'colPeriod', 'colDistance', 'colDuration',
+    'entriesHead', 'colTime', 'colPosition', 'colSpeed', 'colEntry', 'entriesCount',
   ];
-  return Object.fromEntries(keys.map((k) => [k, t(`miles.${k}`)]));
+  return {
+    ...Object.fromEntries(keys.map((k) => [k, t(`miles.${k}`)])),
+    // Die Ereignisse heißen im Dokument, wie sie in der App heißen.
+    events: Object.fromEntries(LOG_EVENTS.map((ev) => [ev.key, t(`log.ev.${ev.key}`)])),
+  };
 }
 
 function asText(track, s) {

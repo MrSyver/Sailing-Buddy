@@ -1481,6 +1481,25 @@ check('Die Tabelle führt das Wetter mit',
   csvText.split('\n')[0].includes('wind_bft') && /"SW"/.test(csvText),
   csvText.split('\n')[0]);
 
+// --- Das Schiff fährt ------------------------------------------------------
+// Bis hierher lag es an einer Stelle: gut für die Prüfungen zum Stillstand,
+// aber eine Spur aus lauter demselben Punkt ist keine. Ein Schlag nach
+// Nordost, damit Strecke, Zeichnung und Maßstab etwas zu tun bekommen.
+const kurs = [
+  [54.512, 10.295], [54.528, 10.331], [54.547, 10.372], [54.561, 10.418],
+  [54.573, 10.469], [54.588, 10.523], [54.601, 10.574], [54.614, 10.630],
+];
+for (const [lat, lon] of kurs) {
+  await context.setGeolocation({ latitude: lat, longitude: lon, accuracy: 8 });
+  await page.waitForTimeout(160);
+  await page.getByRole('button', { name: /Position jetzt eintragen/ }).click();
+  await page.waitForTimeout(160);
+}
+await page.waitForTimeout(300);
+check('Die gefahrene Strecke steht in den Kennzahlen',
+  /\d+,\d\s*sm/.test(await page.locator('main').innerText()),
+  (await page.locator('main').innerText()).split('\n').find((l) => /sm/.test(l)) ?? '');
+
 // --- Meilenbestätigung -----------------------------------------------------
 // Ein Blatt, das jemand unterschreibt: Die Zahlen darauf kommen aus dem
 // Logbuch und nirgends sonst, und ohne Namen wird gar keins ausgestellt.
@@ -1497,9 +1516,36 @@ check('Ohne Namen wird keine ausgestellt',
   (await page.locator('.toast').innerText()).includes('Ohne Namen'),
   await page.locator('.toast').innerText());
 
-const milesFelder = page.locator('.foldout', { hasText: 'Meilenbestätigung' }).locator('input');
-await milesFelder.nth(0).fill('Änne Muster');
-await milesFelder.nth(1).fill('Moritz Skipper');
+await page.locator('[data-miles="person"]').fill('Änne Muster');
+await page.locator('[data-miles="skipper"]').fill('Moritz Skipper');
+
+// Funktion und Befähigung kommen aus einer Liste. Frei getippt schreibt der
+// eine „Crew“, der nächste „Mitsegler“ – nebeneinandergelegt sieht das nach
+// zwei verschiedenen Sachen aus, wo zweimal dasselbe gemeint war.
+check('Die Funktion an Bord ist eine Auswahl',
+  await page.locator('select[data-miles="role"]').count() === 1);
+check('Die Befähigung auch',
+  await page.locator('select[data-miles="qualification"]').count() === 1);
+check('Die Auswahl kennt die üblichen Scheine',
+  (await page.locator('select[data-miles="qualification"]').innerText()).includes('SKS'),
+  (await page.locator('select[data-miles="qualification"]').innerText()).replace(/\n/g, ' | '));
+await page.locator('select[data-miles="role"]').selectOption('crew');
+await page.locator('select[data-miles="qualification"]').selectOption('sks');
+
+// „Anderes“ macht ein Textfeld auf – wer eine Funktion hat, die in der Liste
+// fehlt, soll sie hinschreiben können statt die falsche zu nehmen.
+check('Ohne „Anderes“ bleibt das Textfeld weg',
+  !(await page.locator('[data-miles="roleOther"]').isVisible()));
+await page.locator('select[data-miles="role"]').selectOption('other');
+await page.waitForTimeout(150);
+check('„Anderes“ macht ein Textfeld auf',
+  await page.locator('[data-miles="roleOther"]').isVisible());
+await page.locator('[data-miles="roleOther"]').fill('Backschaft');
+await page.locator('select[data-miles="role"]').selectOption('crew');
+await page.waitForTimeout(150);
+
+await page.locator('[data-miles="notes"]').fill('Nachtfahrt Kiel–Ærø\nWindstärke 6 aus Südwest');
+
 const [milesDatei] = await Promise.all([
   page.waitForEvent('download'),
   page.locator('#miles-make').click(),
@@ -1535,7 +1581,52 @@ const startxref = Number(pdfText.match(/startxref\n(\d+)\n/)[1]);
 check('Die Querverweistabelle liegt, wo sie soll',
   pdfText.slice(startxref, startxref + 4) === 'xref',
   `bei ${startxref} steht "${pdfText.slice(startxref, startxref + 8)}"`);
+
+check('Die gewählte Funktion steht darauf', pdfText.includes('Crew'));
+check('Und die gewählte Befähigung', pdfText.includes('SKS'));
+check('Die Anmerkungen stehen darauf',
+  pdfText.includes('ANMERKUNGEN') && pdfText.includes('Windst'));
+check('Die eigenen Zeilenumbrüche bleiben erhalten',
+  pdfText.includes('Nachtfahrt Kiel') && pdfText.includes('Windstärke 6 aus Südwest'));
+check('Der Rechenweg steht nicht mehr darauf',
+  !pdfText.includes('Motor an'));
+check('Ohne Haken bleibt es bei einer Seite',
+  /\/Count 1\b/.test(pdfText), pdfText.match(/\/Count \d+/)?.[0] ?? 'kein /Count');
 await shot('06c-meilenbestaetigung');
+
+// --- Ausführlicher Nachweis ------------------------------------------------
+// Eine Zahl im Kasten sagt „147,3 sm“. Wer sie prüfen will, braucht die Spur,
+// die Etappen darin und die Einträge, aus denen beides entstanden ist.
+await page.locator('[data-miles="detail"]').check();
+const [milesLang] = await Promise.all([
+  page.waitForEvent('download'),
+  page.locator('#miles-make').click(),
+]);
+const langText = readFileSync(await milesLang.path()).toString('latin1');
+// Mit --shots das Blatt selbst ablegen: Ob eine Spur lesbar ist, sagt keine
+// Zeichenkettenprüfung – das muss man ansehen.
+if (SHOTS) await milesLang.saveAs(join(SHOT_DIR, '06d-meilen-ausfuehrlich.pdf'));
+check('Mit Haken kommen weitere Seiten dazu',
+  Number(langText.match(/\/Count (\d+)/)[1]) >= 2,
+  langText.match(/\/Count \d+/)?.[0] ?? 'kein /Count');
+check('Die Anlage nennt sich ausführlicher Nachweis',
+  langText.includes('Ausführlicher Nachweis'));
+check('Sie zeigt die gefahrene Route',
+  langText.includes('GEFAHRENE ROUTE') && langText.includes('Anfang'));
+check('Die Spur ist als Streckenzug darin',
+  /\d+\.\d\d \d+\.\d\d m\n(?:\d+\.\d\d \d+\.\d\d l\n){5,}/.test(langText),
+  'kein Streckenzug mit mindestens fünf Stützpunkten gefunden');
+check('Der Maßstabsbalken steht dabei', /\(\d+,?\d* sm\)/.test(langText));
+check('Die Etappen stehen darin', langText.includes('ETAPPEN'));
+check('Und die Einträge mit Zeit und Position',
+  langText.includes('EINTRÄGE') && langText.includes('Position'));
+check('Die Anlage ist ebenfalls ein vollständiges PDF',
+  langText.startsWith('%PDF-1.4') && langText.trimEnd().endsWith('%%EOF'));
+const startxrefLang = Number(langText.match(/startxref\n(\d+)\n/)[1]);
+check('Auch mit mehreren Seiten stimmt die Querverweistabelle',
+  langText.slice(startxrefLang, startxrefLang + 4) === 'xref',
+  `bei ${startxrefLang} steht "${langText.slice(startxrefLang, startxrefLang + 8)}"`);
+await page.locator('[data-miles="detail"]').uncheck();
 
 // --- Sicherung -------------------------------------------------------------
 // Das Logbuch liegt im Speicher des Browsers, und den wirft iOS bei
