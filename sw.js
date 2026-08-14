@@ -15,7 +15,7 @@
  * funktioniert (etwa unter …github.io/Sailing-Buddy/).
  */
 
-const VERSION = 'v30';
+const VERSION = 'v31';
 const CACHE = `sailing-buddy-${VERSION}`;
 
 const ASSETS = [

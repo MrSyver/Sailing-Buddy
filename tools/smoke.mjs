@@ -386,7 +386,7 @@ check('Position ist größer gesetzt als der übrige Text', posSize > lineSize,
 // Position im Funkspruch zwischen Zahlen und Sprechweise umschalten.
 check('Position steht zunächst als Zahlen',
   /54°3\d,\d{3}' N/.test(await page.locator('.script .position').innerText()));
-await page.getByRole('button', { name: 'Ausgeschrieben' }).click();
+await page.locator('[data-spell="wort"]').click();
 const spokenLine = await page.locator('.script .position').innerText();
 check('Position ausgeschrieben im Funkspruch',
   spokenLine.includes('Grad') && spokenLine.includes('Nord'), spokenLine);
@@ -414,9 +414,11 @@ check('Und die Zahl der Personen an Bord auch',
   rufAusgeschrieben.split('\n').find((l) => /PERSONEN/.test(l)) ?? '');
 
 // Wer die Seefunkwörter will, bekommt sie – mit einem Griff.
-check('Ein Knopf stellt die Ziffern um',
-  await page.locator('#digit-style').count() === 1);
-await page.locator('#digit-style').click();
+check('Zwei Knöpfe für die Zahlwörter, nicht einer der umspringt',
+  await page.locator('[data-digits]').count() === 2);
+check('Voreingestellt sind die gewöhnlichen',
+  await page.locator('[data-digits="einfach"]').getAttribute('aria-pressed') === 'true');
+await page.locator('[data-digits="seefunk"]').click();
 await page.waitForTimeout(200);
 const mitWoertern = await page.locator('.script').innerText();
 check('Umgestellt stehen die Seefunkwörter da',
@@ -424,15 +426,36 @@ check('Umgestellt stehen die Seefunkwörter da',
   mitWoertern.split('\n').find((l) => /Delta/.test(l)) ?? '');
 check('Und die Umstellung bleibt gemerkt',
   await page.evaluate(() => JSON.parse(localStorage.getItem('sailing-buddy')).spellNumbers) === true);
-await page.locator('#digit-style').click();
+await page.locator('[data-digits="einfach"]').click();
 await page.waitForTimeout(200);
 check('Und wieder zurück',
   (await page.locator('.script').innerText()).includes('eins zwei drei vier')
   && !(await page.locator('.script').innerText()).includes('Unaone'));
 
-await page.getByRole('button', { name: 'Als Zahlen' }).click();
-check('Bei Zahlen gibt es nichts umzustellen',
-  await page.locator('#digit-style').count() === 0);
+await page.locator('[data-spell="zahlen"]').click();
+check('Bei Ziffern gibt es nichts umzustellen',
+  await page.locator('[data-digits]').count() === 0);
+
+// Der Umschalter hing an der Position allein – und „Sicherheitsmeldung“,
+// „Verkehr“ und „Funkkontrolle“ haben ein Rufzeichen, aber keine Position.
+// Dort fehlte er ganz, und das Buchstabieren war nicht erreichbar.
+await page.getByRole('button', { name: '‹ Zurück' }).click();
+await page.waitForSelector('.phrase-btn');
+await page.locator('.phrase-btn', { hasText: 'Funkkontrolle' }).first().click();
+await page.waitForSelector('.script');
+check('Auch ohne Position gibt es den Umschalter',
+  await page.locator('[data-spell="wort"]').count() === 1,
+  await page.locator('.script').innerText());
+await page.locator('[data-spell="wort"]').click();
+await page.waitForTimeout(200);
+check('Und das Rufzeichen wird dort buchstabiert',
+  (await page.locator('.script').innerText()).includes('Delta Alfa eins zwei drei vier'),
+  (await page.locator('.script').innerText()).split('\n').find((l) => /Delta|DA1234/.test(l)) ?? '');
+await page.locator('[data-spell="zahlen"]').click();
+await page.getByRole('button', { name: '‹ Zurück' }).click();
+await page.waitForSelector('.phrase-btn');
+await page.locator('.phrase-btn', { hasText: 'MAYDAY' }).first().click();
+await page.waitForSelector('.script');
 
 // Sprache der Funksprüche umschalten – der Umschalter sitzt oben in der
 // Titelleiste, nicht mehr als breite Leiste im Modul.

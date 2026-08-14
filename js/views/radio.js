@@ -541,6 +541,19 @@ function detail(wrap, phrase) {
   // --- Der Funkspruch, direkt darunter --------------------------------------
   const needsPos = Boolean(lines?.some((l) => l.text?.includes('{{position}}')));
 
+  /**
+   * Was in diesem Spruch überhaupt buchstabiert werden kann.
+   *
+   * Nicht nur die Position: Auch Rufzeichen, MMSI und die Zahl der Personen an
+   * Bord werden im Funk Zeichen für Zeichen gesprochen. Der Umschalter hing
+   * aber an der Position allein – und „Sicherheitsmeldung“, „Verkehr“ und
+   * „Funkkontrolle“ haben ein Rufzeichen, aber keine Position. Dort fehlte er
+   * ganz, und das Buchstabieren war schlicht nicht erreichbar.
+   */
+  const spellbar = ['position', 'callsign', 'mmsi', 'pob']
+    .filter((k) => lines?.some((l) => l.text?.includes(`{{${k}}}`)) && v[k]);
+  const kannBuchstabieren = spellbar.length > 0;
+
   if (lines?.length) {
     if (needsPos && !v.position) {
       parts.push(h('div.notice.warn',
@@ -564,36 +577,43 @@ function detail(wrap, phrase) {
       ),
       h('div.script', { lang }, ...lines.map((l) => renderLine(l, v, chosen, lang))),
 
-      // Die Position lässt sich zwischen Zahlen und Sprechweise umschalten –
-      // im Funk wird sie Ziffer für Ziffer gesprochen.
-      needsPos && v.position && h('div.seg', { style: { 'margin-top': '12px' } },
+      // Zahlen oder ausgeschrieben – für alles im Spruch, was buchstabiert
+      // wird: Position, Rufzeichen, MMSI, Personen an Bord.
+      kannBuchstabieren && h('div.seg', { style: { 'margin-top': '12px' } },
         h('button', {
           type: 'button',
+          'data-spell': 'zahlen',
           'aria-pressed': String(!spokenPosition),
           onclick: () => { spokenPosition = false; draw(wrap); },
         }, t('radio.posNumbers')),
         h('button', {
           type: 'button',
+          'data-spell': 'wort',
           'aria-pressed': String(spokenPosition),
           onclick: () => { spokenPosition = true; draw(wrap); },
         }, t('radio.posSpoken')),
       ),
 
-      // Und wie die Ziffern darin aussehen. Nur solange ausgeschrieben ist:
-      // Bei Zahlen gibt es nichts umzustellen, und ein Schalter, der gerade
-      // nichts tut, lehrt einen, ihn zu übersehen.
-      needsPos && v.position && spokenPosition && h('button.btn.small.block', {
-        type: 'button',
-        id: 'digit-style',
-        style: { 'margin-top': '8px' },
-        'aria-pressed': String(settings.get('spellNumbers') === true),
-        onclick: () => {
-          settings.set('spellNumbers', settings.get('spellNumbers') !== true);
-          draw(wrap);
-        },
-      }, settings.get('spellNumbers') === true
-        ? t('radio.digitsWords')
-        : t('radio.digitsPlain')),
+      // Und in welchen Zahlwörtern. Zwei Knöpfe nebeneinander, nicht ein
+      // Knopf, der umspringt: Bei einem Umschalter, dessen Beschriftung sich
+      // ändert, weiß man nie, ob sie den Zustand nennt oder das Ziel.
+      //
+      // Nur solange ausgeschrieben angezeigt wird – bei Zahlen gibt es nichts
+      // umzustellen.
+      kannBuchstabieren && spokenPosition && h('div.seg', { style: { 'margin-top': '8px' } },
+        h('button', {
+          type: 'button',
+          'data-digits': 'einfach',
+          'aria-pressed': String(settings.get('spellNumbers') !== true),
+          onclick: () => { settings.set('spellNumbers', false); draw(wrap); },
+        }, t('radio.digitsPlain')),
+        h('button', {
+          type: 'button',
+          'data-digits': 'seefunk',
+          'aria-pressed': String(settings.get('spellNumbers') === true),
+          onclick: () => { settings.set('spellNumbers', true); draw(wrap); },
+        }, t('radio.digitsWords')),
+      ),
     ));
 
     parts.push(h('div.row.wrap', { style: { 'margin-bottom': '12px' } },
