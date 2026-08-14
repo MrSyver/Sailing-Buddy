@@ -10,6 +10,7 @@ import { h, svg, render, copy, toast, fit } from '../lib/dom.js';
 import { createChart, fullscreenButton } from '../lib/chartview.js';
 import { settings, waypoints } from '../lib/storage.js';
 import { gps, GPS_STATUS_KEY } from '../lib/gps.js';
+import { logbook } from '../lib/logbook.js';
 import { t, locale, uiLang, num } from '../lib/i18n.js';
 import {
   solve, parsePositionPair, formatPosition, formatLat,
@@ -344,6 +345,9 @@ function markMob(fix) {
   state.parts = toParts(state.target);
   state.targetName = wp.name;
   state.error = null;
+  // Ins Logbuch gehört das auch, und zwar ohne dass jemand daran denken muss:
+  // Wer gerade jemanden aus dem Wasser holt, führt kein Logbuch.
+  logbook.add({ kind: 'manual', event: 'mob', fix, note: wp.name });
   toast(t('pos.mobSaved'));
   draw();
 }

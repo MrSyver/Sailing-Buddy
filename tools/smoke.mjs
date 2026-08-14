@@ -941,8 +941,11 @@ await goTab(4);
 await page.waitForSelector('main');
 check('Logbuch ist ein eigener Bereich',
   (await page.locator('.topbar h1').innerText()).includes('Logbuch'));
-check('Ohne Eintrag steht ein Hinweis',
-  (await page.locator('main').innerText()).includes('Noch kein Eintrag'));
+// Der MOB-Druck von der Positionsseite steht hier ohne Zutun: Wer gerade
+// jemanden aus dem Wasser holt, führt kein Logbuch.
+check('Der MOB-Druck steht ohne Zutun im Logbuch',
+  (await page.locator('.log-item').first().innerText()).includes('Mensch über Bord'),
+  (await page.locator('.log-item').first().innerText()).replace(/\n/g, ' | '));
 
 // Eintrag von Hand
 await page.locator('#main input').first().fill('Wind SW 4, 1. Reff');
@@ -960,24 +963,189 @@ check('Linie zwischen den Positionen',
   await page.locator('.track-plot .plot-line').count() === 1);
 check('Positionen als Punkte', await page.locator('.track-plot .plot-dot').count() >= 2);
 
-// Takt einstellen
+// --- Törn: die Klammer um die Einträge -------------------------------------
+// Ohne sie ist das Logbuch ein endloser Strom, in dem die Fahrt von letztem
+// Juni und die von heute Morgen dieselbe Spur bilden.
+const antworten = ['Ostsee 2026', 'Kiel'];
+const aufDialog = (d) => d.accept(antworten.shift() ?? '');
+page.on('dialog', aufDialog);
+await page.getByRole('button', { name: /Törn beginnen/ }).click();
+await page.waitForTimeout(500);
+page.off('dialog', aufDialog);
+
+check('Der Törn läuft', (await page.locator('.trip-name').innerText()).includes('Ostsee 2026'),
+  await page.locator('.trip-name').innerText());
+check('Sein Beginn steht als Ablegen im Logbuch',
+  (await page.locator('.log-item').first().innerText()).includes('Ablegen'),
+  (await page.locator('.log-item').first().innerText()).replace(/\n/g, ' | '));
+check('Und die Liste zeigt nur noch diesen Törn',
+  !(await page.locator('main').innerText()).includes('Mensch über Bord'));
+
+await page.getByRole('button', { name: 'Alles', exact: true }).click();
+await page.waitForTimeout(250);
+check('„Alles“ zeigt wieder das ganze Logbuch',
+  (await page.locator('main').innerText()).includes('Mensch über Bord'));
+await page.getByRole('button', { name: 'Ostsee 2026', exact: true }).first().click();
+await page.waitForTimeout(250);
+
+// --- Ereignisse mit einem Griff --------------------------------------------
+await page.getByRole('button', { name: /Anker fällt/ }).click();
+await page.waitForTimeout(300);
+check('Ein Ereignis lässt sich mit einem Griff eintragen',
+  (await page.locator('.log-item').first().innerText()).includes('Anker fällt'),
+  (await page.locator('.log-item').first().innerText()).replace(/\n/g, ' | '));
+check('Das Ereignis bekommt sein Zeichen in der Spur',
+  await page.locator('.track-plot .plot-event').count() >= 1,
+  `${await page.locator('.track-plot .plot-event').count()} Zeichen`);
+
+// --- Wetter ----------------------------------------------------------------
+// Ein Logbuch ohne Wetter ist keins. Alles zum Antippen, und was einmal
+// eingetragen ist, gilt weiter – sonst tippt man alle zwanzig Minuten
+// dieselbe Windstärke neu.
+await page.locator('summary', { hasText: 'Wetter eintragen' }).click();
+await page.waitForTimeout(200);
+await page.locator('[data-weather="windDir"]').getByRole('button', { name: 'SW', exact: true }).click();
+await page.waitForTimeout(200);
+await page.locator('[data-weather="windForce"]').getByRole('button', { name: '5', exact: true }).click();
+await page.waitForTimeout(200);
+await page.locator('[data-weather="sea"]').getByRole('button', { name: '3', exact: true }).click();
+await page.waitForTimeout(200);
+check('Der Wetterstand steht in der Zusammenfassung',
+  /SW 5/.test(await page.locator('main').innerText()),
+  (await page.locator('main').innerText()).split('\n').filter((l) => /Wetter/.test(l)).join(' | '));
+
+await page.getByRole('button', { name: /Wende/ }).click();
+await page.waitForTimeout(300);
+const mitWetter = await page.locator('.log-item').first().innerText();
+check('Das Wetter geht in den Eintrag ein', /SW 5/.test(mitWetter) && /See 3/.test(mitWetter),
+  mitWetter.replace(/\n/g, ' | '));
+
+await page.getByRole('button', { name: /Position jetzt eintragen/ }).click();
+await page.waitForTimeout(300);
+check('Und wird fortgeschrieben, ohne es neu einzutippen',
+  /SW 5/.test(await page.locator('.log-item').first().innerText()),
+  (await page.locator('.log-item').first().innerText()).replace(/\n/g, ' | '));
+
+// --- Takt und die Schwelle für den Stillstand ------------------------------
+const vorTakt = await page.locator('.log-item').count();
 await page.getByRole('button', { name: '10 min', exact: true }).click();
+await page.waitForTimeout(600);
 check('Takt ist einstellbar',
-  (await page.locator('main').innerText()).includes('Alle 10 min'),
-  '');
+  (await page.locator('main').innerText()).includes('Alle 10 min'));
 check('Takt bleibt gespeichert',
   await page.evaluate(() => JSON.parse(localStorage.getItem('sailing-buddy-log')).intervalMinutes) === 10);
+
+// Im Hafen liegt das Schiff still. Der Takt greift beim Einstellen sofort –
+// ohne diese Schwelle stapelte er über Nacht hundert Einträge an derselben
+// Stelle, und die Spur wäre ein Fleck.
+const beiStillstand = await page.locator('.log-item').count();
+check('Bei Stillstand legt der Takt nichts an', beiStillstand === vorTakt,
+  `vorher ${vorTakt}, nachher ${beiStillstand}`);
+
+await page.getByRole('button', { name: 'Nur bei Fahrt', exact: true }).click();
+await page.waitForTimeout(500);
+check('Ausgeschaltet trägt der Takt auch im Stillstand ein',
+  await page.locator('.log-item').count() === beiStillstand + 1,
+  `${beiStillstand} → ${await page.locator('.log-item').count()}`);
+check('Der so entstandene Eintrag ist als automatisch gekennzeichnet',
+  (await page.locator('.log-item').first().innerText()).includes('auto'),
+  (await page.locator('.log-item').first().innerText()).replace(/\n/g, ' | '));
+await page.getByRole('button', { name: 'Nur bei Fahrt', exact: true }).click();
 await shot('06-logbuch');
 
-// Der eingestellte Takt legt sofort einen Eintrag an – erst danach zählen.
-const logBefore = await page.locator('.log-item').count();
+// --- Ausgabe als Datei -----------------------------------------------------
+// In die Zwischenablage nützt ein Logbuch niemandem: Fünfhundert Einträge
+// lassen sich auf einem Telefon nirgends einfügen.
+const [gpxDatei] = await Promise.all([
+  page.waitForEvent('download'),
+  page.getByRole('button', { name: /GPX/ }).click(),
+]);
+check('GPX kommt als Datei heraus', /\.gpx$/.test(gpxDatei.suggestedFilename()),
+  gpxDatei.suggestedFilename());
+const gpxText = readFileSync(await gpxDatei.path(), 'utf8');
+check('Und ist wirklich ein GPX',
+  gpxText.includes('<gpx version="1.1"') && gpxText.includes('<trkpt '),
+  gpxText.split('\n').slice(0, 2).join(' | '));
+check('Die Ereignisse stehen als eigene Punkte darin',
+  gpxText.includes('<wpt ') && gpxText.includes('anchorDown'),
+  `${(gpxText.match(/<wpt /g) ?? []).length} Marken`);
+check('Der Dateiname trägt den Törn',
+  gpxDatei.suggestedFilename().startsWith('Ostsee-2026'), gpxDatei.suggestedFilename());
+
+const [csvDatei] = await Promise.all([
+  page.waitForEvent('download'),
+  page.getByRole('button', { name: /Tabelle/ }).click(),
+]);
+const csvText = readFileSync(await csvDatei.path(), 'utf8');
+check('Die Tabelle führt das Wetter mit',
+  csvText.split('\n')[0].includes('wind_bft') && /"SW"/.test(csvText),
+  csvText.split('\n')[0]);
+
+// --- Sicherung -------------------------------------------------------------
+// Das Logbuch liegt im Speicher des Browsers, und den wirft iOS bei
+// Platzmangel weg. Ohne Sicherung ist dann die Saison fort.
+const [sicherung] = await Promise.all([
+  page.waitForEvent('download'),
+  page.getByRole('button', { name: /Sicherung ablegen/ }).click(),
+]);
+const sicherungPfad = await sicherung.path();
+const vorLoeschen = await page.locator('.log-item').count();
+
 page.once('dialog', (d) => d.accept());
-await page.locator('.log-item').first().getByRole('button', { name: 'Eintrag löschen' }).click();
+// Nach dem Inhalt suchen, nicht nach der Überschrift: „Einträge“ steht auch
+// als Beschriftung in den Messwerten über der Spur.
+await page.locator('.card').filter({ has: page.locator('.log-item') })
+  .getByRole('button', { name: 'Alle löschen' }).click();
+await page.waitForTimeout(400);
+check('Alles löschen leert das Logbuch', await page.locator('.log-item').count() === 0,
+  `${await page.locator('.log-item').count()} übrig`);
+
+await page.locator('#log-restore').setInputFiles(sicherungPfad);
+await page.waitForTimeout(700);
+check('Die Sicherung holt das Logbuch zurück',
+  await page.locator('.log-item').count() === vorLoeschen,
+  `${vorLoeschen} vorher, ${await page.locator('.log-item').count()} zurück`);
+check('Auch der Törn ist wieder da',
+  (await page.locator('.trip-name, .chip').allInnerTexts()).some((v) => v.includes('Ostsee 2026')));
+
+// Ein zweites Zurücklesen darf nichts verdoppeln – sonst wächst das Logbuch
+// bei jedem Wiederherstellen.
+await page.locator('#log-restore').setInputFiles(sicherungPfad);
+await page.waitForTimeout(700);
+check('Zweimal zurücklesen verdoppelt nichts',
+  await page.locator('.log-item').count() === vorLoeschen,
+  `${await page.locator('.log-item').count()} Einträge`);
+
+// Törn beenden – der Abschluss gehört genauso ins Logbuch wie der Anfang.
+const antworten2 = ['Marstal'];
+const aufDialog2 = (d) => d.accept(antworten2.shift() ?? '');
+page.on('dialog', aufDialog2);
+await page.getByRole('button', { name: /Törn beenden/ }).click();
+await page.waitForTimeout(500);
+page.off('dialog', aufDialog2);
+check('Der Törn lässt sich beenden',
+  await page.getByRole('button', { name: /Törn beginnen/ }).count() === 1);
+check('Und das Anlegen steht im Logbuch',
+  (await page.locator('.log-item').first().innerText()).includes('Anlegen'),
+  (await page.locator('.log-item').first().innerText()).replace(/\n/g, ' | '));
+
+// --- Notruf ins Logbuch ----------------------------------------------------
+// Bewusst ein eigener Griff und nicht das Kopieren: Text in die
+// Zwischenablage zu legen heißt nicht, ihn gesprochen zu haben.
+await goTab(0);
+await page.waitForTimeout(200);
+await page.locator('.phrase-btn').first().click();
 await page.waitForTimeout(300);
-check('Eintrag wieder löschbar',
-  await page.locator('.log-item').count() === logBefore - 1,
-  `vorher ${logBefore}, nachher ${await page.locator('.log-item').count()}`);
-check('Automatischer Eintrag wurde angelegt', logBefore >= 3, `${logBefore} Einträge`);
+const notrufKnopf = page.getByRole('button', { name: /Abgesetzt – ins Logbuch/ });
+check('Ein Notruf lässt sich als abgesetzt vermerken', await notrufKnopf.count() === 1);
+await notrufKnopf.click();
+await page.waitForTimeout(300);
+await page.getByRole('button', { name: 'Zurück' }).first().click().catch(() => {});
+await goTab(4);
+await page.waitForTimeout(400);
+check('Der abgesetzte Notruf steht im Logbuch',
+  (await page.locator('.log-item').first().innerText()).includes('Notruf'),
+  (await page.locator('.log-item').first().innerText()).replace(/\n/g, ' | '));
 
 await goTab(3);
 

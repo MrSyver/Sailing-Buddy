@@ -1221,6 +1221,17 @@ details.foldout > div { padding: 0 15px 15px; }
   stroke-linejoin: round;
 }
 
+/* Das Zeichen eines Ereignisses an der Stelle, an der es passiert ist. */
+.plot-event {
+  fill: var(--text);
+  font-size: 13px;
+  font-family: var(--font);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
 .log-item {
   padding: 11px 0;
   border-bottom: 1px solid var(--border);
@@ -1230,6 +1241,51 @@ details.foldout > div { padding: 0 15px 15px; }
 .log-item .log-time { font-weight: 650; font-size: .88rem; }
 .log-item .log-pos { font-size: .84rem; margin-top: 2px; }
 .log-item .log-note { margin-top: 5px; font-size: .9rem; }
+.log-item .log-weather { margin-top: 2px; }
+
+/* Das Ereignis eines Eintrags – ein Merkmal, kein Fließtext. */
+.log-item .log-event {
+  font-size: .76rem;
+  font-weight: 650;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ Logbuch: Törn */
+
+.trip-name { font-size: 1.1rem; font-weight: 650; }
+
+/*
+ * Die Ereignistasten.
+ *
+ * Zwei Spalten auf dem Telefon, mehr auf breiteren Geräten – und jede Taste
+ * hoch genug, dass sie auch bei Welle zu treffen ist. Zeichen und Wort
+ * nebeneinander: Das Zeichen findet man schneller wieder, das Wort sagt beim
+ * ersten Mal, was es bedeutet.
+ */
+.event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 7px;
+}
+
+.event-btn {
+  justify-content: flex-start;
+  min-height: 46px;
+  text-align: left;
+  gap: 9px;
+}
+
+.event-sym {
+  font-size: 1.15rem;
+  line-height: 1;
+  width: 1.3em;
+  text-align: center;
+  flex: none;
+}
 
 /* Fünf Reiter passen auch auf schmale Geräte, wenn die Schrift mitgeht. */
 @media (max-width: 380px) {

@@ -91,7 +91,11 @@ test('nichts wird aus dem Netz nachgeladen', async () => {
     for (const match of text.matchAll(/https?:\/\/[^\s'"()]+/g)) {
       const url = match[0];
       // Namensräume und Verweise in Kommentaren sind keine Ladevorgänge.
+      // Ein XML-Namensraum ist eine Kennung, keine Adresse: Er wird nie
+      // abgerufen, sondern nur verglichen. Ohne ihn wäre die Datei kein
+      // gültiges SVG bzw. GPX.
       if (url.startsWith('http://www.w3.org/')) continue;
+      if (url === 'http://www.topografix.com/GPX/1/1') continue;
       if (/^https:\/\/(claude\.ai|code\.claude\.com|github\.com)/.test(url)) continue;
       if (TILE_SOURCE_FILES.includes(file)) continue;
       offenders.push(`${file}: ${url}`);
