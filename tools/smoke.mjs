@@ -2171,6 +2171,45 @@ await page.getByRole('button', { name: /Filter zurücksetzen|zurücksetzen/ }).f
 await page.waitForTimeout(300);
 check('Zurücksetzen zeigt wieder alle',
   await page.locator('.knot-card').count() === knotenAlle);
+
+// Die Zeichnung: Wo eine ist, wächst sie Schritt für Schritt mit. Wo keine
+// ist, steht auch kein leerer Kasten – der wäre schlechter als keiner.
+const palstekKarte = page.locator('.knot-card', { hasText: 'Palstek' }).first();
+check('Der Palstek hat eine Zeichnung',
+  await palstekKarte.locator('.knot-fig').count() === 1);
+check('Und darunter die Schritte zum Antippen',
+  await palstekKarte.locator('.knot-steps button').count() === 4,
+  `${await palstekKarte.locator('.knot-steps button').count()} Schritte`);
+
+// Sie läuft von selbst: „am liebsten bewegte“ heißt genau das.
+const teileBei = async (n) => {
+  await page.locator('[data-knotsteps="palstek"] button').nth(n - 1).click();
+  await page.waitForTimeout(200);
+  return page.locator('[data-knot="palstek"] .knot-core').count();
+};
+const teile1 = await teileBei(1);
+const teile4 = await teileBei(4);
+check('Bei Schritt eins liegt erst ein Part da', teile1 === 1, `${teile1} Parte`);
+check('Bei Schritt vier der ganze Knoten', teile4 === 8, `${teile4} Parte`);
+check('Der gewählte Schritt steht angetippt da',
+  await page.locator('[data-knotsteps="palstek"] button[aria-pressed="true"]').innerText() === '4');
+
+// Jeder Part wird zweimal gezeichnet: einmal als Rand in der Farbe des
+// Grundes, einmal als Kern. Ohne den Rand sähe man an keiner Kreuzung, welcher
+// Part über welchem liegt – und genau daran erkennt man einen Knoten.
+check('Jeder Part hat seinen Rand',
+  await page.locator('[data-knot="palstek"] .knot-casing').count()
+  === await page.locator('[data-knot="palstek"] .knot-core').count());
+
+// Ein Tipp auf das Bild hält an und lässt wieder laufen.
+await page.locator('[data-knot="palstek"]').click();
+await page.waitForTimeout(1800);
+const nachHalt = await page.locator('[data-knotsteps="palstek"] button[aria-pressed="true"]').innerText();
+check('Ein Tipp auf das Bild lässt es weiterlaufen', nachHalt !== '4', `steht bei ${nachHalt}`);
+
+check('Knoten ohne Zeichnung bekommen keinen leeren Kasten',
+  await page.locator('.knot-card').count() > await page.locator('.knot-fig').count(),
+  `${await page.locator('.knot-fig').count()} von ${await page.locator('.knot-card').count()} gezeichnet`);
 await shot('08b-knoten');
 
 // Was man aufruft, rückt in die Leiste nach – und der am längsten nicht
