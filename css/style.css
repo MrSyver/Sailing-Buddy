@@ -768,6 +768,21 @@ table.data.kv td:first-child { width: 30%; }
 
 /* Im Nachtmodus die Schemabilder deutlich abdunkeln: Grün und Weiß darin
    würden die Dunkeladaption sonst wieder zunichtemachen. */
+/*
+ * Tonnen stehen nicht vor dem Nachthimmel, sondern vor Grau.
+ *
+ * Die Lichterschemata zeigen Laternen im Dunkeln – da gehört der schwarze
+ * Grund hin. Eine Tonne zeigt bei Tage ihre Farben, und darunter sind
+ * Schwarz und Weiß: Beide verschwinden, sobald der Grund selbst schwarz ist.
+ * Ein mittleres Grau hat zu allen sechs Tonnenfarben Kontrast – und zu
+ * keiner besonders viel, was hier genau richtig ist.
+ */
+.light-view.buoy-view { background: #59636f; }
+
+/* Auch im dunklen Schema und im Nachtmodus bleibt der Grund grau statt
+   schwarz – eine schwarze Tonne auf schwarzem Grund ist keine. */
+[data-theme="night"] .light-view.buoy-view { background: #3a3a3a; }
+
 [data-theme="night"] .light-view { filter: brightness(.42) saturate(.85); }
 
 .light-view .aspect-none { fill: var(--text-dim); font-family: var(--font); }

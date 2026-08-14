@@ -72,6 +72,7 @@ function draw() {
 
     h('p.disclaimer', t('knots.disclaimer')),
   );
+
 }
 
 function toggle(set, key) {

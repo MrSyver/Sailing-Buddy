@@ -270,11 +270,34 @@ const shot = async (name) => {
   if (SHOTS) await page.screenshot({ path: join(SHOT_DIR, `${name}.png`) });
 };
 
-/** Reiter wechseln. Vorher nach oben – bei langen Seiten hakt sonst der Klick. */
-const goTab = async (index) => {
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.locator('nav.tabs button').nth(index).click();
+/**
+ * Zu einem Bereich wechseln.
+ *
+ * Über die Kennung statt über die Stelle in der Leiste: Welche fünf Bereiche
+ * unten stehen, richtet sich nach der Benutzung – eine feste Nummer träfe
+ * nach dem ersten Aufruf aus „Mehr“ den falschen.
+ */
+const KEYS = ['funk', 'position', 'karte', 'nacht', 'logbuch', 'mehr'];
+const goTabOn = async (p, was) => {
+  const key = typeof was === 'number' ? KEYS[was] : was;
+  await p.evaluate(() => window.scrollTo(0, 0));
+  if (await p.locator(`nav.tabs button[data-tab="${key}"]`).count()) {
+    await p.locator(`nav.tabs button[data-tab="${key}"]`).click();
+    return;
+  }
+  // Steht er gerade nicht unten, liegt er hinter „Mehr“.
+  await p.locator('nav.tabs button[data-tab="mehr"]').click();
+  await p.waitForTimeout(200);
+  await p.locator(`[data-mod="${key}"]`).click();
 };
+const goTab = (was) => goTabOn(page, was);
+
+/** Welche Bereiche gerade unten stehen – „Mehr“ nicht mitgezählt. */
+const barKeys = async () => (await page.$$eval('nav.tabs button', (bs) => bs.map((b) => b.dataset.tab)))
+  .filter((k) => k !== 'mehr');
+
+/** Was gerade hinter „Mehr“ liegt (setzt voraus, dass „Mehr“ offen ist). */
+const moreKeys = async () => page.$$eval('.more-item', (bs) => bs.map((b) => b.dataset.mod));
 
 /**
  * Zu den Einstellungen: Sie liegen hinter „Mehr“ und damit einen Griff
@@ -282,12 +305,8 @@ const goTab = async (index) => {
  * geht, wenn die Oberfläche gerade auf Englisch steht.
  */
 const goSettings = async () => {
-  await goTab(5);
-  await page.waitForTimeout(150);
-  if (await page.locator('[data-mod="einstellungen"]').count()) {
-    await page.locator('[data-mod="einstellungen"]').click();
-    await page.waitForTimeout(200);
-  }
+  await goTab('setup');
+  await page.waitForTimeout(200);
 };
 
 // --- Einrichtung -----------------------------------------------------------
@@ -426,6 +445,25 @@ await page.getByRole('button', { name: /Aufnahme beenden/ }).click();
 await page.waitForSelector('.rec-item', { timeout: 8000 })
   .catch(() => problems.push('Aufnahme wurde nicht gespeichert'));
 check('Aufnahme gespeichert', await page.locator('.rec-item').count() === 1);
+
+// Gedrückt halten und loslassen: wie eine Sprechtaste. Zweimal zu treffen
+// ist zweimal zu zielen, und beim zweiten Mal ist die Meldung vorbei.
+const knopf = await page.locator('.rec-trigger').boundingBox();
+await page.mouse.move(knopf.x + knopf.width / 2, knopf.y + knopf.height / 2);
+await page.mouse.down();
+await page.waitForTimeout(900);
+check('Gedrückt halten nimmt auf',
+  await page.locator('.rec-trigger.running').count() === 1);
+await page.mouse.up();
+await page.waitForTimeout(900);
+check('Loslassen beendet die Aufnahme',
+  await page.locator('.rec-trigger.running').count() === 0);
+check('Und sie ist gespeichert',
+  await page.locator('.rec-item').count() === 2,
+  `${await page.locator('.rec-item').count()} Aufnahmen`);
+page.once('dialog', (d) => d.accept());
+await page.locator('.rec-item').first().getByRole('button', { name: 'Aufnahme löschen' }).click();
+await page.waitForTimeout(400);
 check('Aufnahme hat einen Abspieler', await page.locator('.rec-item audio').count() === 1);
 await shot('02c-aufnahme');
 
@@ -506,6 +544,10 @@ await page.waitForSelector('.compass');
 check('Kopfzeilen-Symbol ist sichtbar',
   await page.getByRole('button', { name: 'Nachtmodus umschalten' })
     .locator('svg').evaluate((el) => el.getBoundingClientRect().width) > 10);
+// Der Sprachknopf schaltet den Sprechtext um – er gehört dorthin, wo es
+// einen gibt, und sonst nirgends.
+check('Der Sprachknopf steht nicht auf der Positionsseite',
+  await page.locator('.lang-btn').count() === 0);
 
 // Der erste Messwertblock gehört zur eigenen Position, der zweite zum Ergebnis.
 const distance = await page.locator('.cell.hero').first().innerText();
@@ -1963,9 +2005,17 @@ check('Kartenpaket wieder löschbar',
 await page.getByRole('button', { name: 'Allgemein', exact: true }).click();
 await page.waitForTimeout(150);
 
-// --- Mehr: was keinen eigenen Reiter braucht -------------------------------
-// Unten ist Platz für sechs Reiter, und die gehören dem, was unterwegs zählt.
-await goTab(5);
+// --- Mehr: was gerade nicht unten steht ------------------------------------
+// Welche fünf Bereiche unten stehen, entscheidet die Benutzung. Damit die
+// folgenden Prüfungen etwas Festes vor sich haben, wird die Reihenfolge hier
+// erst einmal bewusst gesetzt: zuletzt benutzt sind danach die fünf
+// Bordbereiche, hinter „Mehr“ liegen Knoten und Einstellungen.
+for (const k of ['knoten', 'setup', 'funk', 'position', 'karte', 'nacht', 'logbuch']) {
+  await goTab(k);
+  await page.waitForTimeout(120);
+}
+
+await goTab('mehr');
 await page.waitForSelector('.more-item');
 check('Der letzte Reiter heißt Mehr',
   (await page.locator('nav.tabs button').nth(5).innerText()).includes('Mehr'),
@@ -1974,7 +2024,15 @@ check('Dahinter liegt eine Liste der übrigen Module',
   await page.locator('.more-item').count() >= 2,
   `${await page.locator('.more-item').count()} Einträge`);
 check('Die Einstellungen sind einer davon',
-  await page.locator('[data-mod="einstellungen"]').count() === 1);
+  await page.locator('[data-mod="setup"]').count() === 1);
+const untenVorher = await barKeys();
+const dahinterVorher = await moreKeys();
+check('Was unten steht, liegt nicht doppelt dahinter',
+  dahinterVorher.every((k) => !untenVorher.includes(k)),
+  `unten ${untenVorher.join(', ')} – dahinter ${dahinterVorher.join(', ')}`);
+check('Zusammen sind es alle Bereiche',
+  untenVorher.length === 5 && untenVorher.length + dahinterVorher.length === 7,
+  `${untenVorher.length} unten, ${dahinterVorher.length} dahinter`);
 check('Und die Zeilen sind groß genug zum Treffen',
   await page.locator('.more-item').first()
     .evaluate((el) => Math.round(el.getBoundingClientRect().height)) >= 60,
@@ -1984,6 +2042,9 @@ await shot('08a-mehr');
 // --- Knoten ----------------------------------------------------------------
 await page.locator('[data-mod="knoten"]').click();
 await page.waitForSelector('.knot-card');
+check('Aus „Mehr“ heraus wird der Bereich aufgeschlagen, nicht eingebettet',
+  await page.locator('nav.tabs button[data-tab="knoten"][aria-current="page"]').count() === 1,
+  (await page.locator('nav.tabs').innerText()).replace(/\n/g, ' | '));
 const knotenAlle = await page.locator('.knot-card').count();
 check('Die Knoten sind da', knotenAlle >= 12, `${knotenAlle} Knoten`);
 check('Der Palstek ist dabei',
@@ -2021,10 +2082,33 @@ check('Zurücksetzen zeigt wieder alle',
   await page.locator('.knot-card').count() === knotenAlle);
 await shot('08b-knoten');
 
-await page.getByRole('button', { name: /Zurück/ }).first().click();
-await page.waitForTimeout(300);
+// Was man aufruft, rückt in die Leiste nach – und der am längsten nicht
+// benutzte Bereich weicht dafür nach hinten.
+check('Der aufgerufene Bereich steht danach unten in der Leiste',
+  await page.locator('nav.tabs button[data-tab="knoten"]').count() === 1,
+  (await page.locator('nav.tabs').innerText()).replace(/\n/g, ' | '));
+check('Die Leiste hat weiterhin sechs Felder',
+  await page.locator('nav.tabs button').count() === 6,
+  `${await page.locator('nav.tabs button').count()} Felder`);
+check('„Mehr“ bleibt das letzte davon',
+  await page.locator('nav.tabs button').last().getAttribute('data-tab') === 'mehr');
+const untenNachher = await barKeys();
+const verdraengt = untenVorher.filter((k) => !untenNachher.includes(k));
+check('Und dafür weicht genau einer – der am längsten nicht benutzte',
+  verdraengt.length === 1 && verdraengt[0] === 'funk',
+  `gewichen: ${verdraengt.join(', ') || '–'} | jetzt unten: ${untenNachher.join(', ')}`);
+
+// Aufgerufen heißt aufgeschlagen: Der Bereich steht jetzt als eigener Reiter
+// da, nicht zwei Ebenen tief hinter einem Zurück-Knopf. Der Weg zurück zur
+// Übersicht ist derselbe wie der hin – „Mehr“ unten.
+await goTab('mehr');
+await page.waitForSelector('.more-item');
 check('Und zurück zur Übersicht',
-  await page.locator('.more-item').count() >= 2);
+  await page.locator('.more-item').count() >= 1);
+check('Der Verdrängte liegt nun hinter „Mehr“',
+  (await moreKeys()).includes('funk'), (await moreKeys()).join(', '));
+check('Was schon unten steht, liegt nicht doppelt dahinter',
+  await page.locator('[data-mod="knoten"]').count() === 0);
 
 // --- Oberflächensprache ----------------------------------------------------
 await goSettings();
@@ -2032,12 +2116,18 @@ await page.waitForSelector('.card');
 await page.getByRole('button', { name: 'English' }).first().click();
 await page.waitForTimeout(150);
 const tabsText = await page.locator('nav.tabs').innerText();
-check('Reiter auf Englisch', tabsText.includes('Radio') && tabsText.includes('More'), tabsText);
-check('Titel auf Englisch', (await page.locator('.topbar h1').innerText()).includes('More'),
+check('Reiter auf Englisch',
+  tabsText.includes('Settings') && tabsText.includes('More') && !tabsText.includes('Einstellungen'),
+  tabsText);
+check('Titel auf Englisch', (await page.locator('.topbar h1').innerText()).includes('Settings'),
   await page.locator('.topbar h1').innerText());
-check('Die Einstellungen liegen auf Englisch genauso hinter „Mehr“',
-  (await page.locator('[data-mod="einstellungen"]').innerText()).includes('Settings'),
-  await page.locator('[data-mod="einstellungen"]').innerText());
+await goTab('mehr');
+await page.waitForSelector('.more-item');
+check('Auch die Liste hinter „Mehr“ ist übersetzt',
+  (await page.locator('main').innerText()).includes('moves down'),
+  (await page.locator('main').innerText()).split('\n')[0]);
+await goSettings();
+await page.waitForSelector('.card');
 await shot('07-settings-en');
 
 // Funkspruchsprache blieb davon unberührt (steht noch auf Deutsch).
@@ -2220,7 +2310,7 @@ check('Schiffsdaten überstehen den Kaltstart',
 await coldPage.locator('.phrase-btn').first().click();
 check('Funkspruch offline vollständig',
   (await coldPage.locator('.script').innerText()).includes('MAYDAY SEEBÄR'));
-await coldPage.locator('nav.tabs button').nth(3).click();
+await goTabOn(coldPage, 'nacht');
 await coldPage.waitForSelector('.light-card');
 check('Lichterführung offline vollständig', await coldPage.locator('.light-card').count() > 10);
 
