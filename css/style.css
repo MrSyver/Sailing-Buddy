@@ -331,6 +331,48 @@ input:focus, select:focus, textarea:focus {
 input.mono, textarea.mono { font-family: var(--mono); }
 textarea { min-height: 76px; resize: vertical; line-height: 1.45; }
 
+/*
+ * Ein Kästchen zum Ankreuzen, mit der ganzen Zeile als Fläche.
+ *
+ * Das Kästchen selbst ist auch bei 22 px kleiner, als ein Daumen bei Welle
+ * trifft. Deshalb liegt es im Label: Wer irgendwo in die Zeile fasst, schaltet
+ * um. Die Mindesthöhe ist dieselbe wie bei allen Bedienelementen der App.
+ */
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: var(--tap);
+  padding: 12px 13px;
+  margin: 4px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.check input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  flex: none;
+  margin-top: 1px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+/* Der Hinweis erbt hier nichts von `.field .hint` – er steht in einem Label,
+   nicht in einem Feld. Ohne diese Zeile liest er sich so laut wie die
+   Beschriftung darüber. */
+.check .hint {
+  display: block;
+  margin-top: 3px;
+  font-weight: 400;
+  font-size: .78rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
 .btn {
   min-height: var(--tap);
   padding: 12px 18px;

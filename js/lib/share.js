@@ -39,6 +39,18 @@ export async function shareFile(filename, mime, text) {
     }
   }
 
+  return downloadFile(filename, mime, text);
+}
+
+/**
+ * Eine Datei herunterladen, ohne vorher zu fragen.
+ *
+ * Für Ausgaben, die man erst einmal *haben* will, statt sie sofort
+ * weiterzureichen – die Meilenbestätigung ist der Fall. Das Teilen-Blatt
+ * schiebt sich dort zwischen Klick und Datei, und teilen kann man sie
+ * hinterher aus „Dateien“ heraus immer noch.
+ */
+export function downloadFile(filename, mime, text) {
   const url = URL.createObjectURL(new Blob([text], { type: mime }));
   const a = document.createElement('a');
   a.href = url;

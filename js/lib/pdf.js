@@ -148,6 +148,59 @@ export function createPdf({ title = '', author = '' } = {}) {
     );
   }
 
+  /** Ein gefülltes Rechteck – für ruhige Hintergründe hinter Zahlen. */
+  function fillRect(x, y, w, hgt, { gray = 0.92 } = {}) {
+    if (!current) addPage();
+    current.ops.push(
+      `${gray} g`,
+      `${x.toFixed(2)} ${(A4.height - y - hgt).toFixed(2)} ${w.toFixed(2)} ${hgt.toFixed(2)} re`,
+      'f',
+      '0 g',
+    );
+  }
+
+  /**
+   * Ein Streckenzug – für die Spur.
+   *
+   * Punkte kommen als `{ x, y }` mit `y` von oben, wie überall hier. Weniger
+   * als zwei Punkte ergeben keine Linie und werden still übergangen: Eine
+   * Spur aus einem einzigen Fix ist keine Spur.
+   */
+  function polyline(points, { width = 0.8, gray = 0 } = {}) {
+    if (!current) addPage();
+    const p = (points ?? []).filter((q) => Number.isFinite(q?.x) && Number.isFinite(q?.y));
+    if (p.length < 2) return;
+    const ops = [`${gray} G`, `${width} w`, '1 J', '1 j'];
+    p.forEach((q, i) => {
+      ops.push(`${q.x.toFixed(2)} ${(A4.height - q.y).toFixed(2)} ${i ? 'l' : 'm'}`);
+    });
+    ops.push('S', '0 G', '0 J', '0 j');
+    current.ops.push(...ops);
+  }
+
+  /**
+   * Ein gefüllter Punkt.
+   *
+   * PDF kennt keinen Kreis; vier Bézierbögen mit dem üblichen Faktor 0,5523
+   * sind einer, den man von einem Kreis nicht unterscheidet.
+   */
+  function dot(x, y, r, { gray = 0 } = {}) {
+    if (!current) addPage();
+    const k = r * 0.5523;
+    const cy = A4.height - y;
+    const f = (n) => n.toFixed(2);
+    current.ops.push(
+      `${gray} g`,
+      `${f(x - r)} ${f(cy)} m`,
+      `${f(x - r)} ${f(cy + k)} ${f(x - k)} ${f(cy + r)} ${f(x)} ${f(cy + r)} c`,
+      `${f(x + k)} ${f(cy + r)} ${f(x + r)} ${f(cy + k)} ${f(x + r)} ${f(cy)} c`,
+      `${f(x + r)} ${f(cy - k)} ${f(x + k)} ${f(cy - r)} ${f(x)} ${f(cy - r)} c`,
+      `${f(x - k)} ${f(cy - r)} ${f(x - r)} ${f(cy - k)} ${f(x - r)} ${f(cy)} c`,
+      'f',
+      '0 g',
+    );
+  }
+
   function build() {
     if (!pages.length) addPage();
 
@@ -201,5 +254,5 @@ export function createPdf({ title = '', author = '' } = {}) {
     return bytes;
   }
 
-  return { addPage, text, line, rect, build };
+  return { addPage, text, line, rect, fillRect, polyline, dot, build };
 }

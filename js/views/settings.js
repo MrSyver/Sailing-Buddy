@@ -175,13 +175,13 @@ function boatCard(s) {
       { placeholder: t('set.descrPlaceholder') }),
 
     h('div.row',
-      h('div.grow', field(s, 'loa', t('set.loa'), null,
+      h('div.grow', field(s, 'loa', t('set.loa'), t('set.loaHint'),
         { class: 'mono', inputmode: 'decimal', placeholder: '11,20' })),
       h('div.grow', field(s, 'draft', t('set.draft'), null,
         { class: 'mono', inputmode: 'decimal', placeholder: '1,80' })),
     ),
 
-    field(s, 'homeport', t('set.homeport'), null, { placeholder: '' }),
+    field(s, 'homeport', t('set.homeport'), t('set.homeportHint'), { placeholder: '' }),
     field(s, 'phone', t('set.phone'), t('set.phoneHint'),
       { class: 'mono', inputmode: 'tel', type: 'tel', placeholder: '+49 …' }),
 
