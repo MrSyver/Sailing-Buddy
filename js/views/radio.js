@@ -56,15 +56,22 @@ function phraseLang() {
 }
 
 /**
- * Wie die Ziffern im ausgeschriebenen Rufzeichen aussehen.
+ * Wie die Ziffern im ausgeschriebenen Rufzeichen heißen.
  *
- * Voreingestellt als Ziffer: „Delta Alfa 1 2 3 4“. Die Zahlwörter des
- * Seefunks – Unaone, Bissotwo, Terrathree, Kartefour – sind über schlechtes
- * Rauschen sicherer zu verstehen, aber nur, wenn man sie kann. Wer sie vom
- * Blatt abliest und dabei stockt, ist schlechter dran als mit „eins zwei
- * drei vier“. Deshalb ist es ein Schalter und keine Vorschrift.
+ * Ausgeschrieben heißt ausgeschrieben – auch die Ziffern. Voreingestellt sind
+ * es die gewöhnlichen Zahlwörter: „Delta Alfa eins zwei drei vier“, dieselben,
+ * die auch in der gesprochenen Position stehen. Sonst sagte die Position
+ * „fünf vier Grad“ und die MMSI daneben „5 4“, und wer vorliest, springt
+ * zwischen zwei Schreibweisen hin und her.
+ *
+ * Die Zahlwörter des Seefunks – Unaone, Bissotwo, Terrathree, Kartefour –
+ * sind über schlechtes Rauschen sicherer zu verstehen, aber nur, wenn man sie
+ * kann. Deshalb sind sie ein Schalter und keine Vorschrift.
  */
-const buchst = () => ({ zahlwoerter: settings.get('spellNumbers') === true });
+const buchst = () => ({
+  zahlwoerter: settings.get('spellNumbers') === true,
+  lang: phraseLang(),
+});
 
 /**
  * Ein Feld in der Sprache der Oberfläche.
@@ -103,7 +110,10 @@ function values(phrase = null) {
     // soll das Fertige vor Augen haben.
     callsign: s.callsign ? (spokenPosition ? spellOut(s.callsign, buchst()) : s.callsign) : null,
     mmsi: s.mmsi ? (spokenPosition ? spellOut(s.mmsi, buchst()) : s.mmsi) : null,
-    pob: s.pob || null,
+    // Auch die Zahl der Personen an Bord: „an Bord sind 4 Personen“ wäre die
+    // eine Ziffer, die stehen bliebe, wenn alles andere ausgeschrieben ist.
+    // Über Funk wird sie ohnehin Ziffer für Ziffer gegeben.
+    pob: s.pob ? (spokenPosition ? spellOut(s.pob, buchst()) : s.pob) : null,
     loa: s.loa ? `${s.loa} m` : null,
     draft: s.draft ? `${s.draft} m` : null,
     descr: s.descr || null,

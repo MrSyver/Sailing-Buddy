@@ -398,9 +398,20 @@ const rufAusgeschrieben = await page.locator('.script').innerText();
 check('Das Rufzeichen wird buchstabiert',
   rufAusgeschrieben.includes('Delta Alfa'),
   rufAusgeschrieben.split('\n').find((l) => /Delta/.test(l)) ?? '');
-check('Die Ziffern darin bleiben Ziffern',
-  /Delta Alfa 1 2 3 4/.test(rufAusgeschrieben) && !/Unaone|Kartefour/.test(rufAusgeschrieben),
+// Ausgeschrieben heißt ausgeschrieben – auch die Zahlen. Sonst sagte die
+// Position „fünf vier Grad“ und die MMSI daneben „5 4“, und wer vorliest,
+// springt zwischen zwei Schreibweisen hin und her.
+check('Auch die Zahlen sind ausgeschrieben',
+  /Delta Alfa eins zwei drei vier/.test(rufAusgeschrieben),
   rufAusgeschrieben.split('\n').find((l) => /Delta/.test(l)) ?? '');
+check('Und zwar mit den gewöhnlichen Zahlwörtern, nicht den Seefunkwörtern',
+  !/Unaone|Kartefour/.test(rufAusgeschrieben));
+check('Die MMSI ebenso',
+  /zwei eins eins zwei drei vier/.test(rufAusgeschrieben),
+  rufAusgeschrieben.split('\n').find((l) => /MMSI|zwei eins/.test(l)) ?? '');
+check('Und die Zahl der Personen an Bord auch',
+  /SIND vier PERSONEN/.test(rufAusgeschrieben),
+  rufAusgeschrieben.split('\n').find((l) => /PERSONEN/.test(l)) ?? '');
 
 // Wer die Seefunkwörter will, bekommt sie – mit einem Griff.
 check('Ein Knopf stellt die Ziffern um',
@@ -416,7 +427,8 @@ check('Und die Umstellung bleibt gemerkt',
 await page.locator('#digit-style').click();
 await page.waitForTimeout(200);
 check('Und wieder zurück',
-  !(await page.locator('.script').innerText()).includes('Unaone'));
+  (await page.locator('.script').innerText()).includes('eins zwei drei vier')
+  && !(await page.locator('.script').innerText()).includes('Unaone'));
 
 await page.getByRole('button', { name: 'Als Zahlen' }).click();
 check('Bei Zahlen gibt es nichts umzustellen',

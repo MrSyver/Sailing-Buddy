@@ -106,6 +106,20 @@ export const SPELLING_NUMBERS = [
   ['9', 'Novenine', 'NO-WE-NAIN'], [',', 'Decimal', 'DE-SI-MAL'], ['.', 'Stop', 'STOPP'],
 ];
 
+/**
+ * Die gewöhnlichen Zahlwörter – dieselben, die auch in der gesprochenen
+ * Position stehen.
+ *
+ * „Ausgeschrieben“ heißt ausgeschrieben, und zwar überall gleich: Wenn die
+ * Position „fünf vier Grad“ sagt, darf die MMSI daneben nicht „5 4“ zeigen.
+ * Wer im Notfall vorliest, springt sonst zwischen zwei Schreibweisen hin und
+ * her – und genau dort verliest man sich.
+ */
+export const PLAIN_NUMBERS = {
+  de: ['null', 'eins', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun'],
+  en: ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'],
+};
+
 /** Verkehrswörter (Prowords) im Sprechfunk. */
 export const PROWORDS = [
   ['OVER', 'Kommen', 'Ende meiner Durchsage, ich erwarte Antwort.', 'End of my transmission, a reply is expected.'],
@@ -875,16 +889,16 @@ export function localized(phrase, field, lang) {
  *
  * Zeichen, für die es kein Wort gibt, bleiben stehen, wie sie sind.
  */
-export function spellOut(text, { zahlwoerter = false } = {}) {
+export function spellOut(text, { zahlwoerter = false, lang = 'de' } = {}) {
   const buchstaben = new Map(SPELLING_ALPHABET.map(([l, w]) => [l, w]));
-  const ziffern = zahlwoerter
-    ? new Map(SPELLING_NUMBERS.map(([l, w]) => [l, w]))
-    : new Map();
+  const seefunk = new Map(SPELLING_NUMBERS.map(([l, w]) => [l, w]));
+  const einfach = PLAIN_NUMBERS[lang] ?? PLAIN_NUMBERS.de;
+  const ziffer = (ch) => (zahlwoerter ? seefunk.get(ch) : einfach[Number(ch)]);
   return String(text ?? '')
     .toUpperCase()
     .split('')
     .filter((ch) => ch.trim() !== '')
-    .map((ch) => buchstaben.get(ch) ?? ziffern.get(ch) ?? ch)
+    .map((ch) => buchstaben.get(ch) ?? (/[0-9]/.test(ch) ? ziffer(ch) : null) ?? ch)
     .join(' ');
 }
 
