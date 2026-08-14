@@ -863,18 +863,23 @@ export function localized(phrase, field, lang) {
 /**
  * Ein Rufzeichen Zeichen für Zeichen ausgeschrieben.
  *
- * „DA1234“ wird zu „Delta Alfa Unaone Bissotwo Terrathree Kartefour“. Im Funk
- * wird ein Rufzeichen so gesprochen, und wer es im Notfall vorliest, hat
- * genau das vor Augen zu haben – nicht die vier Zeichen, aus denen er es
- * selbst zusammensetzen müsste.
+ * „DA1234“ wird zu „Delta Alfa 1 2 3 4“: Buchstaben als Wort, Ziffern als
+ * Ziffer. Wer es im Notfall vorliest, hat genau das vor Augen zu haben – nicht
+ * die vier Zeichen, aus denen er es selbst zusammensetzen müsste.
  *
- * Die Zahlwörter sind die des Seefunks (Unaone, Bissotwo …), nicht die
- * gewöhnlichen: Sie sind über Rauschen zu verstehen, und darum geht es.
+ * Bei den Ziffern bleibt es bewusst bei den Ziffern. Die Zahlwörter des
+ * Seefunks – Unaone, Bissotwo, Terrathree, Kartefour – sind über schlechtes
+ * Rauschen sicherer zu verstehen, aber wer sie nicht auswendig kann, liest
+ * sie stockend vor oder liest sie falsch, und dann sind sie schlechter als
+ * gar nichts. Wer sie will, schaltet sie mit `zahlwoerter` ein.
+ *
  * Zeichen, für die es kein Wort gibt, bleiben stehen, wie sie sind.
  */
-export function spellOut(text) {
+export function spellOut(text, { zahlwoerter = false } = {}) {
   const buchstaben = new Map(SPELLING_ALPHABET.map(([l, w]) => [l, w]));
-  const ziffern = new Map(SPELLING_NUMBERS.map(([l, w]) => [l, w]));
+  const ziffern = zahlwoerter
+    ? new Map(SPELLING_NUMBERS.map(([l, w]) => [l, w]))
+    : new Map();
   return String(text ?? '')
     .toUpperCase()
     .split('')

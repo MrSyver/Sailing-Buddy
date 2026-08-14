@@ -56,6 +56,17 @@ function phraseLang() {
 }
 
 /**
+ * Wie die Ziffern im ausgeschriebenen Rufzeichen aussehen.
+ *
+ * Voreingestellt als Ziffer: „Delta Alfa 1 2 3 4“. Die Zahlwörter des
+ * Seefunks – Unaone, Bissotwo, Terrathree, Kartefour – sind über schlechtes
+ * Rauschen sicherer zu verstehen, aber nur, wenn man sie kann. Wer sie vom
+ * Blatt abliest und dabei stockt, ist schlechter dran als mit „eins zwei
+ * drei vier“. Deshalb ist es ein Schalter und keine Vorschrift.
+ */
+const buchst = () => ({ zahlwoerter: settings.get('spellNumbers') === true });
+
+/**
  * Ein Feld in der Sprache der Oberfläche.
  *
  * Für alles, was über einen Funkspruch gesagt wird statt in ihm: Name,
@@ -90,8 +101,8 @@ function values(phrase = null) {
     // nur für die Position: Ein Rufzeichen wird Zeichen für Zeichen
     // gesprochen, und die MMSI Ziffer für Ziffer. Wer im Notfall vorliest,
     // soll das Fertige vor Augen haben.
-    callsign: s.callsign ? (spokenPosition ? spellOut(s.callsign) : s.callsign) : null,
-    mmsi: s.mmsi ? (spokenPosition ? spellOut(s.mmsi) : s.mmsi) : null,
+    callsign: s.callsign ? (spokenPosition ? spellOut(s.callsign, buchst()) : s.callsign) : null,
+    mmsi: s.mmsi ? (spokenPosition ? spellOut(s.mmsi, buchst()) : s.mmsi) : null,
     pob: s.pob || null,
     loa: s.loa ? `${s.loa} m` : null,
     draft: s.draft ? `${s.draft} m` : null,
@@ -557,6 +568,22 @@ function detail(wrap, phrase) {
           onclick: () => { spokenPosition = true; draw(wrap); },
         }, t('radio.posSpoken')),
       ),
+
+      // Und wie die Ziffern darin aussehen. Nur solange ausgeschrieben ist:
+      // Bei Zahlen gibt es nichts umzustellen, und ein Schalter, der gerade
+      // nichts tut, lehrt einen, ihn zu übersehen.
+      needsPos && v.position && spokenPosition && h('button.btn.small.block', {
+        type: 'button',
+        id: 'digit-style',
+        style: { 'margin-top': '8px' },
+        'aria-pressed': String(settings.get('spellNumbers') === true),
+        onclick: () => {
+          settings.set('spellNumbers', settings.get('spellNumbers') !== true);
+          draw(wrap);
+        },
+      }, settings.get('spellNumbers') === true
+        ? t('radio.digitsWords')
+        : t('radio.digitsPlain')),
     ));
 
     parts.push(h('div.row.wrap', { style: { 'margin-bottom': '12px' } },

@@ -37,6 +37,10 @@ const DEFAULTS = {
   autoTiles: true,      // fehlende Kacheln bei Verbindung nachholen
   // Welche Bereiche unten stehen: die zuletzt benutzten, neuester zuerst.
   recentTabs: [],
+  // Ziffern im ausgeschriebenen Rufzeichen als Zahlwort des Seefunks
+  // (Unaone, Bissotwo …) statt als Ziffer. Aus, weil wer sie nicht auswendig
+  // kann, sie stockend oder falsch vorliest.
+  spellNumbers: false,
   setupDone: false,
   waypoints: [],       // [{ id, name, lat, lon, kind, ts }]
 };
