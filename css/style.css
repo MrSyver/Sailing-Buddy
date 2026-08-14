@@ -1326,3 +1326,88 @@ details.foldout > div { padding: 0 15px 15px; }
 }
 
 .region-fold { margin-bottom: 8px; }
+
+/* Sprachumschalter in der Kopfzeile: zwei Buchstaben, ein Griff. */
+.lang-btn {
+  font-family: var(--mono);
+  font-size: .82rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  min-width: 46px;
+}
+
+/* ------------------------------------------------------- Aufnahmen im Funk */
+
+/* Schmal gehalten: Die Karte steht über den Funksprüchen und darf sie nicht
+   nach unten drängen. */
+.rec-card { padding: 12px 13px; }
+
+.rec-player {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 8px;
+}
+
+.rec-player audio { display: none; }
+
+.rec-play {
+  flex: none;
+  min-width: 44px;
+  font-size: .9rem;
+  line-height: 1;
+}
+
+.rec-time {
+  flex: none;
+  font-size: .78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Der Regler muss mit nassen Fingern im Seegang treffbar sein – also ein
+   deutlich größerer Griff als der voreingestellte. */
+.rec-seek {
+  flex: 1;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.rec-seek::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+}
+
+.rec-seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -9px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+}
+
+.rec-seek::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+}
+
+.rec-seek::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+}
+
+.rec-seek:focus { outline: none; }
+.rec-seek:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent); }

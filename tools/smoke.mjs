@@ -359,24 +359,40 @@ check('Position ausgeschrieben im Funkspruch',
   spokenLine.includes('Grad') && spokenLine.includes('Nord'), spokenLine);
 await page.getByRole('button', { name: 'Als Zahlen' }).click();
 
-// Sprache der Funksprüche umschalten – die Oberfläche bleibt deutsch.
-await page.getByRole('button', { name: 'English' }).first().click();
+// Sprache der Funksprüche umschalten – der Umschalter sitzt oben in der
+// Titelleiste, nicht mehr als breite Leiste im Modul.
+check('Sprachumschalter steht in der Kopfzeile',
+  (await page.locator('.topbar .lang-btn').innerText()).trim() === 'DE');
+await page.locator('.topbar .lang-btn').click();
+await page.waitForTimeout(200);
 const scriptEn = await page.locator('.script').innerText();
 check('Funkspruch wechselt auf Englisch', scriptEn.includes('THIS IS SEEBÄR'), scriptEn.slice(0, 60));
+check('Der Umschalter zeigt die neue Sprache',
+  (await page.locator('.topbar .lang-btn').innerText()).trim() === 'EN');
 check('Oberfläche bleibt dabei deutsch',
   await page.getByRole('button', { name: '‹ Zurück' }).isVisible());
 await shot('03-mayday-en');
 
 await page.getByRole('button', { name: '‹ Zurück' }).click();
-await page.getByRole('button', { name: 'Deutsch' }).first().click();
+await page.locator('.topbar .lang-btn').click();
+await page.waitForTimeout(200);
 
 // --- Sprachaufnahme --------------------------------------------------------
-await page.getByRole('button', { name: /Aufnahme starten/ }).click();
+// Die Aufnahme steht jetzt über den Funksprüchen – eine hereinkommende
+// Meldung ist schneller vorbei, als man den Reiter findet.
+const kartenPos = await page.locator('.rec-card').evaluate(
+  (el) => el.getBoundingClientRect().top);
+const sprucheePos = await page.locator('.phrase-btn').first().evaluate(
+  (el) => el.getBoundingClientRect().top);
+check('Aufnehmen steht über den Funksprüchen', kartenPos < sprucheePos,
+  `Aufnahme bei ${Math.round(kartenPos)}, erster Spruch bei ${Math.round(sprucheePos)}`);
+
+await page.getByRole('button', { name: /Aufnehmen/ }).click();
 await page.waitForSelector('.rec-live', { timeout: 8000 })
   .catch(() => problems.push('Aufnahme startet nicht'));
 check('Aufnahme läuft', await page.locator('.rec-live').count() === 1);
 await page.waitForTimeout(1200);
-await page.getByRole('button', { name: /Aufnahme beenden/ }).click();
+await page.getByRole('button', { name: /Beenden und speichern/ }).click();
 await page.waitForSelector('.rec-item', { timeout: 8000 })
   .catch(() => problems.push('Aufnahme wurde nicht gespeichert'));
 check('Aufnahme gespeichert', await page.locator('.rec-item').count() === 1);
@@ -384,6 +400,21 @@ check('Aufnahme hat einen Abspieler', await page.locator('.rec-item audio').coun
 await shot('02c-aufnahme');
 
 // Löschen muss gehen – sonst sammelt sich das an.
+// Der eigene Abspieler: Schieberegler zum Vor- und Zurückspulen.
+check('Aufnahme hat einen Schieberegler', await page.locator('.rec-seek').count() === 1);
+const gespult = await page.locator('.rec-item').evaluate((row) => {
+  const regler = row.querySelector('.rec-seek');
+  const ton = row.querySelector('audio');
+  regler.value = '500';
+  regler.dispatchEvent(new Event('input', { bubbles: true }));
+  return { stelle: ton.currentTime, dauer: ton.duration };
+});
+check('Der Regler springt in der Aufnahme vor', gespult.stelle > 0,
+  `bei ${gespult.stelle?.toFixed(2)} s`);
+check('Der Regler ist groß genug zum Treffen',
+  await page.locator('.rec-seek').evaluate((el) => el.getBoundingClientRect().height) >= 28,
+  `${await page.locator('.rec-seek').evaluate((el) => Math.round(el.getBoundingClientRect().height))} px hoch`);
+
 page.once('dialog', (d) => d.accept());
 await page.locator('.rec-item').getByRole('button', { name: 'Aufnahme löschen' }).click();
 await page.waitForTimeout(400);
@@ -405,7 +436,8 @@ await page.locator('#coord-lonMin').fill('11');
 await page.locator('#coord-lonDec').fill('4');
 await page.waitForSelector('.compass');
 check('Kopfzeilen-Symbol ist sichtbar',
-  await page.locator('.topbar .icon-btn svg').evaluate((el) => el.getBoundingClientRect().width) > 10);
+  await page.getByRole('button', { name: 'Nachtmodus umschalten' })
+    .locator('svg').evaluate((el) => el.getBoundingClientRect().width) > 10);
 
 // Der erste Messwertblock gehört zur eigenen Position, der zweite zum Ergebnis.
 const distance = await page.locator('.cell.hero').first().innerText();
@@ -739,7 +771,35 @@ check('Automatischer Eintrag wurde angelegt', logBefore >= 3, `${logBefore} Eint
 await goTab(3);
 
 // --- Nachtmodus ------------------------------------------------------------
-await page.locator('.topbar .icon-btn').click();
+const nachtKnopf = page.getByRole('button', { name: 'Nachtmodus umschalten' });
+const theme = () => page.locator('html').getAttribute('data-theme');
+
+// Wer im hellen Schema unterwegs war, muss nach dem Nachtmodus wieder dort
+// landen – und nicht im dunklen, ohne etwas geändert zu haben.
+await page.evaluate(async () => {
+  const { settings } = await import('./js/lib/storage.js');
+  const { applyTheme } = await import('./js/lib/theme.js');
+  settings.set('theme', 'light');
+  applyTheme();
+});
+check('Ausgangspunkt ist das helle Schema', await theme() === 'light');
+await nachtKnopf.click();
+check('Von hell in den Nachtmodus', await theme() === 'night');
+await nachtKnopf.click();
+check('Und wieder zurück ins helle Schema', await theme() === 'light', await theme());
+
+// Aus dem dunklen Schema heraus genauso.
+await page.evaluate(async () => {
+  const { settings } = await import('./js/lib/storage.js');
+  const { applyTheme } = await import('./js/lib/theme.js');
+  settings.set('theme', 'dark');
+  applyTheme();
+});
+await nachtKnopf.click();
+await nachtKnopf.click();
+check('Aus dem dunklen Schema führt er ins dunkle zurück', await theme() === 'dark', await theme());
+
+await nachtKnopf.click();
 check('Nachtmodus aktiv', await page.locator('html').getAttribute('data-theme') === 'night');
 
 const nightColors = await page.evaluate(() => {
@@ -1029,8 +1089,8 @@ await page.waitForSelector('.phrase-btn');
 const firstPhrase = await page.locator('.phrase-btn').first().innerText();
 check('Funksprüche unabhängig von der Oberflächensprache',
   firstPhrase.includes('MAYDAY – Notruf'), firstPhrase.replace(/\n/g, ' | '));
-
-await page.getByRole('button', { name: 'Deutsch' }).first().click();
+// Kein Zurückschalten nötig: Die Funkspruchsprache steht noch auf Deutsch,
+// und der Umschalter dafür sitzt inzwischen in der Kopfzeile.
 
 // --- Helligkeit ------------------------------------------------------------
 await goTab(5);
