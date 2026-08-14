@@ -1,4 +1,17 @@
-/** Modul „Nachtfahrt“ – Lichterführung und Schallsignale zum Nachschlagen. */
+/**
+ * Modul „Lichter & Zeichen“ – was ein Fahrzeug über sich sagt, und wie man es
+ * liest.
+ *
+ * Dasselbe Fahrzeug sagt bei Tag und bei Nacht dasselbe, nur mit anderen
+ * Mitteln: nachts mit Laternen, tags mit schwarzen Signalkörpern. Deshalb
+ * stehen beide hier zusammen und werden oben umgeschaltet, statt in zwei
+ * Modulen zu liegen, zwischen denen niemand den Zusammenhang sieht.
+ *
+ * Der Aufbau ist in beiden Betriebsarten derselbe: eine Suche nach dem, was
+ * man sieht – nicht nach dem Namen des Fahrzeugs, den kennt man ja gerade
+ * nicht –, darunter die Treffer als Karten mit Zeichnung, Regel und dem
+ * Merksatz dazu.
+ */
 
 import { h, svg, render } from '../lib/dom.js';
 import { audio } from '../lib/audio.js';
@@ -11,6 +24,10 @@ import { SOUNDS, SOUND_GROUPS, SOUND_BASICS, DISTRESS_VISUAL } from '../data/sou
 import {
   BUOYS, BUOY_GROUPS, BUOY_COLORS, LIGHT_RHYTHMS, LIGHT_COLOR_CODES,
 } from '../data/buoys.js';
+import {
+  DAY_SHAPES, DAY_CATEGORIES, DAY_FACETS, DAY_FACET_GROUPS, SHAPE_KINDS,
+  SIGNAL_FLAGS, matchesDayFacets,
+} from '../data/dayshapes.js';
 
 /**
  * Die Suche geht über Fahrzeuge und Seezeichen zugleich – nachts sieht man
@@ -28,12 +45,32 @@ function searchAll(keys, category = 'all') {
 }
 
 const state = {
-  tab: 'lichter',        // 'lichter' | 'tonnen' | 'schall' | 'grundlagen'
+  // Bei Tag oder bei Nacht – bestimmt, welche Reiter es überhaupt gibt.
+  mode: 'nacht',         // 'nacht' | 'tag'
+  tab: 'lichter',        // nachts: lichter|tonnen|schall|grundlagen
+  //                        tags: koerper|flaggen|schall|grundlagen
   facets: new Set(),     // gewählte Merkmale der Lichtersuche
+  dayFacets: new Set(),  // gewählte Merkmale der Signalkörpersuche
   category: 'all',
+  dayCategory: 'all',
   aspect: 'bow',         // Blickrichtung auf das fremde Fahrzeug
   soundGroup: 'manoever',
   playing: null,
+};
+
+/** Welche Reiter gehören zu welcher Betriebsart? */
+const TABS = {
+  nacht: ['lichter', 'tonnen', 'schall', 'grundlagen'],
+  tag: ['koerper', 'flaggen', 'schall', 'grundlagen'],
+};
+
+const TAB_LABEL = {
+  lichter: 'night.tab.lights',
+  tonnen: 'night.tab.buoys',
+  koerper: 'night.tab.shapes',
+  flaggen: 'night.tab.flags',
+  schall: 'night.tab.sounds',
+  grundlagen: 'night.tab.basics',
 };
 
 let container = null;
@@ -58,18 +95,46 @@ function closeSearchQuietly() {
 
 function draw() {
   if (!container) return;
+  const tabs = TABS[state.mode];
+  // Nach dem Umschalten kann der bisherige Reiter in der neuen Betriebsart
+  // gar nicht vorkommen – dann auf den ersten zurückfallen.
+  if (!tabs.includes(state.tab)) [state.tab] = tabs;
+
   render(container,
-    h('div.seg', { style: { 'margin-bottom': '14px' } },
-      tabBtn('lichter', t('night.tab.lights')),
-      tabBtn('tonnen', t('night.tab.buoys')),
-      tabBtn('schall', t('night.tab.sounds')),
-      tabBtn('grundlagen', t('night.tab.basics')),
+    // Tag oder Nacht steht ganz oben und über allem anderen: Es ist keine
+    // Auswahl unter Gleichen, sondern die Frage, welcher Satz Zeichen
+    // überhaupt gilt.
+    h('div.seg.mode-seg', { style: { 'margin-bottom': '10px' } },
+      modeBtn('nacht', t('night.mode.night')),
+      modeBtn('tag', t('night.mode.day')),
     ),
+
+    h('div.seg', { style: { 'margin-bottom': '14px' } },
+      ...tabs.map((key) => tabBtn(key, t(TAB_LABEL[key]))),
+    ),
+
     state.tab === 'lichter' ? lightsView()
       : state.tab === 'tonnen' ? buoysView()
-        : state.tab === 'schall' ? soundsView()
-          : basicsView(),
+        : state.tab === 'koerper' ? shapesView()
+          : state.tab === 'flaggen' ? flagsView()
+            : state.tab === 'schall' ? soundsView()
+              : basicsView(),
   );
+}
+
+function modeBtn(key, label) {
+  return h('button', {
+    type: 'button',
+    'data-mode': key,
+    'aria-pressed': String(state.mode === key),
+    onclick: () => {
+      if (state.mode === key) return;
+      state.mode = key;
+      [state.tab] = TABS[key];
+      draw();
+      window.scrollTo(0, 0);
+    },
+  }, label);
 }
 
 function tabBtn(key, label) {
@@ -434,7 +499,7 @@ function buoysView() {
 
     h('div.card',
       h('h2', t('night.rhythms')),
-      h('table.data',
+      h('table.data.kv',
         h('tbody', ...LIGHT_RHYTHMS.map((r) => h('tr',
           h('td.k', r.abbr),
           h('td.small', en() ? r.en : r.de),
@@ -674,6 +739,280 @@ async function playSound(s, speed) {
     state.playing = null;
     draw();
   }
+}
+
+// ============================================================== Signalkörper
+
+/**
+ * Die Signalkörper – dieselbe Suche wie bei den Laternen, nur nach Formen.
+ *
+ * Bei Tage zählt nicht die Farbe, sondern die Form und ihre Anzahl. Man sieht
+ * schwarze Körper an einem Mast und will wissen, was sie bedeuten – nicht,
+ * wie das Fahrzeug heißt.
+ */
+function shapesView() {
+  const active = [...state.dayFacets];
+  const found = DAY_SHAPES.filter((d) => (state.dayCategory === 'all' || d.category === state.dayCategory)
+    && matchesDayFacets(d, state.dayFacets));
+
+  return h('div',
+    h('div.notice', t('night.shapesIntro')),
+
+    active.length > 0 && h('div.card',
+      h('div.row.wrap', { style: { gap: '7px' } },
+        h('span.small.muted', { style: { width: '100%' } }, t('night.activeFilter')),
+        ...active.map((key) => {
+          const facet = DAY_FACETS.find((f) => f.key === key);
+          return h('button.chip', {
+            type: 'button',
+            'aria-pressed': 'true',
+            onclick: () => { state.dayFacets.delete(key); draw(); },
+          }, `${en() ? facet?.labelEn : facet?.label} ✕`);
+        }),
+        h('button.chip', {
+          type: 'button',
+          onclick: () => { state.dayFacets.clear(); draw(); },
+        }, t('night.resetFilter')),
+      ),
+    ),
+
+    // Die Merkmale stehen offen da statt hinter einem Knopf: Es sind wenige,
+    // und bei Tage hat man die Ruhe, sie zu lesen.
+    h('div.card',
+      ...DAY_FACET_GROUPS.map((g) => h('div', { style: { 'margin-bottom': '10px' } },
+        h('div.small.muted', { style: { 'margin-bottom': '6px' } }, en() ? g.labelEn : g.label),
+        h('div.filter-chips',
+          ...DAY_FACETS.filter((f) => f.kind === g.kind).map((f) => h('button.chip', {
+            type: 'button',
+            'aria-pressed': String(state.dayFacets.has(f.key)),
+            onclick: () => {
+              if (state.dayFacets.has(f.key)) state.dayFacets.delete(f.key);
+              else state.dayFacets.add(f.key);
+              draw();
+            },
+          }, en() ? f.labelEn : f.label)),
+        ),
+      )),
+    ),
+
+    h('div.filter-chips', { style: { 'margin-bottom': '12px' } },
+      ...DAY_CATEGORIES.map((c) => h('button.chip', {
+        type: 'button',
+        'aria-pressed': String(state.dayCategory === c.key),
+        onclick: () => { state.dayCategory = c.key; draw(); },
+      }, en() ? c.labelEn : c.label)),
+    ),
+
+    found.length === 0
+      ? h('div.card', h('div.empty', t('night.noMatch')))
+      : h('div', ...found.map(shapeCard)),
+
+    // Die fünf Formen selbst, zum Vergleich nebeneinander.
+    h('div.card',
+      h('h2', t('night.shapeKinds')),
+      h('div.shape-legend',
+        ...SHAPE_KINDS.map((k) => h('div.shape-legend-item',
+          shapeGlyph(k.key, 34),
+          h('div',
+            h('div.wp-name', en() ? k.labelEn : k.label),
+            h('div.small.muted', en() ? k.hintEn : k.hint),
+          ),
+        )),
+      ),
+    ),
+
+    h('p.disclaimer', t('night.lightsDisclaimer')),
+  );
+}
+
+function shapeCard(d) {
+  const note = loc(d, 'note');
+  return h('div.card.light-card',
+    h('div.light-head',
+      h('div.light-aspect', shapeSchematic(d)),
+      h('div.txt',
+        h('div.row', { style: { gap: '7px', 'align-items': 'flex-start' } },
+          h('div.grow',
+            h('h3', loc(d, 'title')),
+            h('div.sub', loc(d, 'subtitle')),
+          ),
+          h('span.rule', loc(d, 'rule')),
+        ),
+        h('p.light-pattern', loc(d, 'pattern')),
+      ),
+    ),
+    h('ul.checklist.plain', { style: { 'margin-top': '10px' } },
+      ...loc(d, 'signs').map((x) => h('li', x))),
+    note && h('p.small.muted', { style: { margin: '10px 0 0' } }, note),
+  );
+}
+
+/** Mast mit den Körpern daran, wie man sie von der Seite sieht. */
+function shapeSchematic(d) {
+  const el = svg('svg.light-view.day-view', {
+    viewBox: '0 0 100 100',
+    role: 'img',
+    'aria-label': `${loc(d, 'title')} – ${loc(d, 'pattern')}`,
+  });
+
+  // Rumpf und Mast: nur so viel, dass man die Höhe einordnen kann.
+  el.appendChild(svg('path', {
+    class: 'day-hull', d: 'M14 84 L86 84 L94 89 L86 95 L20 95 Z',
+  }));
+  el.appendChild(svg('line', {
+    class: 'day-mast', x1: 50, y1: 84, x2: 50, y2: 10,
+  }));
+
+  const shapes = d.shapes ?? [];
+  if (!shapes.length) {
+    el.appendChild(svg('text', {
+      class: 'aspect-none', x: 50, y: 46, 'text-anchor': 'middle', 'font-size': '8',
+    }, t('night.noShape')));
+    return el;
+  }
+
+  shapes.forEach((sh) => {
+    // Die Minensucher-Bälle hängen an den Rahnocken, nicht am Mast.
+    const x = sh.at === 'port' ? 26 : sh.at === 'stb' ? 74 : 50;
+    if (sh.at) {
+      el.appendChild(svg('line', { class: 'day-mast', x1: 26, y1: sh.y, x2: 74, y2: sh.y }));
+    }
+    el.appendChild(shapeGlyphAt(sh.k, x, sh.y, 9));
+  });
+
+  return el;
+}
+
+/**
+ * Ein einzelner Signalkörper.
+ *
+ * Schwarz, mit heller Kontur: Auf einem dunklen Hintergrund wäre ein schwarzer
+ * Ball sonst nicht von der Fläche zu unterscheiden – und diese App läuft auch
+ * im dunklen Schema.
+ */
+function shapeGlyphAt(kind, cx, cy, r) {
+  const g = svg('g', { class: 'day-shape' });
+  const add = (tag, attrs) => g.appendChild(svg(tag, attrs));
+
+  if (kind === 'ball') {
+    add('circle', { cx, cy, r });
+  } else if (kind === 'cone-down') {
+    add('polygon', { points: `${cx - r},${cy - r} ${cx + r},${cy - r} ${cx},${cy + r}` });
+  } else if (kind === 'cone-up') {
+    add('polygon', { points: `${cx - r},${cy + r} ${cx + r},${cy + r} ${cx},${cy - r}` });
+  } else if (kind === 'biconic') {
+    // Zwei Kegel, Spitzen aneinander – das Zeichen für den Fischfang.
+    add('polygon', { points: `${cx - r},${cy - r * 1.5} ${cx + r},${cy - r * 1.5} ${cx},${cy}` });
+    add('polygon', { points: `${cx - r},${cy + r * 1.5} ${cx + r},${cy + r * 1.5} ${cx},${cy}` });
+  } else if (kind === 'cylinder') {
+    // Doppelt so hoch wie breit, wie in Anlage I.
+    add('rect', { x: cx - r * 0.7, y: cy - r * 1.4, width: r * 1.4, height: r * 2.8, rx: 1 });
+  } else if (kind === 'diamond') {
+    add('polygon', {
+      points: `${cx},${cy - r * 1.4} ${cx + r},${cy} ${cx},${cy + r * 1.4} ${cx - r},${cy}`,
+    });
+  } else if (kind === 'flag-a') {
+    // Steifes Abbild der Flagge Alfa: weiß am Stock, blau mit Schwalbenschwanz.
+    add('rect', { class: 'flag-white', x: cx - r, y: cy - r, width: r, height: r * 2 });
+    add('polygon', {
+      class: 'flag-blue',
+      points: `${cx},${cy - r} ${cx + r * 1.3},${cy - r} ${cx + r * 0.75},${cy} ${cx + r * 1.3},${cy + r} ${cx},${cy + r}`,
+    });
+  }
+  return g;
+}
+
+/** Derselbe Körper freistehend, für die Übersicht der Formen. */
+function shapeGlyph(kind, size) {
+  const el = svg('svg.shape-glyph', {
+    viewBox: '0 0 40 40', width: size, height: size, 'aria-hidden': 'true',
+  });
+  el.appendChild(shapeGlyphAt(kind, 20, 20, 11));
+  return el;
+}
+
+// =================================================================== Flaggen
+
+/**
+ * Die Flaggen, die auf einer Yacht wirklich vorkommen.
+ *
+ * Das ganze Signalbuch hat vierzig Flaggen; die meisten davon sieht man nie.
+ * Hier stehen die, deren Bedeutung im Fahrwasser oder im Notfall zählt –
+ * gezeichnet statt als Bilddatei, damit sie auch ohne Verbindung da sind.
+ */
+function flagsView() {
+  return h('div',
+    h('div.notice', t('night.flagsIntro')),
+
+    ...SIGNAL_FLAGS.map((f) => h('div.card.flag-card',
+      flagGlyph(f),
+      h('div.grow',
+        h('div.row', { style: { gap: '8px', 'align-items': 'baseline' } },
+          h('h3', { style: { margin: 0 } }, f.key),
+          h('span.small.muted', f.name),
+        ),
+        h('p', { style: { margin: '4px 0 0' } }, en() ? f.meaningEn : f.meaning),
+      ),
+    )),
+
+    h('div.card',
+      h('h2', t('night.distressDay')),
+      h('p.small.muted', { style: { margin: '0 0 9px' } }, t('night.distressDayHint')),
+      h('ul.checklist.plain', ...DISTRESS_VISUAL.map((x) => h('li', en() ? x.en : x.de))),
+    ),
+  );
+}
+
+/** Eine Flagge als Zeichnung – Streifen, Felder, Schrägen. */
+function flagGlyph(f) {
+  const W = 60;
+  const H = 40;
+  const el = svg('svg.flag-view', {
+    viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `${f.key} – ${f.name}`,
+  });
+
+  const rect = (x, y, w, hgt, c) => el.appendChild(svg('rect', {
+    x, y, width: w, height: hgt, fill: c,
+  }));
+
+  if (f.shape === 'checker') {
+    // November: 16 Felder im Schachbrett, blau und weiß.
+    for (let row = 0; row < 4; row += 1) {
+      for (let col = 0; col < 4; col += 1) {
+        rect(col * W / 4, row * H / 4, W / 4, H / 4, f.bands[(row + col) % 2].c);
+      }
+    }
+  } else if (f.shape === 'diag') {
+    // Oscar: schräg geteilt, rot oben links, gelb unten rechts.
+    rect(0, 0, W, H, f.bands[1].c);
+    el.appendChild(svg('polygon', { points: `0,0 ${W},0 0,${H}`, fill: f.bands[0].c }));
+  } else if (f.shape === 'saltire') {
+    // Victor: rotes Andreaskreuz auf Weiß.
+    rect(0, 0, W, H, f.bands[0].c);
+    el.appendChild(svg('path', {
+      d: `M0 0 L${W} ${H} M${W} 0 L0 ${H}`,
+      stroke: f.bands[1].c, 'stroke-width': 11, fill: 'none',
+    }));
+  } else if (f.shape === 'swallow') {
+    // Alfa: weiß am Stock, blau mit Schwalbenschwanz.
+    rect(0, 0, W / 2, H, f.bands[0].c);
+    el.appendChild(svg('polygon', {
+      points: `${W / 2},0 ${W},0 ${W * 0.76},${H / 2} ${W},${H} ${W / 2},${H}`,
+      fill: f.bands[1].c,
+    }));
+  } else if (f.horizontal) {
+    let y = 0;
+    f.bands.forEach((b) => { rect(0, y, W, H * b.w / 100, b.c); y += H * b.w / 100; });
+  } else {
+    let x = 0;
+    f.bands.forEach((b) => { rect(x, 0, W * b.w / 100, H, b.c); x += W * b.w / 100; });
+  }
+
+  // Rahmen, damit eine weiße Flagge auf hellem Grund nicht verschwindet.
+  el.appendChild(svg('rect', {
+    x: 0.5, y: 0.5, width: W - 1, height: H - 1, class: 'flag-frame', fill: 'none',
+  }));
+  return el;
 }
 
 // ================================================================ Grundlagen

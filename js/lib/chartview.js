@@ -48,6 +48,11 @@ export function createChart({ collect, size = 'klein' }) {
   const note = h('div.chart-note');
 
   const state = { zoom: null, center: null };
+  // Der zuletzt gezeichnete Ausschnitt. Das Ziehen rechnet damit weiter,
+  // statt mit Werten, die beim Anhängen der Handler galten.
+  let shown = { z: 10, center: { lat: 54.5, lon: 10.2 } };
+  const pointers = new Map();
+  let dragStart = null;
   let objectUrls = [];
   let lastKey = null;
   // Zählt jede Neuzeichnung mit: Nachgeladene Kacheln aus einem alten
@@ -147,8 +152,10 @@ export function createChart({ collect, size = 'klein' }) {
       tileLayer(z, originX, originY, width, height, generation);
     }
 
+    // Was gerade gezeigt wird – das Ziehen rechnet damit weiter.
+    shown = { z, center };
+
     el.appendChild(overlay({ marks, track, leg, toXY, width, height, z, center }));
-    attachDrag(z, center);
   }
 
   // ----------------------------------------------------------------- Kacheln
@@ -399,46 +406,59 @@ export function createChart({ collect, size = 'klein' }) {
 
   // ------------------------------------------------------------ Verschieben
 
-  /** Ziehen mit einem Finger, Kneifen mit zweien. */
-  function attachDrag(z, center) {
-    const pointers = new Map();
-    let start = null;
-
-    const latLonAt = (dx, dy) => ({
-      lat: tileYToLat(latToTileY(center.lat, z) - dy / TILE, z),
-      lon: tileXToLon(lonToTileX(center.lon, z) - dx / TILE, z),
-    });
-
+  /**
+   * Ziehen mit einem Finger, Kneifen mit zweien.
+   *
+   * Einmal angehängt und nicht bei jeder Neuzeichnung neu: Der erste
+   * Fingerbreit Bewegung löst ein Neuzeichnen aus, und hinge das Ziehen an
+   * dieser Zeichnung, wäre danach ein frischer Satz Handler mit leerer
+   * Zeigerliste da – jede weitere Bewegung liefe ins Leere und die Karte
+   * klebte am Ausgangspunkt fest. Genau das war der Fall.
+   *
+   * Der Bezugspunkt kommt deshalb aus `shown`, das jede Zeichnung
+   * nachführt, statt aus geschlossenen Werten.
+   */
+  function attachDrag() {
     el.onpointerdown = (e) => {
       el.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pointers.size === 1) start = { x: e.clientX, y: e.clientY };
-      if (pointers.size === 2) start = { spread: spreadOf(pointers) };
+      if (pointers.size === 1) dragStart = { x: e.clientX, y: e.clientY };
+      if (pointers.size === 2) dragStart = { spread: spreadOf(pointers) };
     };
 
     el.onpointermove = (e) => {
       if (!pointers.has(e.pointerId)) return;
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const { z, center } = shown;
 
-      if (pointers.size === 1 && start && start.x !== undefined) {
-        const dx = e.clientX - start.x;
-        const dy = e.clientY - start.y;
+      if (pointers.size === 1 && dragStart && dragStart.x !== undefined) {
+        const dx = e.clientX - dragStart.x;
+        const dy = e.clientY - dragStart.y;
         if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
-        state.center = latLonAt(dx, dy);
+        state.center = {
+          lat: tileYToLat(latToTileY(center.lat, z) - dy / TILE, z),
+          lon: tileXToLon(lonToTileX(center.lon, z) - dx / TILE, z),
+        };
         state.zoom = z;
-        start = { x: e.clientX, y: e.clientY };
+        dragStart = { x: e.clientX, y: e.clientY };
         paint();
       }
 
-      if (pointers.size === 2 && start?.spread) {
+      if (pointers.size === 2 && dragStart?.spread) {
         const now = spreadOf(pointers);
-        if (now / start.spread > 1.6) { start = { spread: now }; zoomBy(1); } else if (now / start.spread < 0.62) { start = { spread: now }; zoomBy(-1); }
+        if (now / dragStart.spread > 1.6) {
+          dragStart = { spread: now };
+          zoomBy(1);
+        } else if (now / dragStart.spread < 0.62) {
+          dragStart = { spread: now };
+          zoomBy(-1);
+        }
       }
     };
 
     const end = (e) => {
       pointers.delete(e.pointerId);
-      if (pointers.size === 0) start = null;
+      if (pointers.size === 0) dragStart = null;
     };
     el.onpointerup = end;
     el.onpointercancel = end;
@@ -476,11 +496,15 @@ export function createChart({ collect, size = 'klein' }) {
     alive = false;
     generation += 1;
     releaseUrls();
+    pointers.clear();
+    dragStart = null;
     el.onpointerdown = null;
     el.onpointermove = null;
     el.onpointerup = null;
     el.onpointercancel = null;
   }
+
+  attachDrag();
 
   return { el, note, paint, fit, zoomBy, centerOn, destroy };
 }

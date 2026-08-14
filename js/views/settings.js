@@ -2,7 +2,8 @@
 
 import { h, render, copy, toast, keepAwake, isAwake, group } from '../lib/dom.js';
 import { settings } from '../lib/storage.js';
-import { applyTheme, themes } from '../lib/theme.js';
+import { gps } from '../lib/gps.js';
+import { applyTheme, applyAutoNight, sunsetHere, themes } from '../lib/theme.js';
 import { t, UI_LANGS, uiLang, locale } from '../lib/i18n.js';
 import {
   offlineState, onOfflineChange, checkReadiness, refreshOfflineCopy, formatBytes,
@@ -188,6 +189,41 @@ function boatCard(s) {
   );
 }
 
+/**
+ * Nachtmodus nach der Sonne.
+ *
+ * Eine feste Uhrzeit taugt dafür nicht: Im Juni ist es an der Ostsee um
+ * 22 Uhr noch hell, im Dezember um 17 Uhr längst dunkel. Gerechnet wird
+ * deshalb aus der eigenen Position – ohne Verbindung, ohne Dienst.
+ */
+function autoNightRow(s) {
+  const an = s.autoNight !== false;
+  const zeiten = sunsetHere(gps.fix ?? s.lastPos);
+
+  return group(t('set.autoNight'),
+    h('div.seg',
+      h('button', {
+        type: 'button',
+        'aria-pressed': String(an),
+        onclick: () => { settings.set('autoNight', true); applyAutoNight(gps.fix ?? s.lastPos); draw(); },
+      }, t('common.on')),
+      h('button', {
+        type: 'button',
+        'aria-pressed': String(!an),
+        onclick: () => { settings.update({ autoNight: false, nightAuto: false }); draw(); },
+      }, t('common.off')),
+    ),
+    !an
+      ? t('set.autoNightHint')
+      : (zeiten?.sunset
+        ? t('set.autoNightAt', {
+          sunset: zeiten.sunset.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' }),
+          from: new Date(zeiten.sunset.getTime() + 3600000)
+            .toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' }),
+        })
+        : t('set.autoNightNoFix')));
+}
+
 function displayCard(s) {
   const awake = isAwake();
   const themeList = themes();
@@ -220,13 +256,17 @@ function displayCard(s) {
           type: 'button',
           'aria-pressed': String(s.theme === th.key),
           onclick: () => {
-            settings.set('theme', th.key);
+            // Von Hand gewählt heißt: dabei bleiben. Die Sonne darf das
+            // nicht beim nächsten Öffnen wieder umwerfen.
+            settings.update({ theme: th.key, nightAuto: false });
             applyTheme();
             draw();
           },
         }, th.label)),
       ),
       themeList.find((th) => th.key === s.theme)?.hint ?? ''),
+
+    autoNightRow(s),
 
     group(t('set.brightness'),
       h('div.brightness-row',

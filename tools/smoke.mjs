@@ -387,10 +387,24 @@ const sprucheePos = await page.locator('.phrase-btn').first().evaluate(
 check('Aufnehmen steht über den Funksprüchen', kartenPos < sprucheePos,
   `Aufnahme bei ${Math.round(kartenPos)}, erster Spruch bei ${Math.round(sprucheePos)}`);
 
-await page.getByRole('button', { name: /Aufnehmen/ }).click();
-await page.waitForSelector('.rec-live', { timeout: 8000 })
+// Der Aufnahmeknopf ist ein Ring mit rotem Punkt – ein Zeichen, das keiner
+// Übersetzung bedarf – mit einer Zeile daneben, die sagt, wofür er gut ist.
+check('Der Aufnahmeknopf ist ein eigenes Zeichen',
+  await page.locator('.rec-trigger .rec-glyph').count() === 1);
+check('Er ist groß genug zum Treffen',
+  await page.locator('.rec-trigger').evaluate((el) => Math.round(el.getBoundingClientRect().width)) >= 44,
+  `${await page.locator('.rec-trigger').evaluate((el) => Math.round(el.getBoundingClientRect().width))} px`);
+check('Daneben steht, wofür er gut ist',
+  /mitschneiden/i.test(await page.locator('.rec-teaser').innerText()),
+  await page.locator('.rec-teaser').innerText());
+
+await page.locator('.rec-trigger').click();
+await page.waitForSelector('.rec-trigger.running', { timeout: 8000 })
   .catch(() => problems.push('Aufnahme startet nicht'));
-check('Aufnahme läuft', await page.locator('.rec-live').count() === 1);
+check('Aufnahme läuft', await page.locator('.rec-trigger.running').count() === 1);
+check('Und der Knopf sagt das auch',
+  (await page.locator('.rec-title').innerText()).includes('läuft'),
+  await page.locator('.rec-title').innerText());
 await page.waitForTimeout(1200);
 await page.getByRole('button', { name: /Beenden und speichern/ }).click();
 await page.waitForSelector('.rec-item', { timeout: 8000 })
@@ -419,6 +433,26 @@ page.once('dialog', (d) => d.accept());
 await page.locator('.rec-item').getByRole('button', { name: 'Aufnahme löschen' }).click();
 await page.waitForTimeout(400);
 check('Aufnahme wieder löschbar', await page.locator('.rec-item').count() === 0);
+
+// Die Verkehrswörter stehen in einer Tabelle, und die lief auf dem Telefon
+// rechts aus dem Bild – dorthin kommt man mit dem Daumen nicht.
+await page.locator('summary', { hasText: 'Verkehrswörter' }).click();
+await page.waitForTimeout(250);
+const tabelle = await page.locator('table.data').first().evaluate((el) => {
+  const b = el.getBoundingClientRect();
+  return {
+    rechts: Math.round(b.right),
+    breite: Math.round(b.width),
+    fenster: window.innerWidth,
+    ueberlauf: Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth),
+  };
+});
+check('Die Verkehrswörter bleiben im Bild',
+  tabelle.rechts <= tabelle.fenster, JSON.stringify(tabelle));
+check('Und die Seite lässt sich nicht seitwärts schieben',
+  tabelle.ueberlauf <= 1, `${tabelle.ueberlauf} px Überlauf`);
+await page.locator('summary', { hasText: 'Verkehrswörter' }).click();
+await page.waitForTimeout(150);
 
 // --- Positionsmodul --------------------------------------------------------
 await goTab(1);
@@ -464,6 +498,29 @@ check('Nachkommastellen haben ein eigenes Kästchen',
   || (await page.locator('.coord-check').innerText()).includes("26,5"),
   await page.locator('.coord-check').innerText());
 await page.locator('#coord-latDec').fill('');
+
+// Die Beispielwerte in den leeren Feldern dürfen nicht wie eingetragene
+// Werte aussehen – sonst rechnet man mit einer Position, die nie eingegeben
+// wurde.
+await page.locator('#coord-lonDec').fill('');
+const platzhalter = await page.locator('#coord-lonDec').evaluate((el) => {
+  const wert = getComputedStyle(el);
+  const halt = getComputedStyle(el, '::placeholder');
+  const zahl = (c) => (c.match(/[\d.]+/g) ?? []).map(Number);
+  return {
+    wertFarbe: zahl(wert.color).slice(0, 3),
+    haltFarbe: zahl(halt.color).slice(0, 3),
+    haltDeckung: Number(halt.opacity),
+    haltFett: halt.fontWeight,
+    wertFett: wert.fontWeight,
+  };
+});
+check('Der Platzhalter ist deutlich blasser als ein Wert',
+  platzhalter.haltDeckung <= 0.6, JSON.stringify(platzhalter));
+check('Und nicht fett wie ein Wert',
+  Number(platzhalter.haltFett) < Number(platzhalter.wertFett),
+  `Platzhalter ${platzhalter.haltFett}, Wert ${platzhalter.wertFett}`);
+await page.locator('#coord-lonDec').fill('4');
 
 // Unmögliche Werte werden gemeldet.
 await page.locator('#coord-latDeg').fill('95');
@@ -742,6 +799,43 @@ check('Kein Ein- und Ausschalten der Seekarte auf der Kartenseite',
 check('Die Bedienung liegt auf der Karte',
   await page.locator('.chart-frame .chart-controls .chart-btn').count() >= 4);
 
+// Ziehen muss die Karte wirklich verschieben – und zwar weiter als den einen
+// Fingerbreit, nach dem sie früher festklebte: Das Neuzeichnen hängte damals
+// frische Handler mit leerer Zeigerliste an, und jede weitere Bewegung lief
+// ins Leere.
+const kartenBox = await page.locator('.chart-gross').evaluate((el) => {
+  const b = el.getBoundingClientRect();
+  return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+});
+const vorherMitte = await page.evaluate(() => {
+  const g = document.querySelector('.chart-mark.own');
+  if (!g) return null;
+  const b = g.getBoundingClientRect();
+  return Math.round(b.left + b.width / 2);
+});
+await page.mouse.move(kartenBox.x, kartenBox.y);
+await page.mouse.down();
+// In vielen kleinen Schritten, so wie ein Finger es täte.
+for (let i = 1; i <= 12; i += 1) {
+  // eslint-disable-next-line no-await-in-loop
+  await page.mouse.move(kartenBox.x - i * 8, kartenBox.y);
+  // eslint-disable-next-line no-await-in-loop
+  await page.waitForTimeout(30);
+}
+await page.mouse.up();
+await page.waitForTimeout(600);
+const nachherMitte = await page.evaluate(() => {
+  const g = document.querySelector('.chart-mark.own');
+  if (!g) return null;
+  const b = g.getBoundingClientRect();
+  return Math.round(b.left + b.width / 2);
+});
+check('Die Karte lässt sich vom eigenen Standort wegziehen',
+  vorherMitte !== null && nachherMitte !== null && vorherMitte - nachherMitte > 40,
+  `eigene Position von ${vorherMitte} nach ${nachherMitte} px`);
+await page.getByRole('button', { name: 'Alles zeigen' }).click().catch(() => {});
+await page.waitForTimeout(400);
+
 // Vollbild: Die Karte legt sich über alles und lässt sich wieder schließen.
 const vollbildKnopf = page.getByRole('button', { name: 'Karte im Vollbild' });
 check('Es gibt einen Knopf für das Vollbild', await vollbildKnopf.count() === 1);
@@ -935,6 +1029,69 @@ await shot('05c-tonnen');
 await page.getByRole('button', { name: 'Grundlagen' }).click();
 check('Grundlagen zeigen die Tragweiten',
   await page.getByText('Tragweiten', { exact: false }).count() > 0);
+
+// --- Tagfahrt: dieselbe Sache, andere Mittel -------------------------------
+// Ein Fahrzeug sagt bei Tag und bei Nacht dasselbe, nur mit anderen Zeichen.
+// Deshalb liegen beide in einem Bereich und werden oben umgeschaltet.
+check('Der Bereich heißt nicht mehr nur Nachtfahrt',
+  (await page.locator('.topbar h1').innerText()).includes('Lichter & Zeichen'),
+  await page.locator('.topbar h1').innerText());
+check('Oben steht der Umschalter für Tag und Nacht',
+  await page.locator('button[data-mode="tag"]').count() === 1);
+
+await page.locator('button[data-mode="tag"]').click();
+await page.waitForSelector('.light-card', { timeout: 10000 });
+check('Bei Tage gibt es die Signalkörper',
+  await page.getByRole('button', { name: 'Signalkörper' }).count() === 1);
+check('Und die Lichter-Reiter sind weg',
+  await page.getByRole('button', { name: 'Lichter', exact: true }).count() === 0);
+
+const koerper = await page.locator('.light-card').count();
+check('Die Signalkörper sind gelistet', koerper >= 10, `${koerper} Karten`);
+check('Jede Karte hat eine Zeichnung',
+  await page.locator('.day-view').count() === koerper,
+  `${await page.locator('.day-view').count()} Zeichnungen bei ${koerper} Karten`);
+check('Der Kegel für die Maschinenfahrt ist dabei',
+  (await page.locator('main').innerText()).includes('Segelfahrzeug unter Maschine'));
+check('Und der Ankerball',
+  (await page.locator('main').innerText()).includes('Fahrzeug vor Anker'));
+
+// Suchen nach dem, was man sieht – nicht nach dem Namen des Fahrzeugs.
+await page.getByRole('button', { name: 'Ball', exact: true }).first().click();
+await page.waitForTimeout(300);
+await page.getByRole('button', { name: 'Drei Körper', exact: true }).click();
+await page.waitForTimeout(300);
+const dreiBaelle = await page.locator('.light-card').count();
+check('Die Suche nach Form und Anzahl grenzt ein',
+  dreiBaelle > 0 && dreiBaelle < koerper, `${dreiBaelle} von ${koerper}`);
+check('Drei Bälle führen zum Fahrzeug auf Grund',
+  (await page.locator('main').innerText()).includes('auf Grund'),
+  (await page.locator('main').innerText()).split('\n').filter((l) => /Fahrzeug/.test(l)).join(' | '));
+await page.getByRole('button', { name: /Filter zurücksetzen|Alles zeigen|zurücksetzen/ }).first().click()
+  .catch(() => {});
+await page.waitForTimeout(300);
+await shot('05d-signalkoerper');
+
+await page.getByRole('button', { name: 'Flaggen' }).click();
+await page.waitForSelector('.flag-card');
+const flaggen = await page.locator('.flag-card').count();
+check('Die Flaggen sind gezeichnet, nicht beschrieben', flaggen >= 8, `${flaggen} Flaggen`);
+check('Jede Flagge hat ihr Bild',
+  await page.locator('.flag-view').count() === flaggen);
+check('Alfa steht für den Taucher',
+  (await page.locator('main').innerText()).includes('Taucher unten'));
+check('Die Notzeichen bei Tage stehen auch hier',
+  (await page.locator('main').innerText()).includes('Orangefarbenes Rauchsignal'));
+await shot('05e-flaggen');
+
+// Schall und Grundlagen gelten bei Tag wie bei Nacht und bleiben deshalb da.
+check('Schall bleibt in beiden Betriebsarten',
+  await page.getByRole('button', { name: 'Schall' }).count() === 1);
+
+await page.locator('button[data-mode="nacht"]').click();
+await page.waitForTimeout(300);
+check('Und zurück zur Nachtfahrt',
+  await page.getByRole('button', { name: 'Lichter', exact: true }).count() === 1);
 
 // --- Logbuch ---------------------------------------------------------------
 await goTab(4);
@@ -1211,7 +1368,7 @@ longWaveOnly(nightColors.accent, 'Akzent');
 // Zurück auf die Lichterliste: Dort zeigt sich, ob die Schemabilder im
 // Nachtmodus gedämpft werden, statt mit Weiß und Grün zu blenden.
 await page.evaluate(() => window.scrollTo(0, 0));
-await page.getByRole('button', { name: 'Lichter' }).click();
+await page.getByRole('button', { name: 'Lichter', exact: true }).click();
 await page.waitForSelector('.light-view');
 const dimmed = await page.locator('.light-view').first().evaluate((el) => getComputedStyle(el).filter);
 check('Nachtmodus dämpft die Lichterschemata', /brightness\(0?\.\d+\)/.test(dimmed), dimmed);
@@ -1544,11 +1701,114 @@ await shot('07-settings-en');
 // Funkspruchsprache blieb davon unberührt (steht noch auf Deutsch).
 await goTab(0);
 await page.waitForSelector('.phrase-btn');
+// Die Trennlinie verläuft zwischen Sprechen und Lesen: Der Sprechtext steht
+// in der Sprache der Funksprüche (hier weiter Deutsch), Name, Beschreibung
+// und Ablauf in der der Oberfläche (jetzt Englisch). Wer die Menüs auf
+// Englisch führt, sucht auch die Beschreibung auf Englisch – auch dann, wenn
+// er gleich Deutsch sprechen wird.
 const firstPhrase = await page.locator('.phrase-btn').first().innerText();
-check('Funksprüche unabhängig von der Oberflächensprache',
-  firstPhrase.includes('MAYDAY – Notruf'), firstPhrase.replace(/\n/g, ' | '));
+check('Die Beschreibung folgt der Oberflächensprache',
+  firstPhrase.includes('distress call'), firstPhrase.replace(/\n/g, ' | '));
+await page.locator('.phrase-btn').first().click();
+await page.waitForSelector('.script');
+check('Der Sprechtext bleibt in der Sprache der Funksprüche',
+  (await page.locator('.script').innerText()).includes('HIER IST'),
+  (await page.locator('.script').innerText()).split('\n').slice(0, 3).join(' | '));
+check('Und der Ablauf daneben ist in der Oberflächensprache',
+  (await page.locator('main').innerText()).includes('Notes and procedure'),
+  (await page.locator('main').innerText()).split('\n')
+    .filter((l) => /Notes and procedure|Hinweise und Ablauf/.test(l)).join(' | '));
+await page.getByRole('button', { name: 'Back' }).first().click();
+await page.waitForTimeout(200);
 // Kein Zurückschalten nötig: Die Funkspruchsprache steht noch auf Deutsch,
 // und der Umschalter dafür sitzt inzwischen in der Kopfzeile.
+
+// --- Nachtmodus nach der Sonne ---------------------------------------------
+// Eine feste Uhrzeit taugt dafür nicht: Im Juni ist es an der Ostsee um
+// 22 Uhr noch hell, im Dezember um 17 Uhr längst dunkel. Geprüft wird gegen
+// die gerechnete Zeit am eigenen Ort, nicht gegen die Uhr.
+const sonne = await page.evaluate(async () => {
+  const { sunTimes, isDark } = await import('./js/lib/sun.js');
+  const heute = new Date();
+  const { sunset, sunrise } = sunTimes(heute, 54.5, 10.27);
+  return {
+    untergang: sunset.toISOString(),
+    aufgang: sunrise.toISOString(),
+    kurzDanach: isDark(new Date(sunset.getTime() + 10 * 60000), 54.5, 10.27),
+    spaeter: isDark(new Date(sunset.getTime() + 61 * 60000), 54.5, 10.27),
+    vorAufgang: isDark(new Date(sunrise.getTime() - 30 * 60000), 54.5, 10.27),
+  };
+});
+check('Die Sonnenzeiten werden ohne Verbindung gerechnet',
+  /^\d{4}-/.test(sonne.untergang), JSON.stringify(sonne));
+check('Zehn Minuten nach Sonnenuntergang ist es noch nicht dunkel',
+  sonne.kurzDanach === false);
+check('Eine Stunde danach schon', sonne.spaeter === true);
+check('Und vor dem Sonnenaufgang ebenfalls', sonne.vorAufgang === true);
+
+// Der Schalter dafür steht in den Einstellungen und lässt sich abschalten.
+await goTab(5);
+await page.waitForSelector('.card');
+// Die Oberfläche steht an dieser Stelle auf Englisch.
+check('Der automatische Nachtmodus lässt sich einstellen',
+  (await page.locator('main').innerText()).includes('Night mode by the sun'),
+  (await page.locator('main').innerText()).split('\n').filter((l) => /sun|Sonne/.test(l)).join(' | '));
+check('Und nennt den heutigen Sonnenuntergang',
+  /Sunset today at \d/.test(await page.locator('main').innerText()),
+  (await page.locator('main').innerText()).split('\n').filter((l) => /Sunset/.test(l)).join(' | '));
+
+// Voreingestellt an – und was von Hand gesetzt wurde, wirft er nicht um.
+check('Voreingestellt ist er an',
+  await page.evaluate(() => JSON.parse(localStorage.getItem('sailing-buddy')).autoNight) !== false);
+// Die Zeit wird dabei vorgegeben, damit die Prüfung nicht davon abhängt,
+// wann sie läuft – gerechnet wird trotzdem mit derselben Rechnung wie im
+// Betrieb.
+const umgestellt = await page.evaluate(async () => {
+  const { settings } = await import('./js/lib/storage.js');
+  const { applyAutoNight, applyTheme } = await import('./js/lib/theme.js');
+  const { sunTimes } = await import('./js/lib/sun.js');
+  const hier = { lat: 54.5, lon: 10.27 };
+  const { sunset, sunrise } = sunTimes(new Date(), hier.lat, hier.lon);
+
+  settings.update({ theme: 'light', nightAuto: false, autoNight: true });
+  applyTheme();
+  const vorher = document.documentElement.getAttribute('data-theme');
+
+  // Zehn Minuten nach Sonnenuntergang: noch zu hell für Rot auf Schwarz.
+  applyAutoNight(hier, new Date(sunset.getTime() + 10 * 60000));
+  const kurzDanach = document.documentElement.getAttribute('data-theme');
+
+  // Zwei Stunden danach: dunkel.
+  applyAutoNight(hier, new Date(sunset.getTime() + 120 * 60000));
+  const nachts = document.documentElement.getAttribute('data-theme');
+
+  // Am nächsten Mittag wieder zurück – und zwar dorthin, wo es vorher stand.
+  applyAutoNight(hier, new Date(sunrise.getTime() + 240 * 60000));
+  const tags = document.documentElement.getAttribute('data-theme');
+
+  // Von Hand gesetzt: Das wirft die Sonne nicht um.
+  settings.update({ theme: 'night', nightAuto: false });
+  applyTheme();
+  applyAutoNight(hier, new Date(sunrise.getTime() + 240 * 60000));
+  const vonHand = document.documentElement.getAttribute('data-theme');
+
+  return { vorher, kurzDanach, nachts, tags, vonHand };
+});
+check('Kurz nach Sonnenuntergang bleibt es noch hell',
+  umgestellt.kurzDanach === 'light', JSON.stringify(umgestellt));
+check('Bei Dunkelheit schaltet er von selbst in den Nachtmodus',
+  umgestellt.nachts === 'night', JSON.stringify(umgestellt));
+check('Bei Tag geht es dorthin zurück, wo es vorher stand',
+  umgestellt.tags === 'light', JSON.stringify(umgestellt));
+check('Von Hand gesetzter Nachtmodus bleibt unangetastet',
+  umgestellt.vonHand === 'night', JSON.stringify(umgestellt));
+
+await page.evaluate(async () => {
+  const { settings } = await import('./js/lib/storage.js');
+  const { applyTheme } = await import('./js/lib/theme.js');
+  settings.update({ theme: 'night', nightAuto: false });
+  applyTheme();
+});
 
 // --- Helligkeit ------------------------------------------------------------
 await goTab(5);
@@ -1615,7 +1875,7 @@ check('Schiffsdaten überstehen den Kaltstart',
   (await coldPage.locator('.boat-tag').innerText().catch(() => '')).includes('SEEBÄR'));
 
 // Auch die Module müssen ohne Netz vollständig da sein.
-await coldPage.getByRole('button', { name: 'MAYDAY – Notruf' }).click();
+await coldPage.locator('.phrase-btn').first().click();
 check('Funkspruch offline vollständig',
   (await coldPage.locator('.script').innerText()).includes('MAYDAY SEEBÄR'));
 await coldPage.locator('nav.tabs button').nth(3).click();

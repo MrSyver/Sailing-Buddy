@@ -18,6 +18,9 @@ const DEFAULTS = {
   // Anzeige
   theme: 'dark',       // 'light' | 'dark' | 'night'
   themeBefore: '',     // wohin der Nachtmodus-Schalter zurückführt
+  autoNight: true,     // Nachtmodus ab einer Stunde nach Sonnenuntergang
+  nightAuto: false,    // steht der Nachtmodus gerade wegen der Sonne?
+  lastPos: null,       // zuletzt bekannte Position – für die Sonnenrechnung beim Start
   brightness: 100,     // 40…100 – zusätzlicher Dimmer für die Nacht
   uiLang: 'de',        // Sprache der gesamten Oberfläche: 'de' | 'en'
   phraseLang: 'de',    // Sprache nur der Funksprüche: 'de' | 'en'
