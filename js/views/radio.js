@@ -6,9 +6,10 @@
  * vorgelesen wird. Umgeschaltet wird hier im Modul, oben über der Liste.
  */
 
-import { h, render, copy } from '../lib/dom.js';
+import { h, render, copy, toast } from '../lib/dom.js';
 import { settings, waypoints } from '../lib/storage.js';
 import { gps } from '../lib/gps.js';
+import { logbook } from '../lib/logbook.js';
 import { formatPosition, formatSpoken } from '../lib/geo.js';
 import { t, uiLang, locale } from '../lib/i18n.js';
 import {
@@ -461,6 +462,25 @@ function detail(wrap, phrase) {
         onclick: () => copy(formatSpoken(v.positionRaw, lang), t('radio.copiedPosition')),
       }, t('radio.copyDigits')),
     ));
+
+    // Ein abgesetzter Not- oder Dringlichkeitsruf gehört ins Logbuch, mit
+    // Zeit und Position. Bewusst als eigener Griff und nicht beim Kopieren:
+    // Text in die Zwischenablage zu legen heißt nicht, ihn gesprochen zu
+    // haben, und ein Logbuch, das Dinge behauptet, ist keins.
+    if (phrase.level === 'distress' || phrase.level === 'urgency') {
+      parts.push(h('button.btn.block', {
+        type: 'button',
+        style: { 'margin-bottom': '12px' },
+        onclick: () => {
+          const entry = logbook.add({
+            kind: 'manual',
+            event: 'distress',
+            note: localized(phrase, 'title', uiLang()),
+          });
+          toast(entry ? t('radio.logged') : t('radio.logNoFix'));
+        },
+      }, t('radio.logIt')));
+    }
   } else {
     // Funksprüche ohne Sprechtext (etwa der DSC-Ablauf) zeigen den Titel oben.
     parts.push(h('div.card', { lang },
