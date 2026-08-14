@@ -7,6 +7,7 @@
  */
 
 import { h, svg, render, copy, toast, fit } from '../lib/dom.js';
+import { createChart } from '../lib/chartview.js';
 import { settings, waypoints } from '../lib/storage.js';
 import { gps, GPS_STATUS_KEY } from '../lib/gps.js';
 import { t, locale, uiLang, num } from '../lib/i18n.js';
@@ -26,16 +27,105 @@ const state = {
   error: null,
   raw: '',           // nur für das Einfügen aus einer Nachricht
   showSpoken: false, // eigene Position ausgeschrieben zum Vorlesen
+  showChart: false,  // Karte als Beigabe zum Kompass, auf Knopfdruck
 };
 
 let container = null;
+let chart = null;
 
 export function view(root) {
   container = h('div');
   render(root, container);
   draw();
   const off = gps.onUpdate(() => draw());
-  return () => { off(); container = null; };
+  return () => {
+    off();
+    chart?.destroy();
+    chart = null;
+    container = null;
+  };
+}
+
+/**
+ * Was auf der kleinen Karte steht: die eigene Position, das Ziel, die
+ * gemerkten Positionen. Ohne Spur – hier geht es um das Hinkommen, nicht um
+ * das Gewesene.
+ */
+function chartPoints() {
+  const marks = [];
+  const fix = gps.fix;
+  if (fix) {
+    marks.push({
+      kind: 'own', lat: fix.lat, lon: fix.lon, name: t('map.own'), heading: fix.heading,
+    });
+  }
+  if (state.target) {
+    marks.push({
+      kind: 'target',
+      lat: state.target.lat,
+      lon: state.target.lon,
+      name: state.targetName || t('pos.target'),
+    });
+  }
+  waypoints.list().forEach((wp) => {
+    // Das Ziel steht schon da – nicht doppelt zeichnen.
+    if (state.target
+      && Math.abs(state.target.lat - wp.lat) < 1e-9
+      && Math.abs(state.target.lon - wp.lon) < 1e-9) return;
+    marks.push({
+      kind: wp.kind === 'mob' ? 'mob' : 'wp', lat: wp.lat, lon: wp.lon, name: wp.name,
+    });
+  });
+  return { marks, track: [] };
+}
+
+/**
+ * Die Karte neben dem Kompass.
+ *
+ * Der Kompass sagt, wohin – die Karte, wo das im Verhältnis zum Übrigen
+ * liegt. Beides zusammen beantwortet mehr als jedes für sich, aber die Karte
+ * ist die Beigabe: Sie kommt erst auf Knopfdruck und bleibt danach an.
+ */
+function chartCard() {
+  const card = h('div.card');
+
+  const knopf = h('button.btn.block', {
+    type: 'button',
+    'aria-pressed': String(state.showChart),
+    onclick: () => { state.showChart = !state.showChart; draw(); },
+  }, state.showChart ? t('pos.chartHide') : t('pos.chartShow'));
+
+  if (!state.showChart) {
+    chart?.destroy();
+    chart = null;
+    return h('div.card', knopf);
+  }
+
+  chart?.destroy();
+  chart = createChart({ collect: chartPoints, size: 'klein' });
+
+  card.append(
+    knopf,
+    h('div.chart-frame', { style: { 'margin-top': '10px' } },
+      chart.el,
+      h('div.chart-controls',
+        h('button.chart-btn', {
+          type: 'button', 'aria-label': t('map.zoomIn'), onclick: () => chart.zoomBy(1),
+        }, '＋'),
+        h('button.chart-btn', {
+          type: 'button', 'aria-label': t('map.zoomOut'), onclick: () => chart.zoomBy(-1),
+        }, '－'),
+        h('button.chart-btn', {
+          type: 'button',
+          'aria-label': t('map.fitAll'),
+          title: t('map.fitAll'),
+          onclick: () => chart.fit(),
+        }, '⤢'),
+      ),
+    ),
+    chart.note,
+  );
+  return card;
 }
 
 /** Missweisung, Ablenkung und Geschwindigkeit aus den Einstellungen. */
@@ -56,13 +146,47 @@ function draw() {
   const nav = fix && state.target ? solve(fix, state.target, opts) : null;
 
   render(container,
+    // Ganz oben und ohne Umweg: Wer die Seite aufschlägt, weil jemand über
+    // Bord ist, darf nicht erst scrollen müssen.
+    mobCard(fix),
     ownPosition(fix),
     targetInput(),
     // Eigener Container, damit sich das Ergebnis beim Tippen auffrischen lässt,
     // ohne die Eingabefelder neu zu bauen.
     h('div', { id: 'nav-result' }, nav ? result(nav, opts) : hintCard(fix)),
-    waypointList(fix, opts),
+    chartCard(),
+    // Eigener Container: Beim Tippen ändert sich, welcher Eintrag gerade das
+    // Ziel ist – das muss mitziehen, ohne die Eingabefelder neu zu bauen.
+    h('div', { id: 'wp-slot' }, waypointList(fix, opts)),
     navSettings(s),
+  );
+
+  // Erst nach dem Einhängen zeichnen: Vorher hat die Fläche keine Größe.
+  chart?.paint();
+}
+
+// --------------------------------------------------------- Mensch über Bord
+
+/**
+ * Die MOB-Taste steht allein und ganz oben.
+ *
+ * Sie ist die einzige Taste dieser App, bei der Sekunden zählen, und sie
+ * gehört deshalb weder in eine Liste noch unter eine Überschrift. Die
+ * gemerkte Position erscheint direkt darunter und bleibt dort – unter den
+ * gemerkten Zielen taucht sie bewusst nicht noch einmal auf, sonst sucht man
+ * im Ernstfall in zwei Listen.
+ */
+function mobCard(fix) {
+  return h('div.card.mob-card',
+    h('button.btn.danger.block.mob-btn', {
+      type: 'button',
+      disabled: !fix,
+      onclick: () => markMob(fix),
+    }, t('pos.mob')),
+
+    !fix && h('p.small.muted', { style: { margin: '9px 0 0' } }, t('pos.mobNeedsFix')),
+
+    h('div', { id: 'mob-slot' }, mobRow()),
   );
 }
 
@@ -117,15 +241,6 @@ function ownPosition(fix) {
         state.showSpoken && h('div.spoken-position', { style: { 'margin-top': '9px' } },
           formatSpoken(fix, settings.get('phraseLang') === 'en' ? 'en' : 'de')),
 
-        h('button.btn.danger.block', {
-          type: 'button',
-          style: { 'margin-top': '12px' },
-          onclick: () => markMob(fix),
-        }, t('pos.mob')),
-
-        // Die gemerkte MOB-Position steht direkt unter der Taste und lässt
-        // sich jederzeit wieder als Ziel setzen.
-        h('div', { id: 'mob-slot' }, mobRow()),
       )
       : h('div.empty',
         h('p', { style: { margin: '0 0 10px' } }, t(GPS_STATUS_KEY[status] ?? 'gps.none')),
@@ -396,9 +511,14 @@ function updateResultOnly() {
     error.style.display = state.error ? '' : 'none';
   }
 
-  // Die MOB-Zeile zeigt an, ob sie gerade das Ziel ist – das ändert sich mit.
+  // Die MOB-Zeile und die gemerkten Ziele zeigen an, welcher Eintrag gerade
+  // das Ziel ist. Das ändert sich beim Tippen mit und muss mitziehen – sonst
+  // steht dort „Ist Ziel“ an einem Eintrag, der es längst nicht mehr ist.
   const mobSlot = container.querySelector('#mob-slot');
   if (mobSlot) render(mobSlot, mobRow());
+
+  const wpSlot = container.querySelector('#wp-slot');
+  if (wpSlot) render(wpSlot, waypointList(fix, opts));
 }
 
 // ----------------------------------------------------------- Rechenergebnis
@@ -608,7 +728,8 @@ function compassRose(bearing, heading, relative) {
 // ---------------------------------------------------------------- Wegpunkte
 
 function waypointList(fix, opts) {
-  const list = waypoints.list();
+  // Die MOB-Position steht oben bei ihrer Taste und nirgends sonst.
+  const list = waypoints.list().filter((wp) => wp.kind !== 'mob');
   if (!list.length) return null;
 
   return h('div.card',
@@ -617,10 +738,11 @@ function waypointList(fix, opts) {
       h('button.btn.small', {
         type: 'button',
         onclick: () => {
-          if (confirm(t('pos.confirmClear'))) {
-            waypoints.clear();
-            draw();
-          }
+          if (!confirm(t('pos.confirmClear'))) return;
+          // Nur die Ziele – die gemerkte MOB-Position bleibt, die hat mit
+          // dieser Liste nichts zu tun.
+          list.forEach((wp) => waypoints.remove(wp.id));
+          draw();
         },
       }, t('common.deleteAll')),
     ),
@@ -631,7 +753,7 @@ function waypointList(fix, opts) {
         && Math.abs(state.target.lon - wp.lon) < 1e-9;
       return h('div.wp-item',
         h('div.grow',
-          h('div.wp-name', wp.kind === 'mob' ? `⚑ ${wp.name}` : wp.name),
+          h('div.wp-name', wp.name),
           h('div.wp-pos', formatPosition(wp, 2)),
         ),
         nav && h('div.wp-dist',

@@ -15,7 +15,7 @@
  * funktioniert (etwa unter …github.io/Sailing-Buddy/).
  */
 
-const VERSION = 'v10';
+const VERSION = 'v11';
 const CACHE = `sailing-buddy-${VERSION}`;
 
 const ASSETS = [
@@ -28,6 +28,7 @@ const ASSETS = [
   './js/lib/geo.js',
   './js/lib/gps.js',
   './js/lib/audio.js',
+  './js/lib/chartview.js',
   './js/lib/i18n.js',
   './js/lib/logbook.js',
   './js/lib/mbtiles.js',

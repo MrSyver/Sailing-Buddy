@@ -17,6 +17,7 @@ const DEFAULTS = {
   phone: '',
   // Anzeige
   theme: 'dark',       // 'light' | 'dark' | 'night'
+  themeBefore: '',     // wohin der Nachtmodus-Schalter zurückführt
   brightness: 100,     // 40…100 – zusätzlicher Dimmer für die Nacht
   uiLang: 'de',        // Sprache der gesamten Oberfläche: 'de' | 'en'
   phraseLang: 'de',    // Sprache nur der Funksprüche: 'de' | 'en'

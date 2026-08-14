@@ -46,10 +46,28 @@ export function applyTheme() {
   }
 }
 
-/** Schnellumschalter in der Kopfzeile: dunkel ⇄ Nacht. */
+/**
+ * Schnellumschalter in der Kopfzeile: Nachtmodus an und wieder aus.
+ *
+ * Beim Einschalten wird gemerkt, wo man herkam, und beim Ausschalten geht es
+ * genau dorthin zurück. Vorher landete jeder wieder im dunklen Schema – wer
+ * tagsüber im hellen unterwegs war und nachts kurz nachsah, saß danach im
+ * Dunkeln, ohne etwas geändert zu haben.
+ */
 export function toggleNight() {
   const current = settings.get('theme');
-  settings.set('theme', current === 'night' ? 'dark' : 'night');
+
+  if (current !== 'night') {
+    settings.update({ themeBefore: current, theme: 'night' });
+    applyTheme();
+    return settings.get('theme');
+  }
+
+  const back = settings.get('themeBefore');
+  settings.update({
+    theme: THEME_KEYS.includes(back) && back !== 'night' ? back : 'dark',
+    themeBefore: '',
+  });
   applyTheme();
   return settings.get('theme');
 }

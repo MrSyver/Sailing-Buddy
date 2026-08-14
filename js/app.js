@@ -87,6 +87,18 @@ function topbarContent() {
       tab ? t(tab.title) : t('app.name'),
       s.boat && h('span.boat-tag', s.boat, s.mmsi ? ` · MMSI ${s.mmsi}` : ''),
     ),
+    // Sprache der Funksprüche: klein und immer erreichbar. Sie wird im
+    // Ernstfall gewechselt, nicht beim Einrichten – dann zählt jeder Griff.
+    h('button.icon-btn.lang-btn', {
+      type: 'button',
+      title: t('radio.phraseLang'),
+      'aria-label': `${t('radio.phraseLang')}: ${s.phraseLang === 'en' ? 'English' : 'Deutsch'}`,
+      onclick: () => {
+        settings.set('phraseLang', s.phraseLang === 'en' ? 'de' : 'en');
+        updateTopbar();
+      },
+    }, s.phraseLang === 'en' ? 'EN' : 'DE'),
+
     h('button.icon-btn', {
       type: 'button',
       title: t('night.toggle'),

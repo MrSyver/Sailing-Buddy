@@ -6,7 +6,7 @@
  * vorgelesen wird. Umgeschaltet wird hier im Modul, oben über der Liste.
  */
 
-import { h, render, copy, group } from '../lib/dom.js';
+import { h, render, copy } from '../lib/dom.js';
 import { settings, waypoints } from '../lib/storage.js';
 import { gps } from '../lib/gps.js';
 import { formatPosition, formatSpoken } from '../lib/geo.js';
@@ -84,8 +84,19 @@ export function view(root) {
 
   // Bei neuem GPS-Fix die Position im offenen Funkspruch nachziehen.
   const off = gps.onUpdate(() => { if (openId) draw(wrap); });
+
+  // Die Sprache der Funksprüche wird oben in der Kopfzeile umgeschaltet –
+  // dieses Modul muss davon erfahren, egal wer sie ändert.
+  let letzteSprache = phraseLang();
+  const offSettings = settings.onChange(() => {
+    if (phraseLang() === letzteSprache) return;
+    letzteSprache = phraseLang();
+    draw(wrap);
+  });
+
   return () => {
     off();
+    offSettings();
     // Eine laufende Aufnahme nicht heimlich weiterlaufen lassen.
     if (recording.active) recording.cancel();
     clearInterval(recTimer);
@@ -96,19 +107,6 @@ export function view(root) {
 function draw(wrap) {
   const phrase = openId ? PHRASES.find((p) => p.id === openId) : null;
   render(wrap, phrase ? detail(wrap, phrase) : list(wrap));
-}
-
-/** Umschalter für die Sprache der Funksprüche. */
-function langSwitch(wrap) {
-  const lang = phraseLang();
-  const btn = (code, label) => h('button', {
-    type: 'button',
-    'aria-pressed': String(lang === code),
-    onclick: () => { settings.set('phraseLang', code); draw(wrap); },
-  }, label);
-  const el = group(t('radio.phraseLang'), h('div.seg', btn('de', 'Deutsch'), btn('en', 'English')));
-  el.style.marginBottom = '0';
-  return el;
 }
 
 // ---------------------------------------------------------------- Übersicht
@@ -125,7 +123,9 @@ function list(wrap) {
     ));
   }
 
-  parts.push(h('div.card', langSwitch(wrap)));
+  // Aufnehmen steht vor den Funksprüchen: Eine hereinkommende Meldung ist
+  // schneller vorbei, als man den Reiter findet.
+  parts.push(recorderCard(wrap));
 
   parts.push(h('h2.section', t('radio.heading')));
   parts.push(h('div.phrase-list', ...PHRASES.map((p) => h('button.phrase-btn', {
@@ -140,9 +140,6 @@ function list(wrap) {
   ),
   h('span', localized(p, 'short', lang)),
   ))));
-
-  parts.push(h('h2.section', t('radio.recordings')));
-  parts.push(recorderCard(wrap));
 
   parts.push(h('h2.section', t('radio.reference')));
   parts.push(foldout(t('radio.ref.spelling'), spellingTable(), true));
@@ -224,9 +221,8 @@ function recorderCard(wrap) {
   const active = recording.active;
 
   const startStop = h('button', {
-    class: active ? 'btn danger block' : 'btn primary block',
+    class: active ? 'btn danger grow' : 'btn primary grow',
     type: 'button',
-    style: { 'min-height': '58px', 'font-size': '1.05rem' },
     onclick: async () => {
       recError = null;
       if (recording.active) {
@@ -256,35 +252,33 @@ function recorderCard(wrap) {
     },
   }, active ? t('radio.recStop') : t('radio.recStart'));
 
-  return h('div.card',
-    h('p.small.muted', { style: { margin: '0 0 10px' } }, t('radio.recHint')),
+  return h('div.card.rec-card',
+    h('div.row',
+      startStop,
+      active && h('button.btn.small', {
+        type: 'button',
+        onclick: () => {
+          clearInterval(recTimer);
+          recTimer = null;
+          recording.cancel();
+          draw(wrap);
+        },
+      }, t('radio.recDiscard')),
+    ),
 
-    active && h('div.rec-live',
+    active && h('div.rec-live', { style: { 'margin-top': '9px', 'margin-bottom': 0 } },
       h('span.rec-dot', { 'aria-hidden': 'true' }),
       h('span.grow', t('radio.recRunning')),
       h('span.mono', { id: 'rec-elapsed' }, formatSeconds(recording.elapsed())),
     ),
 
-    startStop,
-
-    active && h('button.btn.small.block', {
-      type: 'button',
-      style: { 'margin-top': '8px' },
-      onclick: () => {
-        clearInterval(recTimer);
-        recTimer = null;
-        recording.cancel();
-        draw(wrap);
-      },
-    }, t('radio.recDiscard')),
-
     recError && h('p.small', { style: { color: 'var(--danger)', margin: '9px 0 0' } }, recError),
 
-    recList.length > 0 && h('div', { style: { 'margin-top': '12px' } },
+    recList.length > 0 && h('div', { style: { 'margin-top': '10px' } },
       ...recList.map((rec) => recordingRow(wrap, rec)),
       h('button.btn.small.block', {
         type: 'button',
-        style: { 'margin-top': '10px' },
+        style: { 'margin-top': '8px' },
         onclick: async () => {
           if (!confirm(t('radio.recConfirmClear'))) return;
           await recordings.clear();
@@ -293,19 +287,66 @@ function recorderCard(wrap) {
         },
       }, t('radio.recDeleteAll')),
     ),
-
-    !active && recList.length === 0
-      && h('p.small.muted', { style: { margin: '10px 0 0' } }, t('radio.recEmpty')),
   );
 }
 
+/**
+ * Eine gespeicherte Aufnahme mit eigenem Abspieler.
+ *
+ * Bewusst nicht die Bordmittel des Browsers: Deren Regler ist klein, und ohne
+ * vorher geladene Datei kennt Safari die Länge nicht – dann lässt sich gar
+ * nicht spulen. Die Länge steht hier aber ohnehin im Speicher, also wird ein
+ * eigener Regler gebaut, der von Anfang an funktioniert und groß genug für
+ * nasse Finger ist.
+ */
 function recordingRow(wrap, rec) {
   const url = URL.createObjectURL(rec.blob);
-  const audio = h('audio', {
-    controls: true,
-    preload: 'none',
-    src: url,
-    style: { width: '100%', 'margin-top': '7px' },
+  const audio = h('audio', { preload: 'metadata', src: url });
+  const dauer = () => (Number.isFinite(audio.duration) && audio.duration > 0
+    ? audio.duration
+    : Math.max(1, rec.seconds || 1));
+
+  const stelle = h('input.rec-seek', {
+    type: 'range',
+    min: '0',
+    max: '1000',
+    value: '0',
+    step: '1',
+    'aria-label': t('radio.recSeek'),
+    oninput: (e) => {
+      audio.currentTime = (Number(e.target.value) / 1000) * dauer();
+      zeit.textContent = formatSeconds(Math.round(audio.currentTime));
+    },
+  });
+
+  const zeit = h('span.rec-time.mono', formatSeconds(0));
+  const gesamt = h('span.rec-time.mono.muted', formatSeconds(rec.seconds));
+
+  const spielen = h('button.btn.small.rec-play', {
+    type: 'button',
+    'aria-label': t('radio.recPlay'),
+    onclick: () => {
+      if (audio.paused) audio.play().catch(() => {});
+      else audio.pause();
+    },
+  }, '▶');
+
+  const zeichen = () => { spielen.textContent = audio.paused ? '▶' : '❚❚'; };
+  audio.addEventListener('play', zeichen);
+  audio.addEventListener('pause', zeichen);
+  audio.addEventListener('ended', () => {
+    stelle.value = '0';
+    zeit.textContent = formatSeconds(0);
+    zeichen();
+  });
+  audio.addEventListener('timeupdate', () => {
+    stelle.value = String(Math.round((audio.currentTime / dauer()) * 1000));
+    zeit.textContent = formatSeconds(Math.round(audio.currentTime));
+  });
+  audio.addEventListener('loadedmetadata', () => {
+    if (Number.isFinite(audio.duration) && audio.duration > 0) {
+      gesamt.textContent = formatSeconds(Math.round(audio.duration));
+    }
   });
 
   const when = new Date(rec.ts).toLocaleString(locale(), {
@@ -316,7 +357,7 @@ function recordingRow(wrap, rec) {
     h('div.row',
       h('div.grow',
         h('div.rec-name', rec.name || t('radio.recUnnamed')),
-        h('div.small.muted.mono', `${when} · ${formatSeconds(rec.seconds)}`),
+        h('div.small.muted.mono', when),
       ),
       h('button.btn.small', {
         type: 'button',
@@ -334,6 +375,7 @@ function recordingRow(wrap, rec) {
         'aria-label': t('radio.recDelete'),
         onclick: async () => {
           if (!confirm(t('radio.recConfirmDelete'))) return;
+          audio.pause();
           URL.revokeObjectURL(url);
           await recordings.remove(rec.id);
           recList = await recordings.list();
@@ -341,7 +383,8 @@ function recordingRow(wrap, rec) {
         },
       }, '✕'),
     ),
-    audio,
+
+    h('div.rec-player', spielen, zeit, stelle, gesamt, audio),
   );
 }
 
@@ -358,25 +401,12 @@ function detail(wrap, phrase) {
   const v = values(phrase);
   const parts = [];
 
-  // --- Kopfzeile: Zurück und Sprachumschalter -------------------------------
+  // --- Kopfzeile: nur zurück. Die Sprache sitzt oben in der Titelleiste. -----
   parts.push(h('div.row', { style: { 'margin-bottom': '10px' } },
     h('button.btn.small', {
       type: 'button',
       onclick: () => { openId = null; draw(wrap); window.scrollTo(0, 0); },
     }, t('common.back')),
-    h('div.grow'),
-    h('div.seg', { style: { width: '150px' } },
-      h('button', {
-        type: 'button',
-        'aria-pressed': String(lang === 'de'),
-        onclick: () => { settings.set('phraseLang', 'de'); draw(wrap); },
-      }, 'Deutsch'),
-      h('button', {
-        type: 'button',
-        'aria-pressed': String(lang === 'en'),
-        onclick: () => { settings.set('phraseLang', 'en'); draw(wrap); },
-      }, 'English'),
-    ),
   ));
 
   // --- Der Funkspruch, direkt darunter --------------------------------------
