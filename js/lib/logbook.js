@@ -28,6 +28,7 @@
 
 import { gps } from './gps.js';
 import { greatCircleDistance, norm360 } from './geo.js';
+import { isDark } from './sun.js';
 
 const KEY = 'sailing-buddy-log';
 const MAX_ENTRIES = 5000;
@@ -619,6 +620,8 @@ export function stats(track) {
     avgSog: speeds.avg,
     maxSog: speeds.max,
     engineSeconds: engineTime(track),
+    nightDistance: nightDistance(track),
+    engineDistance: engineDistance(track),
     days: dailyRuns(track).length,
     events: track.filter((e) => e.event).length,
   };
@@ -649,6 +652,47 @@ export function engineTime(track) {
     sum += Math.max(0, track[track.length - 1].ts - seit);
   }
   return sum / 1000;
+}
+
+/**
+ * Wie viele der Meilen lagen bei Nacht?
+ *
+ * Für eine Meilenbestätigung ist das eine eigene Zahl, und sie lässt sich
+ * nicht schätzen: Gerechnet wird Teilstück für Teilstück, ob die Sonne zur
+ * Mitte des Stücks an dessen Ort unter dem Horizont stand.
+ *
+ * Ohne den Zuschlag, mit dem der Nachtmodus rechnet: Der wartet eine Stunde,
+ * bis Rot auf Schwarz angenehm wird. Nachtmeilen zählen ab Sonnenuntergang.
+ */
+export function nightDistance(track) {
+  let sum = 0;
+  for (let i = 1; i < track.length; i += 1) {
+    const a = track[i - 1];
+    const b = track[i];
+    const mitte = new Date((a.ts + b.ts) / 2);
+    if (isDark(mitte, (a.lat + b.lat) / 2, (a.lon + b.lon) / 2, 0)) {
+      sum += greatCircleDistance(a, b);
+    }
+  }
+  return sum;
+}
+
+/**
+ * Wie viele der Meilen lagen unter Maschine?
+ *
+ * Aus denselben Ereignissen wie die Motorstunden. Wer eine Bestätigung
+ * unterschreibt, will wissen, wie viel davon gesegelt wurde – und wer sie
+ * vorlegt, sollte es nicht verschweigen müssen, sondern belegen können.
+ */
+export function engineDistance(track) {
+  let sum = 0;
+  let laeuft = false;
+  for (let i = 1; i < track.length; i += 1) {
+    if (track[i - 1].event === 'engineOn') laeuft = true;
+    if (track[i - 1].event === 'engineOff') laeuft = false;
+    if (laeuft) sum += greatCircleDistance(track[i - 1], track[i]);
+  }
+  return sum;
 }
 
 /** Höchste und mittlere Fahrt über Grund entlang der Spur. */

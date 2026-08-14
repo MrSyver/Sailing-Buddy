@@ -1332,6 +1332,62 @@ check('Die Tabelle führt das Wetter mit',
   csvText.split('\n')[0].includes('wind_bft') && /"SW"/.test(csvText),
   csvText.split('\n')[0]);
 
+// --- Meilenbestätigung -----------------------------------------------------
+// Ein Blatt, das jemand unterschreibt: Die Zahlen darauf kommen aus dem
+// Logbuch und nirgends sonst, und ohne Namen wird gar keins ausgestellt.
+await page.locator('summary', { hasText: 'Meilenbestätigung' }).click();
+await page.waitForTimeout(250);
+check('Die Bestätigung fragt nach zwei Namen',
+  await page.getByText('Für wen ist die Bestätigung?').count() === 1
+  && await page.getByText('Wer bestätigt?').count() === 1);
+
+// Ohne Namen darf nichts entstehen.
+await page.locator('#miles-make').click();
+await page.waitForTimeout(400);
+check('Ohne Namen wird keine ausgestellt',
+  (await page.locator('.toast').innerText()).includes('Ohne Namen'),
+  await page.locator('.toast').innerText());
+
+const milesFelder = page.locator('.foldout', { hasText: 'Meilenbestätigung' }).locator('input');
+await milesFelder.nth(0).fill('Änne Muster');
+await milesFelder.nth(1).fill('Moritz Skipper');
+const [milesDatei] = await Promise.all([
+  page.waitForEvent('download'),
+  page.locator('#miles-make').click(),
+]);
+check('Die Bestätigung kommt als PDF heraus',
+  /\.pdf$/.test(milesDatei.suggestedFilename()), milesDatei.suggestedFilename());
+// Ohne Umlaut im Dateinamen, und zwar aus Not: Chromium wirft den Namen
+// weg, sobald ein Zeichen über 127 darin steht, und lädt die Datei als
+// „download“ herunter. Wer Änne heißt, bekäme ein Blatt ohne Namen.
+check('Und trägt den Namen im Dateinamen',
+  /^Meilen-Aenne-Muster-/.test(milesDatei.suggestedFilename()),
+  milesDatei.suggestedFilename());
+check('Der Dateiname kommt ohne Sonderzeichen aus',
+  [...milesDatei.suggestedFilename()].every((ch) => ch.codePointAt(0) < 128),
+  milesDatei.suggestedFilename());
+
+const pdfRoh = readFileSync(await milesDatei.path());
+const pdfText = pdfRoh.toString('latin1');
+check('Die Datei ist ein PDF', pdfText.startsWith('%PDF-1.4'), pdfText.slice(0, 20));
+check('Und sie ist vollständig', pdfText.trimEnd().endsWith('%%EOF'),
+  pdfText.slice(-30).replace(/\n/g, '\\n'));
+check('Die Namen stehen darin',
+  pdfText.includes('\u00c4nne Muster') && pdfText.includes('Moritz Skipper'));
+check('Das Schiff steht darin', pdfText.includes('SEEB\u00c4R'));
+check('Und die Zeile für die Unterschrift',
+  pdfText.includes('Unterschrift des Schiffsf\u00fchrers'));
+check('Die Meilen stehen als Zahl darauf',
+  /\(\d+,\d\)/.test(pdfText), 'keine Zahl mit Dezimalkomma gefunden');
+
+// Der Byteversatz in der Querverweistabelle muss stimmen – sonst öffnet
+// mancher Betrachter die Datei, mancher nicht.
+const startxref = Number(pdfText.match(/startxref\n(\d+)\n/)[1]);
+check('Die Querverweistabelle liegt, wo sie soll',
+  pdfText.slice(startxref, startxref + 4) === 'xref',
+  `bei ${startxref} steht "${pdfText.slice(startxref, startxref + 8)}"`);
+await shot('06c-meilenbestaetigung');
+
 // --- Sicherung -------------------------------------------------------------
 // Das Logbuch liegt im Speicher des Browsers, und den wirft iOS bei
 // Platzmangel weg. Ohne Sicherung ist dann die Saison fort.

@@ -18,6 +18,7 @@ import { settings } from '../lib/storage.js';
 import { t, locale, num } from '../lib/i18n.js';
 import { formatPosition, formatDuration, formatLat, formatLon } from '../lib/geo.js';
 import { shareFile, stamped } from '../lib/share.js';
+import { buildMilesPdf } from '../lib/miles.js';
 import {
   logbook, trackDistance, projectTrack, niceScaleStep, dailyRuns, stats,
   toGpx, toCsv, LOG_INTERVALS, LOG_EVENTS, WIND_DIRECTIONS, VISIBILITY_STEPS,
@@ -35,6 +36,16 @@ let noteDraft = '';
  */
 let scope = {};
 let showWeather = false;
+/**
+ * Die Angaben für die Meilenbestätigung.
+ *
+ * Sie stehen im Modul und nicht im Speicher: Eine Bestätigung wird für
+ * jemanden ausgestellt, und wessen Name da zuletzt stand, geht die nächste
+ * nichts an.
+ */
+const miles = {
+  person: '', role: '', area: '', skipper: '', qualification: '', place: '',
+};
 
 export function view(root) {
   container = h('div');
@@ -719,6 +730,8 @@ function outputCard(track) {
       }, t('log.backupSave')),
     ),
 
+    milesBlock(track, s),
+
     h('label.field', { style: { 'margin-top': '10px', 'margin-bottom': 0 } },
       h('span', t('log.restore')),
       h('input.pack-file', {
@@ -741,6 +754,95 @@ function outputCard(track) {
       h('span.hint', t('log.restoreHint')),
     ),
   );
+}
+
+/**
+ * Die Meilenbestätigung.
+ *
+ * Zwei Namen genügen, um sie auszustellen: für wen sie ist und wer sie
+ * unterschreibt. Alles andere steht schon im Logbuch oder ist freiwillig.
+ * Die Zahlen kommen aus dem gewählten Ausschnitt – wer eine Etappe angezeigt
+ * hat, bestätigt die Etappe.
+ */
+function milesBlock(track, s) {
+  const feld = (key, label, hint, placeholder) => h('label.field',
+    h('span', label),
+    h('input', {
+      value: miles[key],
+      placeholder,
+      autocapitalize: 'words',
+      oninput: (e) => { miles[key] = e.target.value; },
+    }),
+    hint && h('span.hint', hint),
+  );
+
+  return h('details.foldout', { style: { 'margin-top': '18px', 'margin-bottom': 0 } },
+    h('summary', t('log.miles')),
+    h('div',
+      h('p.small.muted', { style: { 'margin-top': 0 } }, t('log.milesHint')),
+
+      feld('person', t('log.milesPerson'), t('log.milesPersonHint'), ''),
+      feld('skipper', t('log.milesSkipper'), t('log.milesSkipperHint'), ''),
+
+      h('details.foldout', { style: { 'margin-bottom': '12px' } },
+        h('summary', t('log.milesMore')),
+        h('div',
+          feld('role', t('log.milesRole'), null, t('log.milesRolePlaceholder')),
+          feld('area', t('log.milesArea'), null, t('log.milesAreaPlaceholder')),
+          feld('qualification', t('log.milesQual'), null, t('log.milesQualPlaceholder')),
+          feld('place', t('log.milesPlace'), null, ''),
+        ),
+      ),
+
+      h('button.btn.primary.block', {
+        type: 'button',
+        id: 'miles-make',
+        onclick: () => makeMiles(track, s),
+      }, t('log.milesMake')),
+
+      h('p.small.muted', { style: { margin: '10px 0 0' } }, t('log.milesDisclaimer')),
+    ),
+  );
+}
+
+async function makeMiles(track, s) {
+  if (!track.length) { toast(t('log.emptyTrack')); return; }
+  if (!miles.person.trim()) { toast(t('log.milesNeedsPerson')); return; }
+
+  const bytes = buildMilesPdf({
+    track,
+    boat: {
+      name: s.boat, callsign: s.callsign, mmsi: s.mmsi, loa: s.loa, homeport: s.homeport,
+    },
+    person: miles.person.trim(),
+    skipper: miles.skipper.trim(),
+    qualification: miles.qualification.trim(),
+    area: miles.area.trim() || scopeName(),
+    role: miles.role.trim(),
+    place: miles.place.trim() || s.homeport || '',
+    locale: locale(),
+    texte: milesTexts(),
+  });
+  if (!bytes) { toast(t('log.emptyTrack')); return; }
+
+  try {
+    const name = stamped(`Meilen ${miles.person.trim()}`, 'pdf');
+    const art = await shareFile(name, 'application/pdf', bytes);
+    if (art !== 'abgebrochen') toast(t(art === 'geteilt' ? 'log.shared' : 'log.downloaded'));
+  } catch (err) {
+    toast(t('log.shareFailed', { v: err.message }));
+  }
+}
+
+/** Alle Beschriftungen des Dokuments – das PDF-Modul übersetzt nicht selbst. */
+function milesTexts() {
+  const keys = [
+    'title', 'subtitle', 'sectionPerson', 'person', 'role', 'area', 'sectionBoat',
+    'boatName', 'boatCallsign', 'boatLoa', 'boatHome', 'sectionTrip', 'from', 'to',
+    'milesTotal', 'milesNight', 'milesEngine', 'daysAboard', 'daysUnit', 'numbersHint',
+    'declarationHead', 'declaration', 'skipper', 'placeDate', 'signature', 'footer',
+  ];
+  return Object.fromEntries(keys.map((k) => [k, t(`miles.${k}`)]));
 }
 
 function asText(track, s) {

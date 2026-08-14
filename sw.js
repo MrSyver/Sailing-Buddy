@@ -15,7 +15,7 @@
  * funktioniert (etwa unter …github.io/Sailing-Buddy/).
  */
 
-const VERSION = 'v17';
+const VERSION = 'v18';
 const CACHE = `sailing-buddy-${VERSION}`;
 
 const ASSETS = [
@@ -34,6 +34,8 @@ const ASSETS = [
   './js/lib/mbtiles.js',
   './js/lib/offline.js',
   './js/lib/packs.js',
+  './js/lib/pdf.js',
+  './js/lib/miles.js',
   './js/lib/recorder.js',
   './js/lib/share.js',
   './js/lib/sqlite.js',

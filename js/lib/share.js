@@ -52,11 +52,33 @@ export async function shareFile(filename, mime, text) {
   return 'geladen';
 }
 
+/**
+ * Umlaute und Zeichen mit Strichen in reine Buchstaben.
+ *
+ * Nicht aus Prinzip, sondern weil es sonst nicht funktioniert: Steht in einem
+ * Dateinamen ein „Ä“, wirft Chromium den Namen weg und lädt die Datei als
+ * „download“ herunter. Wer Änne heißt, bekäme also ein Blatt ohne Namen –
+ * und ein Dateiname, der zwischen iPhone, Mail und dem Rechner der Schule
+ * unterwegs ist, ist mit reinen Buchstaben ohnehin besser bedient.
+ */
+function nurBuchstaben(s) {
+  return String(s)
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
+    .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue')
+    .replace(/ß/g, 'ss')
+    // Alles Übrige mit Strichen, Häkchen und Ringen auf den Grundbuchstaben
+    // zurückführen: aus „é“ wird „e“, aus „å“ wird „a“.
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 /** Ein Dateiname mit Datum, damit sich mehrere nicht überschreiben. */
 export function stamped(base, ext, when = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
   const tag = `${when.getFullYear()}-${p(when.getMonth() + 1)}-${p(when.getDate())}`;
   const zeit = `${p(when.getHours())}${p(when.getMinutes())}`;
-  const sauber = String(base).replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '') || 'logbuch';
+  const sauber = nurBuchstaben(base)
+    .replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'logbuch';
   return `${sauber}-${tag}-${zeit}.${ext}`;
 }
