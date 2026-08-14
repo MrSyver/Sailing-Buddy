@@ -108,6 +108,19 @@ function draw() {
       ...tabs.map((key) => tabBtn(key, t(TAB_LABEL[key]))),
     ),
 
+    // Die Suche steht über den Reitern, nicht in einem davon.
+    //
+    // Was man sieht, hat keinen Reiter: Ein grünes Funkelfeuer kann ein
+    // Fahrzeug sein oder eine Tonne, und bei Tage weiß man ebensowenig, ob
+    // der schwarze Kegel an einem Mast hängt oder auf einer Tonne steht.
+    // Deshalb gilt dieselbe Auswahl für alle Reiter, in denen es etwas zu
+    // sehen gibt – und sie bleibt beim Umschalten stehen.
+    //
+    // Eingeklappt, weil sie meistens nicht gebraucht wird: Wer nachschlägt,
+    // blättert; wer sucht, klappt auf. In der Zeile steht dabei, wie viele
+    // Merkmale gerade gesetzt sind – sonst filterte sie im Verborgenen.
+    filterBar(),
+
     state.tab === 'lichter' ? lightsView()
       : state.tab === 'tonnen' ? buoysView()
         : state.tab === 'koerper' ? shapesView()
@@ -115,6 +128,51 @@ function draw() {
             : state.tab === 'schall' ? soundsView()
               : basicsView(),
   );
+}
+
+/** In welchen Reitern gibt es überhaupt etwas zu filtern? */
+const FILTERBAR = {
+  nacht: ['lichter', 'tonnen'],
+  tag: ['koerper', 'tonnen', 'schilder'],
+};
+
+/** Ob die Suche gerade aufgeklappt ist – über Reiterwechsel hinweg. */
+let sucheOffen = false;
+
+/** Die gewählten Merkmale der laufenden Betriebsart. */
+const facetsOf = () => (state.mode === 'tag' ? state.dayFacets : state.facets);
+
+/**
+ * Die Suche über den Reitern.
+ *
+ * Nachts sind es die Lichtmerkmale, bei Tage die der Signalkörper – dieselbe
+ * Zeile, zwei Sätze Merkmale. Wo es nichts zu filtern gibt (Schall,
+ * Grundlagen), steht sie gar nicht erst da: Ein Schalter, der an zwei von
+ * vier Stellen nichts tut, lehrt einen, ihn zu übersehen.
+ */
+function filterBar() {
+  if (!FILTERBAR[state.mode].includes(state.tab)) return null;
+  const gewaehlt = facetsOf().size;
+
+  return h('details.foldout.filter-bar', {
+    open: sucheOffen,
+    style: { 'margin-bottom': '14px' },
+    ontoggle: (e) => { sucheOffen = e.target.open; },
+  },
+  h('summary',
+    t('night.searchOpen'),
+    gewaehlt > 0 && h('span.rule', { style: { 'margin-left': '8px' } },
+      t('night.searchActive', { n: gewaehlt })),
+  ),
+  h('div',
+    h('p.small.muted', { style: { margin: '0 2px 10px' } }, t('night.searchHint')),
+    state.mode === 'tag' ? dayFacetGroups() : facetCard(),
+    gewaehlt > 0 && h('button.btn.small.block', {
+      type: 'button',
+      style: { 'margin-top': '4px' },
+      onclick: () => { facetsOf().clear(); draw(); },
+    }, t('night.resetFilter')),
+  ));
 }
 
 function modeBtn(key, label) {
@@ -145,44 +203,11 @@ const en = () => uiLang() === 'en';
 // ================================================================== Lichter
 
 function lightsView() {
-  const active = [...state.facets];
   // Fahrzeuge und Seezeichen stehen immer zusammen in einer Liste – nachts
   // weiß man nicht, ob da ein Schiff fährt oder eine Tonne liegt.
   const found = searchAll(state.facets, state.category);
 
   return h('div',
-    h('div.notice', t('night.searchHint')),
-
-    active.length > 0 && h('div.card',
-      h('div.row.wrap', { style: { gap: '7px' } },
-        h('span.small.muted', { style: { width: '100%' } }, t('night.activeFilter')),
-        ...active.map((key) => {
-          const facet = LIGHT_FACETS.find((f) => f.key === key);
-          return h('button.chip', {
-            type: 'button',
-            'aria-pressed': 'true',
-            onclick: () => { state.facets.delete(key); draw(); },
-          },
-          facet?.kind === 'color'
-            && h('span.swatch', { style: { background: LIGHT_COLORS[key].hex } }),
-          `${en() ? facet?.labelEn : facet?.label} ✕`);
-        }),
-        h('button.chip', {
-          type: 'button',
-          onclick: () => { state.facets.clear(); draw(); },
-        }, t('night.resetFilter')),
-      ),
-    ),
-
-    // Die Merkmale stehen offen da, wie bei Tage auch.
-    //
-    // Vorher lagen sie hinter einem Knopf und einem Blatt, das sich über den
-    // Schirm legte. Der Gedanke war, nachts große Flächen zum Zielen zu
-    // bieten; in Wahrheit waren es zwei Griffe mehr für dieselbe Frage, und
-    // die Antwort stand hinter dem Blatt, das man erst wegschieben musste.
-    // Jetzt tippt man ein Merkmal an und sieht darunter sofort, was bleibt.
-    facetCard(),
-
     h('div.filter-chips', { style: { 'margin-bottom': '12px' } },
       ...LIGHT_CATEGORIES.map((c) => h('button.chip', {
         type: 'button',
@@ -451,14 +476,28 @@ function hull(el, aspect) {
 
 function buoysView() {
   const byDay = state.mode === 'tag';
+  // Dieselbe Auswahl wie in den anderen Reitern – nachts nach dem Licht, bei
+  // Tage nach Farbe und Form der Tonne.
+  const passt = (b) => (byDay
+    ? matchesDayFacets({ traits: buoyDayTraits(b) }, state.dayFacets)
+    : matchesFacets(b, state.facets));
+  const gefiltert = facetsOf().size > 0;
+  const gruppen = BUOY_GROUPS
+    .map((group) => ({ group, tonnen: BUOYS.filter((b) => b.group === group.key && passt(b)) }))
+    .filter((g) => g.tonnen.length);
+
   return h('div',
     h('div.notice', byDay ? t('night.buoyIntroDay') : t('night.buoyIntro')),
 
-    ...BUOY_GROUPS.map((group) => h('div',
+    gefiltert && h('p.small.muted', { style: { margin: '0 4px 10px' } },
+      t('night.buoyCount', { n: gruppen.reduce((s, g) => s + g.tonnen.length, 0) })),
+
+    gefiltert && gruppen.length === 0 && h('div.card', h('div.empty', t('night.noMatch'))),
+
+    ...gruppen.map(({ group, tonnen }) => h('div',
       h('h2.section', loc(group, 'label')),
       h('p.small.muted', { style: { margin: '0 4px 9px' } }, loc(group, 'hint')),
-      ...BUOYS.filter((b) => b.group === group.key)
-        .map((b) => buoyCard(b, false, state.mode === 'tag')),
+      ...tonnen.map((b) => buoyCard(b, gefiltert, byDay)),
     )),
 
     !byDay && h('div.card',
@@ -540,11 +579,16 @@ function signsView() {
   return h('div',
     h('div.notice', t('night.signsIntro')),
 
-    ...SIGN_GROUPS.map((g) => h('div',
-      h('h2.section', en() ? g.labelEn : g.label),
-      h('p.small.muted', { style: { margin: '0 4px 9px' } }, en() ? g.hintEn : g.hint),
-      ...WATER_SIGNS.filter((x) => x.group === g.key).map((x) => signCard(x)),
-    )),
+    ...SIGN_GROUPS.map((g) => {
+      const tafeln = WATER_SIGNS.filter((x) => x.group === g.key
+        && matchesDayFacets({ traits: signDayTraits(x) }, state.dayFacets));
+      if (!tafeln.length) return null;
+      return h('div',
+        h('h2.section', en() ? g.labelEn : g.label),
+        h('p.small.muted', { style: { margin: '0 4px 9px' } }, en() ? g.hintEn : g.hint),
+        ...tafeln.map((x) => signCard(x, state.dayFacets.size > 0)),
+      );
+    }),
 
     h('div.card',
       h('h2', t('night.distressDay')),
@@ -835,8 +879,30 @@ async function playSound(s, speed) {
  * schwarze Körper an einem Mast und will wissen, was sie bedeuten – nicht,
  * wie das Fahrzeug heißt.
  */
+/** Die Merkmale der Signalkörper, nach Gruppen – für die Suche über den Reitern. */
+function dayFacetGroups() {
+  return h('div',
+    ...DAY_FACET_GROUPS.map((g) => h('div', { style: { 'margin-bottom': '10px' } },
+      h('div.small.muted', { style: { 'margin-bottom': '6px' } }, en() ? g.labelEn : g.label),
+      h('div.filter-chips',
+        ...DAY_FACETS.filter((f) => f.kind === g.kind).map((f) => h('button.chip', {
+          type: 'button',
+          'data-facet': f.key,
+          'aria-pressed': String(state.dayFacets.has(f.key)),
+          onclick: () => {
+            if (state.dayFacets.has(f.key)) state.dayFacets.delete(f.key);
+            else state.dayFacets.add(f.key);
+            draw();
+          },
+        },
+        f.kind === 'color' && h('span.swatch', { style: { background: BUOY_COLORS[f.key] } }),
+        en() ? f.labelEn : f.label)),
+      ),
+    )),
+  );
+}
+
 function shapesView() {
-  const active = [...state.dayFacets];
   // Wie nachts die Lichter: Fahrzeuge, Seezeichen und Tafeln stehen in einer
   // Liste. Man sieht bei Tage etwas Schwarzes, Rotes oder Gelbes und weiß
   // gerade nicht, ob da ein Fahrzeug fährt, eine Tonne liegt oder eine Tafel
@@ -862,47 +928,6 @@ function shapesView() {
 
   return h('div',
     h('div.notice', t('night.shapesIntro')),
-
-    active.length > 0 && h('div.card',
-      h('div.row.wrap', { style: { gap: '7px' } },
-        h('span.small.muted', { style: { width: '100%' } }, t('night.activeFilter')),
-        ...active.map((key) => {
-          const facet = DAY_FACETS.find((f) => f.key === key);
-          return h('button.chip', {
-            type: 'button',
-            'aria-pressed': 'true',
-            onclick: () => { state.dayFacets.delete(key); draw(); },
-          },
-          facet?.kind === 'color' && h('span.swatch', { style: { background: BUOY_COLORS[key] } }),
-          `${en() ? facet?.labelEn : facet?.label} ✕`);
-        }),
-        h('button.chip', {
-          type: 'button',
-          onclick: () => { state.dayFacets.clear(); draw(); },
-        }, t('night.resetFilter')),
-      ),
-    ),
-
-    // Die Merkmale stehen offen da statt hinter einem Knopf: Es sind wenige,
-    // und bei Tage hat man die Ruhe, sie zu lesen.
-    h('div.card',
-      ...DAY_FACET_GROUPS.map((g) => h('div', { style: { 'margin-bottom': '10px' } },
-        h('div.small.muted', { style: { 'margin-bottom': '6px' } }, en() ? g.labelEn : g.label),
-        h('div.filter-chips',
-          ...DAY_FACETS.filter((f) => f.kind === g.kind).map((f) => h('button.chip', {
-            type: 'button',
-            'aria-pressed': String(state.dayFacets.has(f.key)),
-            onclick: () => {
-              if (state.dayFacets.has(f.key)) state.dayFacets.delete(f.key);
-              else state.dayFacets.add(f.key);
-              draw();
-            },
-          },
-          f.kind === 'color' && h('span.swatch', { style: { background: BUOY_COLORS[f.key] } }),
-          en() ? f.labelEn : f.label)),
-        ),
-      )),
-    ),
 
     h('div.filter-chips', { style: { 'margin-bottom': '12px' } },
       ...DAY_CATEGORIES.map((c) => h('button.chip', {

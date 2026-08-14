@@ -1069,14 +1069,15 @@ await shot('05e-ansichten');
 
 await firstCard.locator('.aspect-seg button[data-aspect="bow"]').click();
 
-// Die Merkmale stehen offen da – kein Knopf, kein Blatt darüber.
-//
-// Vorher lagen sie hinter „Was sehe ich?“ und einem Blatt, das sich über den
-// Schirm legte: zwei Griffe mehr für dieselbe Frage, und die Antwort stand
-// hinter dem Blatt, das man erst wegschieben musste.
-check('Kein Knopf mehr vor der Lichtersuche',
-  await page.getByRole('button', { name: /Was sehe ich|Lichter suchen/ }).count() === 0);
-check('Die Merkmale stehen offen da',
+// Die Suche steht über den Reitern und ist eingeklappt: Wer nachschlägt,
+// blättert; wer sucht, klappt auf.
+check('Die Suche steht über den Reitern',
+  await page.locator('.filter-bar').count() === 1);
+check('Und ist zunächst eingeklappt',
+  !(await page.locator('.filter-bar').first().evaluate((el) => el.open)));
+await page.locator('.filter-bar summary').first().click();
+await page.waitForTimeout(350);
+check('Aufgeklappt stehen die Merkmale da',
   await page.locator('.chip[data-facet]').count() > 8,
   `${await page.locator('.chip[data-facet]').count()} Merkmale`);
 check('Und zwar nach Gruppen geordnet, wie bei Tage',
@@ -1103,8 +1104,8 @@ await shot('05b-lights');
 
 // Seezeichen müssen in derselben Suche auftauchen – nachts weiß man ja
 // gerade nicht, ob da ein Schiff fährt oder eine Tonne liegt.
-await page.locator('.chip', { hasText: 'zurücksetzen' }).first().click();
-await page.waitForTimeout(200);
+await page.locator('.filter-bar').getByRole('button', { name: /zurücksetzen/ }).click();
+await page.waitForTimeout(250);
 await page.locator('.chip[data-facet="w"]').click();
 await page.waitForTimeout(200);
 await page.locator('.chip[data-facet="quick"]').click();
@@ -1118,8 +1119,9 @@ check('Gefundenes Seezeichen ist das Südzeichen',
   (await page.locator('main').innerText()).includes('Südzeichen'));
 await shot('05d-suche-tonne');
 
-await page.locator('.chip', { hasText: 'zurücksetzen' }).first().click();
-check('Filter lässt sich im Reiter zurücksetzen',
+await page.locator('.filter-bar').getByRole('button', { name: /zurücksetzen/ }).click();
+await page.waitForTimeout(250);
+check('Filter lässt sich zurücksetzen',
   await page.locator('.light-card').count() === cardsAll,
   `${await page.locator('.light-card').count()} von ${cardsAll}`);
 await page.getByRole('button', { name: 'Schall' }).click();
@@ -1230,9 +1232,14 @@ await shot('05e-flaggen');
 // --- Farben im Filter: Tonnen und Tafeln kommen dazu -----------------------
 // Bei Tage ist die Farbe das Erste, was man sieht. Wer nach Rot sucht, will
 // nicht nur schwarze Signalkörper angeboten bekommen.
-await page.locator('[data-filter], .filter-chips').first().waitFor();
-const farbe = page.locator('.card').filter({ hasText: 'Welche Farbe?' })
-  .getByRole('button', { name: 'Rot', exact: true });
+// Die Suche steht auch bei Tage über den Reitern und ist eingeklappt.
+check('Auch bei Tage steht die Suche über den Reitern',
+  await page.locator('.filter-bar').count() === 1);
+if (!(await page.locator('.filter-bar').first().evaluate((el) => el.open))) {
+  await page.locator('.filter-bar summary').first().click();
+  await page.waitForTimeout(350);
+}
+const farbe = page.locator('.filter-bar .chip[data-facet="r"]');
 check('Der Filter fragt zuerst nach der Farbe', await farbe.count() === 1);
 check('Und zeigt den Farbtupfer dazu',
   await farbe.locator('.swatch').count() === 1);
@@ -1249,12 +1256,24 @@ check('Bei Tage steht bei der Tonne die Farbfolge statt der Kennung',
   !/Ununterbrochen funkelnd/.test(rotText),
   rotText.split('\n').filter((l) => /funkelnd/.test(l)).join(' | '));
 
-await page.locator('.card').filter({ hasText: 'Welche Farbe?' })
-  .getByRole('button', { name: 'Schwarz', exact: true }).click();
+await page.locator('.filter-bar .chip[data-facet="b"]').click();
 await page.waitForTimeout(400);
 check('Zwei Farben grenzen weiter ein',
   await page.locator('.light-card, .sign-card').count() > 0);
-await page.getByRole('button', { name: /Filter zurücksetzen|zurücksetzen/ }).first().click()
+
+// Die Auswahl gilt über die Reiter hinweg: Was man sieht, hat keinen Reiter.
+await page.getByRole('button', { name: 'Tonnen', exact: true }).click();
+await page.waitForTimeout(400);
+check('Die Auswahl gilt auch im Reiter Tonnen',
+  (await page.locator('.filter-bar summary').innerText()).includes('gewählt'),
+  await page.locator('.filter-bar summary').innerText());
+check('Und grenzt die Tonnen darin ein',
+  await page.locator('.buoy-light').count() < 12,
+  `${await page.locator('.buoy-light').count()} von 12`);
+await page.getByRole('button', { name: 'Körper', exact: true }).click();
+await page.waitForTimeout(400);
+
+await page.locator('.filter-bar').getByRole('button', { name: /zurücksetzen/ }).click()
   .catch(() => {});
 await page.waitForTimeout(300);
 
