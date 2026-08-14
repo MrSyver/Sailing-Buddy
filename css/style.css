@@ -89,6 +89,10 @@
 html, body {
   margin: 0;
   padding: 0;
+  /* Mit `color-scheme: dark` setzt der Browser die Grundfarbe des
+     Wurzelelements auf Weiß. Alles Sichtbare erbt zwar von body, aber eine
+     einzige Stelle, die das nicht tut, wäre im Nachtmodus ein weißer Fleck. */
+  color: var(--text);
   /* Bewusst keine feste Höhe: In Safari ändert sich dvh, während die
      Adressleiste beim Scrollen ein- und ausfährt. Hing die Seitenhöhe daran,
      rutschte bei jeder dieser Änderungen das halbe Layout mit. */
@@ -268,7 +272,10 @@ h2.section:first-child { margin-top: 4px; }
 .center { text-align: center; }
 .row { display: flex; gap: 9px; align-items: center; }
 .row.wrap { flex-wrap: wrap; }
-.grow { flex: 1; }
+/* min-width: 0, damit ein langer Titel den Nachbarn nicht aus der Karte
+   schiebt: Ein Flex-Element weigert sich sonst, unter seine Inhaltsbreite zu
+   schrumpfen, und die ganze Zeile wächst nach rechts aus dem Bild. */
+.grow { flex: 1; min-width: 0; }
 .stack { display: flex; flex-direction: column; gap: 9px; }
 
 /* ---------------------------------------------------------- Formularelemente */
@@ -742,7 +749,12 @@ table.data.kv td:first-child { width: 30%; }
   border: 1px solid var(--border);
   border-radius: 5px;
   padding: 1px 5px;
-  white-space: nowrap;
+  /* Nicht mehr nowrap: Eine lange Regelangabe schob sonst die ganze Karte
+     nach rechts aus dem Bild, und dorthin kommt man mit dem Daumen nicht. */
+  white-space: normal;
+  text-align: center;
+  flex: none;
+  max-width: 40%;
 }
 
 .light-view {
@@ -1553,6 +1565,9 @@ details.foldout > div { padding: 0 15px 15px; }
  * Beenden muss man nicht suchen.
  */
 .rec-trigger {
+  /* Ohne das erbt der Knopf die Voreinstellung des Browsers für
+     Bedienelemente – im dunklen Schema ist die weiß. */
+  color: inherit;
   flex: none;
   width: 54px;
   height: 54px;
@@ -1815,3 +1830,38 @@ body.chart-open { overflow: hidden; }
 
 /* Etappen im Umschalter sind dem Törn untergeordnet und stehen kleiner. */
 .chip.chip-sub { font-size: .8rem; padding: 6px 11px; min-height: 34px; }
+
+/* Fünf Reiter passen nur, wenn die Schrift mitgeht. */
+.seg.seg-eng button { font-size: .78rem; padding-left: 4px; padding-right: 4px; }
+
+/* ------------------------------------------------------- Tafeln am Ufer */
+
+.sign-card { display: flex; align-items: flex-start; gap: 14px; }
+.sign-card h3 { font-size: 1rem; }
+.sign-card .sub { font-size: .82rem; color: var(--text-dim); margin-top: 2px; }
+
+.sign-plate {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 4px;
+}
+
+.sign-frame { stroke: var(--border); stroke-width: 2; }
+.sign-glyph { font-family: var(--font); font-weight: 700; }
+
+/* Im Nachtmodus keine bunten Flächen – die Farben stehen im Text daneben. */
+[data-theme="night"] .sign-plate { filter: saturate(0) brightness(.35) sepia(1) hue-rotate(-30deg); }
+
+/* Die Farbbänder einer Tonne bei Tage. */
+.buoy-day { display: flex; align-items: center; gap: 3px; margin: 7px 0 0; }
+
+.buoy-band {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid rgba(128, 128, 128, .5);
+}
+
+[data-theme="night"] .buoy-band { filter: saturate(0) brightness(.4) sepia(1) hue-rotate(-30deg); }

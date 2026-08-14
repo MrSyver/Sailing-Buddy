@@ -450,6 +450,24 @@ await page.locator('.rec-item').getByRole('button', { name: 'Aufnahme löschen' 
 await page.waitForTimeout(400);
 check('Aufnahme wieder löschbar', await page.locator('.rec-item').count() === 0);
 
+// Die Nachschlagewerke stehen alle eingeklappt da – auch die Buchstabiertafel,
+// die längste von allen. Aufgeklappt schöbe sie die übrigen unter den
+// Bildrand, und gesucht wird ohnehin gezielt.
+const klappen = await page.locator('.foldout').evaluateAll(
+  (els) => els.map((el) => el.open));
+check('Die Nachschlagewerke sind eingeklappt',
+  klappen.length >= 4 && klappen.every((offen) => offen === false),
+  `${klappen.filter(Boolean).length} von ${klappen.length} offen`);
+check('Die Buchstabiertafel ist erst nach dem Aufklappen da',
+  await page.locator('.alphabet').first().isVisible() === false);
+await page.locator('summary', { hasText: 'Buchstabier' }).click();
+await page.waitForTimeout(250);
+check('Und dann steht sie vollständig darin',
+  await page.locator('.alphabet div').count() >= 36,
+  `${await page.locator('.alphabet div').count()} Felder`);
+await page.locator('summary', { hasText: 'Buchstabier' }).click();
+await page.waitForTimeout(150);
+
 // Die Verkehrswörter stehen in einer Tabelle, und die lief auf dem Telefon
 // rechts aus dem Bild – dorthin kommt man mit dem Daumen nicht.
 await page.locator('summary', { hasText: 'Verkehrswörter' }).click();
@@ -1058,9 +1076,41 @@ check('Oben steht der Umschalter für Tag und Nacht',
 await page.locator('button[data-mode="tag"]').click();
 await page.waitForSelector('.light-card', { timeout: 10000 });
 check('Bei Tage gibt es die Signalkörper',
-  await page.getByRole('button', { name: 'Signalkörper' }).count() === 1);
+  await page.getByRole('button', { name: 'Körper', exact: true }).count() === 1);
 check('Und die Lichter-Reiter sind weg',
   await page.getByRole('button', { name: 'Lichter', exact: true }).count() === 0);
+check('Tonnen, Tafeln und Schall stehen daneben',
+  await page.getByRole('button', { name: 'Tonnen', exact: true }).count() === 1
+  && await page.getByRole('button', { name: 'Tafeln', exact: true }).count() === 1
+  && await page.getByRole('button', { name: 'Schall', exact: true }).count() === 1);
+// Fünf Reiter müssen auf ein iPhone passen, ohne rechts aus dem Bild zu laufen.
+// Läuft etwas über, soll die Meldung sagen was – sonst sucht man von Hand.
+const reiterBreite = await page.evaluate(() => {
+  const ueberlauf = Math.round(document.documentElement.scrollWidth
+    - document.documentElement.clientWidth);
+  let schuldig = null;
+  if (ueberlauf > 1) {
+    document.querySelectorAll('main *').forEach((el) => {
+      const b = el.getBoundingClientRect();
+      if (b.right <= window.innerWidth + 1) return;
+      if (schuldig && schuldig.rechts >= Math.round(b.right)) return;
+      schuldig = {
+        was: `${el.tagName.toLowerCase()}.${(el.className.baseVal ?? el.className ?? '').toString().split(' ').slice(0, 2).join('.')}`,
+        rechts: Math.round(b.right),
+        text: (el.textContent ?? '').trim().slice(0, 24),
+      };
+    });
+  }
+  return {
+    seg: Math.round(document.querySelector('main .seg').getBoundingClientRect().width),
+    fenster: window.innerWidth,
+    ueberlauf,
+    schuldig,
+  };
+});
+check('Und die fünf Reiter bleiben im Bild',
+  reiterBreite.ueberlauf <= 1 && reiterBreite.seg <= reiterBreite.fenster,
+  JSON.stringify(reiterBreite));
 
 const koerper = await page.locator('.light-card').count();
 check('Die Signalkörper sind gelistet', koerper >= 10, `${koerper} Karten`);
@@ -1088,21 +1138,78 @@ await page.getByRole('button', { name: /Filter zurücksetzen|Alles zeigen|zurüc
 await page.waitForTimeout(300);
 await shot('05d-signalkoerper');
 
-await page.getByRole('button', { name: 'Flaggen' }).click();
-await page.waitForSelector('.flag-card');
+// Die Flaggen stehen bei den Körpern: Beides hängt das Fahrzeug auf, um
+// etwas zu sagen – nur aus Tuch statt aus Holz.
 const flaggen = await page.locator('.flag-card').count();
 check('Die Flaggen sind gezeichnet, nicht beschrieben', flaggen >= 8, `${flaggen} Flaggen`);
 check('Jede Flagge hat ihr Bild',
   await page.locator('.flag-view').count() === flaggen);
 check('Alfa steht für den Taucher',
   (await page.locator('main').innerText()).includes('Taucher unten'));
+await shot('05e-flaggen');
+
+// --- Farben im Filter: Tonnen und Tafeln kommen dazu -----------------------
+// Bei Tage ist die Farbe das Erste, was man sieht. Wer nach Rot sucht, will
+// nicht nur schwarze Signalkörper angeboten bekommen.
+await page.locator('[data-filter], .filter-chips').first().waitFor();
+const farbe = page.locator('.card').filter({ hasText: 'Welche Farbe?' })
+  .getByRole('button', { name: 'Rot', exact: true });
+check('Der Filter fragt zuerst nach der Farbe', await farbe.count() === 1);
+check('Und zeigt den Farbtupfer dazu',
+  await farbe.locator('.swatch').count() === 1);
+await farbe.click();
+await page.waitForTimeout(400);
+const rotText = await page.locator('main').innerText();
+check('Rot bringt Tonnen in die Liste',
+  await page.locator('.buoy-day').count() > 0,
+  `${await page.locator('.buoy-day').count()} Tonnen`);
+check('Und Tafeln vom Ufer',
+  await page.locator('.sign-card').count() > 0,
+  `${await page.locator('.sign-card').count()} Tafeln`);
+check('Bei Tage steht bei der Tonne die Farbfolge statt der Kennung',
+  !/Ununterbrochen funkelnd/.test(rotText),
+  rotText.split('\n').filter((l) => /funkelnd/.test(l)).join(' | '));
+
+await page.locator('.card').filter({ hasText: 'Welche Farbe?' })
+  .getByRole('button', { name: 'Schwarz', exact: true }).click();
+await page.waitForTimeout(400);
+check('Zwei Farben grenzen weiter ein',
+  await page.locator('.light-card, .sign-card').count() > 0);
+await page.getByRole('button', { name: /Filter zurücksetzen|zurücksetzen/ }).first().click()
+  .catch(() => {});
+await page.waitForTimeout(300);
+
+// --- Tafeln am Ufer --------------------------------------------------------
+await page.getByRole('button', { name: 'Tafeln', exact: true }).click();
+await page.waitForSelector('.sign-card');
+const tafeln = await page.locator('.sign-card').count();
+check('Die Tafeln am Ufer sind gelistet', tafeln >= 15, `${tafeln} Tafeln`);
+check('Jede hat ihre gezeichnete Tafel',
+  await page.locator('.sign-plate').count() === tafeln);
+check('Das Fahrverbot ist dabei',
+  (await page.locator('main').innerText()).includes('Fahrverbot'));
+check('Und die Geschwindigkeitsbeschränkung',
+  (await page.locator('main').innerText()).includes('Geschwindigkeit beschränken'));
+check('Die vier Klassen stehen als Überschriften da',
+  (await page.locator('main').innerText()).includes('Verbot')
+  && (await page.locator('main').innerText()).includes('Hinweis'));
 check('Die Notzeichen bei Tage stehen auch hier',
   (await page.locator('main').innerText()).includes('Orangefarbenes Rauchsignal'));
-await shot('05e-flaggen');
+await shot('05f-tafeln');
+
+// --- Tonnen bei Tage -------------------------------------------------------
+await page.getByRole('button', { name: 'Tonnen', exact: true }).click();
+await page.waitForSelector('.buoy-day');
+check('Bei Tage zeigen die Tonnen ihre Farbbänder',
+  await page.locator('.buoy-band').count() >= 12,
+  `${await page.locator('.buoy-band').count()} Bänder`);
+check('Und keine Feuerkennung',
+  await page.locator('.rhythm-bar').count() === 0,
+  `${await page.locator('.rhythm-bar').count()} Kennungsbalken`);
 
 // Schall und Grundlagen gelten bei Tag wie bei Nacht und bleiben deshalb da.
 check('Schall bleibt in beiden Betriebsarten',
-  await page.getByRole('button', { name: 'Schall' }).count() === 1);
+  await page.getByRole('button', { name: 'Schall', exact: true }).count() === 1);
 
 await page.locator('button[data-mode="nacht"]').click();
 await page.waitForTimeout(300);

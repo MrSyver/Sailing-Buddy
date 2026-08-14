@@ -162,7 +162,9 @@ function list(wrap) {
   ))));
 
   parts.push(h('h2.section', t('radio.reference')));
-  parts.push(foldout(t('radio.ref.spelling'), spellingTable(), true));
+  // Alle Nachschlagewerke eingeklappt, auch die Buchstabiertafel: Sie ist
+  // die längste von allen und schob die übrigen sonst unter den Bildrand.
+  parts.push(foldout(t('radio.ref.spelling'), spellingTable()));
   parts.push(foldout(t('radio.ref.prowords'), prowordsTable()));
   parts.push(foldout(t('radio.ref.channels'), channelTable()));
   parts.push(foldout(t('radio.ref.contacts'), contactsTable()));

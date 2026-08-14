@@ -26,8 +26,9 @@ import {
 } from '../data/buoys.js';
 import {
   DAY_SHAPES, DAY_CATEGORIES, DAY_FACETS, DAY_FACET_GROUPS, SHAPE_KINDS,
-  SIGNAL_FLAGS, matchesDayFacets,
+  SIGNAL_FLAGS, matchesDayFacets, buoyDayTraits, signDayTraits,
 } from '../data/dayshapes.js';
+import { WATER_SIGNS, SIGN_GROUPS } from '../data/watersigns.js';
 
 /**
  * Die Suche geht über Fahrzeuge und Seezeichen zugleich – nachts sieht man
@@ -61,14 +62,14 @@ const state = {
 /** Welche Reiter gehören zu welcher Betriebsart? */
 const TABS = {
   nacht: ['lichter', 'tonnen', 'schall', 'grundlagen'],
-  tag: ['koerper', 'flaggen', 'schall', 'grundlagen'],
+  tag: ['koerper', 'tonnen', 'schilder', 'schall', 'grundlagen'],
 };
 
 const TAB_LABEL = {
   lichter: 'night.tab.lights',
   tonnen: 'night.tab.buoys',
   koerper: 'night.tab.shapes',
-  flaggen: 'night.tab.flags',
+  schilder: 'night.tab.signs',
   schall: 'night.tab.sounds',
   grundlagen: 'night.tab.basics',
 };
@@ -109,14 +110,15 @@ function draw() {
       modeBtn('tag', t('night.mode.day')),
     ),
 
-    h('div.seg', { style: { 'margin-bottom': '14px' } },
+    // Bei fünf Reitern wird die Schrift kleiner statt der Leiste breiter.
+    h(`div.seg${tabs.length > 4 ? '.seg-eng' : ''}`, { style: { 'margin-bottom': '14px' } },
       ...tabs.map((key) => tabBtn(key, t(TAB_LABEL[key]))),
     ),
 
     state.tab === 'lichter' ? lightsView()
       : state.tab === 'tonnen' ? buoysView()
         : state.tab === 'koerper' ? shapesView()
-          : state.tab === 'flaggen' ? flagsView()
+          : state.tab === 'schilder' ? signsView()
             : state.tab === 'schall' ? soundsView()
               : basicsView(),
   );
@@ -488,16 +490,18 @@ function hull(el, aspect) {
 // ================================================================== Seezeichen
 
 function buoysView() {
+  const byDay = state.mode === 'tag';
   return h('div',
-    h('div.notice', t('night.buoyIntro')),
+    h('div.notice', byDay ? t('night.buoyIntroDay') : t('night.buoyIntro')),
 
     ...BUOY_GROUPS.map((group) => h('div',
       h('h2.section', loc(group, 'label')),
       h('p.small.muted', { style: { margin: '0 4px 9px' } }, loc(group, 'hint')),
-      ...BUOYS.filter((b) => b.group === group.key).map(buoyCard),
+      ...BUOYS.filter((b) => b.group === group.key)
+        .map((b) => buoyCard(b, false, state.mode === 'tag')),
     )),
 
-    h('div.card',
+    !byDay && h('div.card',
       h('h2', t('night.rhythms')),
       h('table.data.kv',
         h('tbody', ...LIGHT_RHYTHMS.map((r) => h('tr',
@@ -517,7 +521,7 @@ function buoysView() {
   );
 }
 
-function buoyCard(b, marked = false) {
+function buoyCard(b, marked = false, byDay = false) {
   const memo = loc(b, 'memo');
   return h('div.card.light-card',
     h('div.light-head',
@@ -528,17 +532,138 @@ function buoyCard(b, marked = false) {
           marked && h('span.rule', t('night.isBuoy')),
         ),
         h('div.sub', loc(b, 'subtitle')),
-        h('p.buoy-light',
-          h('span.buoy-dot', { style: { background: lightSwatch(b.lightColor) } }),
-          h('span.mono', loc(b, 'light')),
-        ),
-        h('p.small', { style: { margin: '4px 0 0' } }, loc(b, 'lightPlain')),
-        rhythmBar(b.rhythm, b.rhythmIsExample),
+        // Bei Tage sieht man von einer Tonne die Farben und das Toppzeichen,
+        // nicht das Feuer. Die Kennung dann anzuzeigen hieße, nach etwas
+        // suchen zu lassen, was gar nicht zu sehen ist.
+        byDay
+          ? h('p.buoy-day',
+            ...(b.bands ?? []).map((c) => h('span.buoy-band', {
+              style: { background: BUOY_COLORS[c] },
+              title: colorName(c),
+            })),
+            h('span.small.muted', { style: { 'margin-left': '8px' } },
+              (b.bands ?? []).map(colorName).join('–')),
+          )
+          : [
+            h('p.buoy-light',
+              h('span.buoy-dot', { style: { background: lightSwatch(b.lightColor) } }),
+              h('span.mono', loc(b, 'light')),
+            ),
+            h('p.small', { style: { margin: '4px 0 0' } }, loc(b, 'lightPlain')),
+            rhythmBar(b.rhythm, b.rhythmIsExample),
+          ],
       ),
     ),
     h('p.small', { style: { margin: '10px 0 0' } }, loc(b, 'meaning')),
     memo && h('div.mnemonic', '„', memo, '“'),
   );
+}
+
+/** Der Name einer Farbe in der Sprache der Oberfläche. */
+function colorName(key) {
+  const facet = DAY_FACETS.find((f) => f.kind === 'color' && f.key === key);
+  return (en() ? facet?.labelEn : facet?.label) ?? key;
+}
+
+// ================================================================== Schilder
+
+/**
+ * Die Tafeln am Ufer.
+ *
+ * Vier Klassen, und man erkennt sie an der Tafel, bevor man das Sinnbild
+ * darauf lesen kann – aus der Entfernung ist genau das die einzige
+ * Information, die ankommt. Gezeichnet wird deshalb die Klasse, das Sinnbild
+ * steht daneben im Text: Ein nachgemaltes Sinnbild, das nicht genau stimmt,
+ * wäre schlimmer als eine ehrliche Beschreibung.
+ */
+function signsView() {
+  return h('div',
+    h('div.notice', t('night.signsIntro')),
+
+    ...SIGN_GROUPS.map((g) => h('div',
+      h('h2.section', en() ? g.labelEn : g.label),
+      h('p.small.muted', { style: { margin: '0 4px 9px' } }, en() ? g.hintEn : g.hint),
+      ...WATER_SIGNS.filter((x) => x.group === g.key).map((x) => signCard(x)),
+    )),
+
+    h('div.card',
+      h('h2', t('night.distressDay')),
+      h('p.small.muted', { style: { margin: '0 0 9px' } }, t('night.distressDayHint')),
+      h('ul.checklist.plain', ...DISTRESS_VISUAL.map((x) => h('li', en() ? x.en : x.de))),
+    ),
+
+    h('p.disclaimer', t('night.signsDisclaimer')),
+  );
+}
+
+function signCard(x, marked = false) {
+  return h('div.card.sign-card',
+    signPlate(x),
+    h('div.grow',
+      h('div.row', { style: { gap: '7px', 'align-items': 'flex-start' } },
+        h('h3.grow', { style: { margin: 0 } }, en() ? x.titleEn : x.title),
+        marked && h('span.rule', t('night.isSign')),
+      ),
+      h('div.sub', en() ? x.lookEn : x.look),
+      h('p', { style: { margin: '7px 0 0' } }, en() ? x.meaningEn : x.meaning),
+      h('p.small.muted', { style: { margin: '5px 0 0' } },
+        t('night.signWhere'), ' ', en() ? x.whereEn : x.where),
+    ),
+  );
+}
+
+/** Die Tafel selbst – Grundfarbe, Rand, Balken, und ein Zeichen darauf. */
+function signPlate(x) {
+  const W = 64;
+  const H = 64;
+  const p = x.plate ?? {};
+  const el = svg('svg.sign-plate', {
+    viewBox: `0 0 ${W} ${H}`, role: 'img',
+    'aria-label': en() ? x.lookEn : x.look,
+  });
+
+  const felder = { white: '#ffffff', red: '#e02020', blue: '#1263d2' };
+  el.appendChild(svg('rect', {
+    x: 1, y: 1, width: W - 2, height: H - 2, rx: 3, fill: felder[p.field] ?? '#ffffff',
+  }));
+
+  if (p.border === 'red') {
+    el.appendChild(svg('rect', {
+      x: 4, y: 4, width: W - 8, height: H - 8, rx: 2,
+      fill: 'none', stroke: '#e02020', 'stroke-width': 7,
+    }));
+  }
+
+  // Der weiße Querstreifen des allgemeinen Fahrverbots.
+  if (p.bar === 'stripe') {
+    el.appendChild(svg('rect', { x: 1, y: 27, width: W - 2, height: 10, fill: '#ffffff' }));
+  }
+  // Der rote Schrägbalken über dem Sinnbild.
+  if (p.bar === 'diagonal') {
+    el.appendChild(svg('line', {
+      x1: 11, y1: 53, x2: 53, y2: 11, stroke: '#e02020', 'stroke-width': 6,
+    }));
+  }
+  if (p.bar === 'end') {
+    el.appendChild(svg('line', {
+      x1: 10, y1: 32, x2: 54, y2: 32, stroke: '#111418', 'stroke-width': 5,
+    }));
+  }
+
+  if (p.glyph) {
+    el.appendChild(svg('text', {
+      class: 'sign-glyph', x: W / 2, y: H / 2 + 6,
+      'text-anchor': 'middle',
+      fill: p.field === 'blue' ? '#ffffff' : '#111418',
+      'font-size': String(p.glyph.length > 2 ? 16 : 24),
+    }, p.glyph));
+  }
+
+  el.appendChild(svg('rect', {
+    x: 1, y: 1, width: W - 2, height: H - 2, rx: 3,
+    fill: 'none', class: 'sign-frame',
+  }));
+  return el;
 }
 
 /**
@@ -752,8 +877,28 @@ async function playSound(s, speed) {
  */
 function shapesView() {
   const active = [...state.dayFacets];
-  const found = DAY_SHAPES.filter((d) => (state.dayCategory === 'all' || d.category === state.dayCategory)
-    && matchesDayFacets(d, state.dayFacets));
+  // Wie nachts die Lichter: Fahrzeuge, Seezeichen und Tafeln stehen in einer
+  // Liste. Man sieht bei Tage etwas Schwarzes, Rotes oder Gelbes und weiß
+  // gerade nicht, ob da ein Fahrzeug fährt, eine Tonne liegt oder eine Tafel
+  // am Ufer steht.
+  const koerper = DAY_SHAPES
+    .filter((d) => (state.dayCategory === 'all' || d.category === state.dayCategory)
+      && matchesDayFacets(d, state.dayFacets))
+    .map((item) => ({ item, kind: 'shape' }));
+
+  // Tonnen und Tafeln nur, wenn nach einem Merkmal gesucht wird, das sie
+  // haben kann – sonst stünden bei „alle“ vierzig Einträge übereinander.
+  const gesucht = state.dayFacets.size > 0;
+  const tonnen = gesucht && state.dayCategory === 'all'
+    ? BUOYS.filter((b) => matchesDayFacets({ traits: buoyDayTraits(b) }, state.dayFacets))
+      .map((item) => ({ item, kind: 'buoy' }))
+    : [];
+  const tafeln = gesucht && state.dayCategory === 'all'
+    ? WATER_SIGNS.filter((x) => matchesDayFacets({ traits: signDayTraits(x) }, state.dayFacets))
+      .map((item) => ({ item, kind: 'sign' }))
+    : [];
+
+  const found = [...koerper, ...tonnen, ...tafeln];
 
   return h('div',
     h('div.notice', t('night.shapesIntro')),
@@ -767,7 +912,9 @@ function shapesView() {
             type: 'button',
             'aria-pressed': 'true',
             onclick: () => { state.dayFacets.delete(key); draw(); },
-          }, `${en() ? facet?.labelEn : facet?.label} ✕`);
+          },
+          facet?.kind === 'color' && h('span.swatch', { style: { background: BUOY_COLORS[key] } }),
+          `${en() ? facet?.labelEn : facet?.label} ✕`);
         }),
         h('button.chip', {
           type: 'button',
@@ -790,7 +937,9 @@ function shapesView() {
               else state.dayFacets.add(f.key);
               draw();
             },
-          }, en() ? f.labelEn : f.label)),
+          },
+          f.kind === 'color' && h('span.swatch', { style: { background: BUOY_COLORS[f.key] } }),
+          en() ? f.labelEn : f.label)),
         ),
       )),
     ),
@@ -805,7 +954,11 @@ function shapesView() {
 
     found.length === 0
       ? h('div.card', h('div.empty', t('night.noMatch')))
-      : h('div', ...found.map(shapeCard)),
+      : h('div', ...found.map((f) => (f.kind === 'buoy' ? buoyCard(f.item, true, true)
+        : f.kind === 'sign' ? signCard(f.item, true)
+          : shapeCard(f.item)))),
+
+    !gesucht && h('p.small.muted', { style: { margin: '0 4px 12px' } }, t('night.dayAlsoHint')),
 
     // Die fünf Formen selbst, zum Vergleich nebeneinander.
     h('div.card',
@@ -820,6 +973,21 @@ function shapesView() {
         )),
       ),
     ),
+
+    // Die Flaggen gehören dazu: Auch sie hängt das Fahrzeug auf, um etwas zu
+    // sagen – nur aus Tuch statt aus Holz.
+    h('h2.section', t('night.tab.flags')),
+    h('p.small.muted', { style: { margin: '0 4px 9px' } }, t('night.flagsIntro')),
+    ...SIGNAL_FLAGS.map((f) => h('div.card.flag-card',
+      flagGlyph(f),
+      h('div.grow',
+        h('div.row', { style: { gap: '8px', 'align-items': 'baseline' } },
+          h('h3', { style: { margin: 0 } }, f.key),
+          h('span.small.muted', f.name),
+        ),
+        h('p', { style: { margin: '4px 0 0' } }, en() ? f.meaningEn : f.meaning),
+      ),
+    )),
 
     h('p.disclaimer', t('night.lightsDisclaimer')),
   );
@@ -940,29 +1108,6 @@ function shapeGlyph(kind, size) {
  * Hier stehen die, deren Bedeutung im Fahrwasser oder im Notfall zählt –
  * gezeichnet statt als Bilddatei, damit sie auch ohne Verbindung da sind.
  */
-function flagsView() {
-  return h('div',
-    h('div.notice', t('night.flagsIntro')),
-
-    ...SIGNAL_FLAGS.map((f) => h('div.card.flag-card',
-      flagGlyph(f),
-      h('div.grow',
-        h('div.row', { style: { gap: '8px', 'align-items': 'baseline' } },
-          h('h3', { style: { margin: 0 } }, f.key),
-          h('span.small.muted', f.name),
-        ),
-        h('p', { style: { margin: '4px 0 0' } }, en() ? f.meaningEn : f.meaning),
-      ),
-    )),
-
-    h('div.card',
-      h('h2', t('night.distressDay')),
-      h('p.small.muted', { style: { margin: '0 0 9px' } }, t('night.distressDayHint')),
-      h('ul.checklist.plain', ...DISTRESS_VISUAL.map((x) => h('li', en() ? x.en : x.de))),
-    ),
-  );
-}
-
 /** Eine Flagge als Zeichnung – Streifen, Felder, Schrägen. */
 function flagGlyph(f) {
   const W = 60;
