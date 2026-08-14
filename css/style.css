@@ -320,6 +320,9 @@ textarea { min-height: 76px; resize: vertical; line-height: 1.45; }
 }
 
 .btn:active { transform: scale(.98); }
+/* Ein Verweis, der als Schaltfläche auftritt, darf nicht unterstrichen sein –
+   sonst sieht er neben den echten Schaltflächen aus wie ein Fremdkörper. */
+a.btn { text-decoration: none; }
 .btn.primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .btn.danger { background: var(--danger); color: var(--accent-contrast); border-color: var(--danger); }
 .btn.block { width: 100%; }

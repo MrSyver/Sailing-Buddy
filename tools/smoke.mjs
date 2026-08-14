@@ -1206,6 +1206,21 @@ check('Es gibt einen Weg über eine Datei aus dem Gerät',
 check('Und er steht offen da, nicht in einer Klappe',
   await page.locator('#pack-file').isVisible());
 
+// Der Verweis, der den Browser den Download machen lässt – das ist der Weg,
+// an dem die Schranke nicht greift. Er muss auf die Datei selbst zeigen und
+// sie nicht in der App öffnen.
+const ostseeZeile = page.locator('.wp-item', { hasText: 'Ostsee' }).first();
+const verweis = ostseeZeile.getByRole('link');
+check('Jedes Paket hat einen Verweis zum Laden im Browser',
+  await verweis.count() === 1);
+check('Der Verweis zeigt auf die MBTiles-Datei',
+  /Baltic_Sea\.mbtiles$/.test(await verweis.getAttribute('href')),
+  await verweis.getAttribute('href'));
+check('Und er öffnet sie außerhalb der App',
+  await verweis.getAttribute('target') === '_blank');
+check('Der unmittelbare Versuch steht daneben',
+  await ostseeZeile.getByRole('button', { name: /Direkt/ }).count() === 1);
+
 await page.locator('#pack-file').setInputFiles(FIXTURE);
 await page.waitForFunction(
   () => !document.querySelector('#pack-progress'),
@@ -1217,6 +1232,22 @@ const dateiText = await page.locator('main').innerText();
 check('Die Datei liegt danach als Kartenpaket im Gerät',
   (dateiText.match(/vollständig/g) ?? []).length >= 2,
   dateiText.split('\n').filter((l) => /vollständig|Nicht geklappt|kein lesbares/.test(l)).join(' | '));
+
+// Heißt die Datei wie ein Paket aus dem Katalog, wird sie auch dort
+// einsortiert – sonst lädt man „Ostsee“ im Browser, wählt es hier aus, und
+// oben steht weiter „noch nicht da“.
+const alsOstsee = join(FIXTURE_DIR, 'Baltic_Sea.mbtiles');
+writeFileSync(alsOstsee, readFileSync(FIXTURE));
+await page.locator('#pack-file').setInputFiles(alsOstsee);
+await page.waitForFunction(
+  () => !document.querySelector('#pack-progress'),
+  null, { timeout: 30000 },
+).catch(() => {});
+await page.waitForTimeout(400);
+check('Eine Datei mit bekanntem Namen landet beim richtigen Paket',
+  (await page.locator('main').innerText()).includes('✓ Ostsee'),
+  (await page.locator('main').innerText()).split('\n')
+    .filter((l) => /Ostsee/.test(l)).join(' | '));
 
 // Und was keine Karte ist, wird als solches erkannt, statt Platz zu belegen.
 const müll = join(FIXTURE_DIR, 'kaputt.mbtiles');

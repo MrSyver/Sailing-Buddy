@@ -136,11 +136,23 @@ function packCard() {
             })
             : t('packs.about', { size: formatBytes(pack.bytes) })),
       ),
+      // Der Weg über den Browser steht zuerst, weil er der ist, der geht: Ein
+      // gewöhnlicher Download kennt die Schranke nicht, an der ein Griff aus
+      // der Seite heraus scheitert. Danach wartet die Datei in „Dateien“ und
+      // wird unten übernommen – am Dateinamen erkennt die App, welches Paket
+      // gemeint war.
+      !mine?.complete && h('a.btn.small', {
+        href: packUrl(pack, s),
+        target: '_blank',
+        rel: 'noopener',
+        title: t('packs.openHint'),
+      }, t('packs.openIn')),
       !mine?.complete && h('button.btn.small', {
         type: 'button',
         disabled: Boolean(state.packBusy) || !online,
+        title: t('packs.directHint'),
         onclick: () => startPack(pack),
-      }, busy ? t('packs.running') : (mine ? t('packs.resume') : t('packs.get'))),
+      }, busy ? t('packs.running') : (mine ? t('packs.resume') : t('packs.direct'))),
       mine && h('button.btn.small', {
         type: 'button',
         'aria-label': `${packName(pack)} – ${t('common.delete')}`,
@@ -173,6 +185,9 @@ function packCard() {
     !online && h('div.notice.warn', { style: { 'margin-bottom': '10px' } }, t('charts.offline')),
 
     packErrorNotice(),
+
+    stepHeading(t('packs.step1')),
+    h('p.small.muted', { style: { margin: '0 0 10px' } }, t('packs.step1Hint')),
 
     ...PACK_GROUPS.map((group) => {
       const items = CHART_PACKS.filter((p) => p.group === group.key);
@@ -283,6 +298,16 @@ function packErrorNotice() {
   );
 }
 
+/** Die Zwischenüberschrift eines Schrittes. */
+function stepHeading(text) {
+  return h('h3', {
+    style: {
+      margin: '14px 0 6px', 'font-size': '.78rem', 'text-transform': 'uppercase',
+      'letter-spacing': '.06em', color: 'var(--text-dim)',
+    },
+  }, text);
+}
+
 /**
  * Ein Kartenpaket aus dem Gerät übernehmen.
  *
@@ -291,13 +316,8 @@ function packErrorNotice() {
  * hinterher prüfen – was kein Kartenpaket ist, sagt der Import selbst.
  */
 function importCard() {
-  return h('div', { style: { 'margin-top': '14px' } },
-    h('h3', {
-      style: {
-        margin: '0 0 6px', 'font-size': '.78rem', 'text-transform': 'uppercase',
-        'letter-spacing': '.06em', color: 'var(--text-dim)',
-      },
-    }, t('packs.fileTitle')),
+  return h('div',
+    stepHeading(t('packs.fileTitle')),
     h('p.small.muted', { style: { margin: '0 0 10px' } }, t('packs.fileHint')),
     h('input.pack-file', {
       type: 'file',
@@ -315,15 +335,26 @@ function importCard() {
 }
 
 async function startImport(file) {
+  // Heißt die Datei wie ein Paket aus dem Katalog, gehört sie auch dorthin.
+  // Sonst lädt man „Mittelmeer West“ im Browser, wählt es hier aus – und es
+  // steht danach als Namenloses unter „Selbst eingetragen“, während oben
+  // weiter „noch nicht da“ steht.
+  const passend = CHART_PACKS.find((p) => p.file.toLowerCase() === file.name.toLowerCase());
+
   state.packError = null;
   state.packBusy = {
-    id: null, name: file.name, done: 0, total: file.size, kind: 'datei',
+    id: passend?.id ?? null,
+    name: passend ? packName(passend) : file.name,
+    done: 0,
+    total: file.size,
+    kind: 'datei',
   };
   paint();
 
   try {
     await importPack(file, {
-      name: file.name.replace(/\.mbtiles$/i, ''),
+      id: passend?.id ?? null,
+      name: passend ? packName(passend) : file.name.replace(/\.mbtiles$/i, ''),
       onProgress: (p) => {
         state.packBusy = { ...state.packBusy, ...p };
         const bar = host?.querySelector('#pack-progress');
