@@ -23,6 +23,33 @@
 
 export const KNOT_DRAWINGS = {
   /**
+   * Kreuzknoten: zwei Buchten, die ineinandergreifen.
+   *
+   * Quer gezeichnet wie in der Vorlage – beide Leinen laufen waagerecht aus
+   * dem Bild, der Knoten sitzt in der Mitte. Die Buchten liegen dabei
+   * gegeneinander versetzt: Der untere Part der einen läuft zwischen den
+   * Parten der anderen hindurch, und andersherum genauso. Genau das macht ihn
+   * aus – liegen beide gleich herum, ist es der Altweiberknoten, und der geht
+   * unter Last auf.
+   *
+   * Deshalb wechseln sich die Kreuzungen ab: An der einen liegt die helle
+   * Leine oben, an der anderen die dunkle.
+   */
+  kreuzknoten: {
+    steps: 2,
+    strands: [
+      // Der obere Part der ersten Leine – liegt unter der Kehre der zweiten.
+      { n: 1, p: [[58, 50], [54, 45], [42, 42], [22, 41], [-8, 41]] },
+      // Die zweite Leine: Kehre und oberer Part, über der ersten.
+      { n: 2, leine: 2, p: [[42, 42], [46, 37], [58, 34], [78, 33], [108, 33]] },
+      // Ihr unterer Part – unter der Kehre der ersten.
+      { n: 2, leine: 2, p: [[108, 51], [78, 51], [58, 50], [46, 47], [42, 42]] },
+      // Der untere Part der ersten mit ihrer Kehre, obenauf.
+      { n: 1, p: [[-8, 59], [22, 59], [42, 58], [54, 55], [58, 50]] },
+    ],
+  },
+
+  /**
    * Webleinstek am Rundholz: zwei Törns über Kreuz, das Ende unter den
    * zweiten gesteckt. Das Kreuz auf der Vorderseite ist das Erkennungszeichen –
    * daran sieht man auf einen Blick, ob es ein Webleinstek ist oder zwei
