@@ -556,19 +556,40 @@ check('Übernehmen füllt die Eingabefelder',
   (await page.locator('#coord-latMin').inputValue()) === '35',
   `Minutenfeld: ${await page.locator('#coord-latMin').inputValue()}`);
 
-// Die Karte als Beigabe zum Kompass – erst auf Knopfdruck.
-check('Ohne Knopfdruck keine Karte auf der Positionsseite',
-  await page.locator('.chart').count() === 0);
-await page.getByRole('button', { name: /Karte einblenden/ }).click();
-await page.waitForTimeout(400);
-check('Karte lässt sich auf der Positionsseite einblenden',
-  await page.locator('.chart-klein').count() === 1);
+// Kompass und Karte teilen sich denselben Platz und werden oben umgeschaltet.
+check('Zunächst steht dort der Kompass',
+  await page.locator('.compass').count() === 1 && await page.locator('.chart').count() === 0);
+check('Der Umschalter steht über der Anzeige',
+  await page.locator('#nav-result button[data-view="karte"]').count() === 1);
+
+const umschalterY = await page.locator('#nav-result button[data-view="karte"]')
+  .evaluate((el) => el.getBoundingClientRect().top);
+const kompassY = await page.locator('.compass').evaluate((el) => el.getBoundingClientRect().top);
+check('Der Umschalter steht über dem Kompass', umschalterY < kompassY,
+  `Umschalter bei ${Math.round(umschalterY)}, Kompass bei ${Math.round(kompassY)}`);
+
+await page.locator('#nav-result button[data-view="karte"]').click();
+await page.waitForTimeout(600);
+check('Umgeschaltet steht dort die Karte',
+  await page.locator('.chart-klein').count() === 1 && await page.locator('.compass').count() === 0);
 check('Sie zeigt die eigene Position und das Ziel',
   await page.locator('.chart-mark').count() >= 2,
   `${await page.locator('.chart-mark').count()} Punkte`);
+check('Auch hier gibt es das Vollbild',
+  await page.locator('#nav-result').getByRole('button', { name: 'Karte im Vollbild' }).count() === 1);
 await shot('04d-position-karte');
-await page.getByRole('button', { name: /Karte ausblenden/ }).click();
-check('Und wieder ausblenden', await page.locator('.chart').count() === 0);
+
+// Die Karte darf beim Tippen nicht verschwinden – sie hängt in derselben
+// Karte, die sich bei jedem Zeichen neu aufbaut.
+await page.locator('#coord-latMin').fill('28');
+await page.waitForTimeout(700);
+check('Die Karte übersteht das Tippen',
+  await page.locator('.chart-klein').count() === 1);
+
+await page.locator('#nav-result button[data-view="kompass"]').click();
+await page.waitForTimeout(300);
+check('Und wieder zurück auf den Kompass',
+  await page.locator('.compass').count() === 1 && await page.locator('.chart').count() === 0);
 
 // --- Karte -----------------------------------------------------------------
 // Die untere Leiste muss unten stehen und dort bleiben. Ein früherer Versuch,
