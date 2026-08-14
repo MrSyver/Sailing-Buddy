@@ -38,7 +38,7 @@ import {
   CHART_PACKS, PACK_GROUPS, packUrl, DEFAULT_PACK_BASE, PACK_ATTRIBUTION,
 } from '../data/chartpacks.js';
 import {
-  packsAvailable, listPacks, downloadPack, removePack, forgetOpen, storageEstimate,
+  packsAvailable, listPacks, downloadPack, importPack, removePack, forgetOpen, storageEstimate,
 } from '../lib/packs.js';
 
 const state = {
@@ -56,8 +56,12 @@ const state = {
   // Fertige Kartenpakete
   packs: [],
   space: null,
-  packBusy: null,        // { id, name, done, total }
+  packBusy: null,        // { id, name, done, total, kind }
   packAbort: null,
+  // Der letzte Fehlschlag bleibt stehen, statt als Kurzmeldung zu verschwinden:
+  // Wenn ein Download nicht geht, braucht man den Grund und den Ausweg vor
+  // Augen, nicht drei Sekunden lang.
+  packError: null,       // { name, message, code }
 };
 
 const en = () => locale().startsWith('en');
@@ -168,6 +172,8 @@ function packCard() {
 
     !online && h('div.notice.warn', { style: { 'margin-bottom': '10px' } }, t('charts.offline')),
 
+    packErrorNotice(),
+
     ...PACK_GROUPS.map((group) => {
       const items = CHART_PACKS.filter((p) => p.group === group.key);
       if (!items.length) return null;
@@ -212,6 +218,11 @@ function packCard() {
       )),
     ),
 
+    // Der Weg, der immer geht – deshalb steht er offen da und nicht in einer
+    // Klappe: Ein Dateispiegel gibt seine Dateien an eine fremde Seite in aller
+    // Regel nicht heraus, an einen Browser-Download dagegen schon.
+    importCard(),
+
     // Eine eigene Adresse – die Rettung, falls oben etwas nicht stimmt.
     h('details.foldout', { style: { 'margin-top': '10px', 'margin-bottom': 0 } },
       h('summary', t('packs.ownTitle')),
@@ -253,6 +264,81 @@ function autoCard() {
 
 const packName = (p) => (en() ? p.nameEn : p.name);
 const packHint = (p) => (en() ? p.hintEn : p.hint);
+
+/**
+ * Der letzte Fehlschlag, mit dem, was daraus folgt.
+ *
+ * Bei einem abgewiesenen Zugriff nützt die Fehlermeldung allein nichts – sie
+ * klingt nach einem falschen Dateinamen, ist aber keiner. Deshalb steht der
+ * Ausweg gleich darunter.
+ */
+function packErrorNotice() {
+  const e = state.packError;
+  if (!e) return null;
+  const wegDrunter = e.code === 'cors' || e.code === 'notfound' || e.code === 'http';
+  return h('div.notice.warn', { style: { 'margin-bottom': '12px' } },
+    h('strong', t('packs.failedTitle', { name: e.name })),
+    e.message,
+    wegDrunter && h('p', { style: { margin: '8px 0 0' } }, t('packs.corsHelp')),
+  );
+}
+
+/**
+ * Ein Kartenpaket aus dem Gerät übernehmen.
+ *
+ * Absichtlich ohne `accept`: iOS ordnet unbekannte Endungen keinem Dateityp zu
+ * und graut die Datei dann in der Auswahl aus. Lieber alles anzeigen und
+ * hinterher prüfen – was kein Kartenpaket ist, sagt der Import selbst.
+ */
+function importCard() {
+  return h('div', { style: { 'margin-top': '14px' } },
+    h('h3', {
+      style: {
+        margin: '0 0 6px', 'font-size': '.78rem', 'text-transform': 'uppercase',
+        'letter-spacing': '.06em', color: 'var(--text-dim)',
+      },
+    }, t('packs.fileTitle')),
+    h('p.small.muted', { style: { margin: '0 0 10px' } }, t('packs.fileHint')),
+    h('input.pack-file', {
+      type: 'file',
+      id: 'pack-file',
+      'aria-label': t('packs.fileTitle'),
+      disabled: Boolean(state.packBusy),
+      onchange: (e) => {
+        const file = e.target.files?.[0];
+        // Leeren, damit dieselbe Datei ein zweites Mal gewählt werden kann.
+        e.target.value = '';
+        if (file) startImport(file);
+      },
+    }),
+  );
+}
+
+async function startImport(file) {
+  state.packError = null;
+  state.packBusy = {
+    id: null, name: file.name, done: 0, total: file.size, kind: 'datei',
+  };
+  paint();
+
+  try {
+    await importPack(file, {
+      name: file.name.replace(/\.mbtiles$/i, ''),
+      onProgress: (p) => {
+        state.packBusy = { ...state.packBusy, ...p };
+        const bar = host?.querySelector('#pack-progress');
+        if (bar) render(bar, ...packProgressContent());
+      },
+    });
+    toast(t('packs.done'));
+  } catch (err) {
+    state.packError = { name: file.name, message: err.message, code: err.code ?? null };
+    toast(t('packs.failed', { v: err.message }));
+  } finally {
+    state.packBusy = null;
+    await refresh();
+  }
+}
 
 function ownPackForm(s) {
   let url = '';
@@ -303,8 +389,9 @@ function ownPackForm(s) {
 async function startPack(pack) {
   const controller = new AbortController();
   state.packAbort = controller;
+  state.packError = null;
   state.packBusy = {
-    id: pack.id, name: pack.name ?? packName(pack), done: 0, total: pack.bytes ?? 0,
+    id: pack.id, name: pack.name ?? packName(pack), done: 0, total: pack.bytes ?? 0, kind: 'netz',
   };
   paint();
 
@@ -324,8 +411,14 @@ async function startPack(pack) {
     });
     toast(t('packs.done'));
   } catch (err) {
-    if (err.name === 'AbortError') toast(t('packs.stopped'));
-    else toast(t('packs.failed', { v: err.message }));
+    if (err.name === 'AbortError') {
+      toast(t('packs.stopped'));
+    } else {
+      state.packError = {
+        name: pack.name ?? packName(pack), message: err.message, code: err.code ?? null,
+      };
+      toast(t('packs.failed', { v: err.message }));
+    }
   } finally {
     state.packBusy = null;
     state.packAbort = null;
@@ -340,17 +433,20 @@ function packProgressCard() {
 function packProgressContent() {
   const b = state.packBusy;
   if (!b) return [];
+  const ausDatei = b.kind === 'datei';
   const pct = b.total ? Math.round((b.done / b.total) * 100) : 0;
   return [
-    h('h2', { style: { margin: '0 0 8px' } }, t('packs.loading')),
+    h('h2', { style: { margin: '0 0 8px' } }, ausDatei ? t('packs.importing') : t('packs.loading')),
     h('p.small.muted', { style: { margin: '0 0 10px' } }, b.name),
     h('div.progress', h('div.bar', { style: { width: `${pct}%` } })),
     h('p.small', { style: { margin: '8px 0 0' } },
       b.total
         ? t('packs.progress', { done: formatBytes(b.done), total: formatBytes(b.total), pct })
         : t('packs.progressUnknown', { done: formatBytes(b.done) })),
-    h('p.small.muted', { style: { margin: '4px 0 0' } }, t('packs.resumeHint')),
-    h('button.btn.small.block', {
+    // Nur beim Laden aus dem Netz: Eine Datei aus dem Gerät reißt nicht ab und
+    // lässt sich nicht mittendrin anhalten.
+    !ausDatei && h('p.small.muted', { style: { margin: '4px 0 0' } }, t('packs.resumeHint')),
+    !ausDatei && h('button.btn.small.block', {
       type: 'button',
       style: { 'margin-top': '10px' },
       onclick: () => { state.packAbort?.abort(); },

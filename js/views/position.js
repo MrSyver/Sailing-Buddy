@@ -33,10 +33,14 @@ const state = {
 let container = null;
 let chart = null;
 let chartFrame = null;
+// Beim Umschalten auf die Karte einmal auf alle Punkte einpassen – danach
+// gehört der Ausschnitt dem, der ihn zieht.
+let fitChartNext = false;
 
 export function view(root) {
   container = h('div');
   render(root, container);
+  pruneMobs();
   draw();
   const off = gps.onUpdate(() => draw());
   return () => {
@@ -53,6 +57,10 @@ export function view(root) {
  * Was auf der kleinen Karte steht: die eigene Position, das Ziel, die
  * gemerkten Positionen. Ohne Spur – hier geht es um das Hinkommen, nicht um
  * das Gewesene.
+ *
+ * Dazu die Verbindung zwischen der eigenen Position und dem Ziel. Zwei Punkte
+ * auf einer Seekarte sind zwei Punkte; erst der Strich dazwischen zeigt, was
+ * sie miteinander zu tun haben – und genau darum geht es auf dieser Seite.
  */
 function chartPoints() {
   const marks = [];
@@ -72,14 +80,15 @@ function chartPoints() {
   }
   waypoints.list().forEach((wp) => {
     // Das Ziel steht schon da – nicht doppelt zeichnen.
-    if (state.target
-      && Math.abs(state.target.lat - wp.lat) < 1e-9
-      && Math.abs(state.target.lon - wp.lon) < 1e-9) return;
+    if (samePlace(state.target, wp)) return;
     marks.push({
       kind: wp.kind === 'mob' ? 'mob' : 'wp', lat: wp.lat, lon: wp.lon, name: wp.name,
     });
   });
-  return { marks, track: [] };
+  const leg = fix && state.target
+    ? [{ lat: fix.lat, lon: fix.lon }, { lat: state.target.lat, lon: state.target.lon }]
+    : [];
+  return { marks, track: [], leg };
 }
 
 /**
@@ -161,7 +170,17 @@ function draw() {
   );
 
   // Erst nach dem Einhängen zeichnen: Vorher hat die Fläche keine Größe.
-  if (state.resultView === 'karte') chart?.paint();
+  if (state.resultView === 'karte') {
+    // Beim Aufschlagen der Karte auf alle Punkte einpassen, damit die eigene
+    // Position und das Ziel beide im Bild stehen. Danach nur noch neu zeichnen –
+    // wer den Ausschnitt selbst gewählt hat, soll ihn behalten.
+    if (fitChartNext) {
+      fitChartNext = false;
+      chart?.fit();
+    } else {
+      chart?.paint();
+    }
+  }
 }
 
 // --------------------------------------------------------- Mensch über Bord
@@ -249,18 +268,44 @@ function ownPosition(fix) {
   );
 }
 
+/** Alle MOB-Einträge, der jüngste zuerst. */
+function mobList() {
+  return waypoints.list()
+    .filter((w) => w.kind === 'mob')
+    .sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
+}
+
 /** Die zuletzt gemerkte MOB-Position, falls es eine gibt. */
 function lastMob() {
-  return waypoints.list().find((w) => w.kind === 'mob') ?? null;
+  return mobList()[0] ?? null;
+}
+
+/**
+ * Es gibt genau eine MOB-Position, nie mehrere.
+ *
+ * Früher legte jeder Druck auf die Taste einen weiteren Eintrag an. Angezeigt
+ * wurde ohnehin nur der jüngste, die übrigen lagen unsichtbar im Gerät und
+ * standen auf der Karte als Geisterflaggen herum. Wer die Taste ein zweites
+ * Mal drückt, meint die neue Stelle – nicht eine zweite Person über Bord.
+ * Vorhandene Reste aus älteren Fassungen räumt das beim Aufschlagen der Seite
+ * gleich mit weg.
+ */
+function pruneMobs() {
+  mobList().slice(1).forEach((w) => waypoints.remove(w.id));
+}
+
+/** Liegt hier schon dieselbe Position? Auf Rechengenauigkeit verglichen. */
+function samePlace(a, b) {
+  return Boolean(a && b
+    && Math.abs(a.lat - b.lat) < 1e-9
+    && Math.abs(a.lon - b.lon) < 1e-9);
 }
 
 /** Anzeige der gemerkten MOB-Position mit Knopf zum Übernehmen als Ziel. */
 function mobRow() {
   const mob = lastMob();
   if (!mob) return null;
-  const isTarget = state.target
-    && Math.abs(state.target.lat - mob.lat) < 1e-9
-    && Math.abs(state.target.lon - mob.lon) < 1e-9;
+  const isTarget = samePlace(state.target, mob);
 
   return h('div.mob-row',
     h('div.grow',
@@ -286,6 +331,9 @@ function mobRow() {
 }
 
 function markMob(fix) {
+  // Ersetzen, nicht anhängen: Es gibt eine MOB-Position, und das ist die
+  // zuletzt gemerkte.
+  mobList().forEach((old) => waypoints.remove(old.id));
   const wp = waypoints.add({
     name: `MOB ${new Date().toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}`,
     lat: fix.lat,
@@ -410,6 +458,10 @@ function targetActions() {
       type: 'button',
       disabled: !state.target,
       onclick: () => {
+        // Die MOB-Position steht schon oben bei ihrer Taste. Sie ein zweites
+        // Mal unter den gemerkten Zielen abzulegen hieße, im Ernstfall in zwei
+        // Listen zu suchen – und genau das soll nicht passieren.
+        if (samePlace(lastMob(), state.target)) { toast(t('pos.wpIsMob')); return; }
         const name = prompt(t('pos.wpNamePrompt'), state.targetName || t('pos.wpDefault'));
         if (name === null) return;
         waypoints.add({ ...state.target, name });
@@ -533,7 +585,8 @@ function updateResultOnly() {
 function result(nav, opts) {
   const { distance, bearing, courses, reciprocal, eta, relative } = nav;
   const hasVar = opts.variation !== 0;
-  const hasDev = opts.deviation !== 0;
+  const hasHeading = opts.heading !== null && opts.heading !== undefined;
+  const courseUp = Boolean(settings.get('compassCourseUp'));
 
   return h('div.card',
     h('h2', state.targetName ? t('pos.toNamed', { name: state.targetName }) : t('pos.toTarget')),
@@ -557,7 +610,13 @@ function result(nav, opts) {
         type: 'button',
         'data-view': 'karte',
         'aria-pressed': String(state.resultView === 'karte'),
-        onclick: () => { state.resultView = 'karte'; draw(); },
+        onclick: () => {
+          // Beim Wechsel einmal einpassen: Wer auf die Karte schaltet, will
+          // sehen, wo er ist und wo das Ziel liegt – beides zugleich.
+          if (state.resultView !== 'karte') fitChartNext = true;
+          state.resultView = 'karte';
+          draw();
+        },
       }, t('pos.viewChart')),
     ),
 
@@ -566,44 +625,51 @@ function result(nav, opts) {
 
       // Nordorientiert oder mitdrehend – auf einem krängenden Schiff ist die
       // mitdrehende Ansicht leichter zu lesen, weil oben immer voraus ist.
+      //
+      // Beide Schaltflächen bleiben bedienbar, auch ohne Kurs über Grund. Ein
+      // Schalter, der bei jedem Stillstand ausgraut, ist genau dann nicht da,
+      // wenn man ihn umlegen will – und die Rose weiß sich zu behelfen: Ohne
+      // Fahrt nimmt sie Nord an.
       h('div.seg', { style: { 'margin-top': '10px' } },
         h('button', {
           type: 'button',
-          'aria-pressed': String(!settings.get('compassCourseUp')),
+          'aria-pressed': String(!courseUp),
           onclick: () => { settings.set('compassCourseUp', false); draw(); },
         }, t('pos.northUp')),
         h('button', {
           type: 'button',
-          disabled: opts.heading === null || opts.heading === undefined,
-          'aria-pressed': String(Boolean(settings.get('compassCourseUp'))),
+          'aria-pressed': String(courseUp),
           onclick: () => { settings.set('compassCourseUp', true); draw(); },
         }, t('pos.courseUp')),
       ),
-      (opts.heading === null || opts.heading === undefined)
-        && h('p.small.muted', { style: { margin: '7px 0 0' } }, t('pos.courseUpNeedsHeading')),
+      courseUp && !hasHeading
+        && h('p.small.muted', { style: { margin: '7px 0 0' } }, t('pos.courseUpNorth')),
     ],
 
-    h('div.readout', { style: { 'margin-top': '12px' } },
-      hasVar && cell(t('pos.magnetic'), deg3(courses.magnetic), '°',
+    // Immer dieselben Kästchen, immer gleich groß.
+    //
+    // Ob ein Kurs über Grund anliegt und ob eine Geschwindigkeit bekannt ist,
+    // wechselt unterwegs ständig – im Hafen, in der Flaute, beim Aufschießen.
+    // Kämen und gingen die Kästchen damit, sprängen bei jedem Fix alle
+    // übrigen um und man läse jedes Mal an einer anderen Stelle. Also stehen
+    // sie fest und zeigen „–“, solange die Angabe fehlt.
+    h('div.readout.readout-fest', { style: { 'margin-top': '12px' } },
+      cell(t('pos.magnetic'), deg3(courses.magnetic), '°',
         t('pos.magneticSub', { v: fmtSigned(opts.variation) })),
-      hasDev && cell(t('pos.compass'), deg3(courses.compass), '°',
+      cell(t('pos.compass'), deg3(courses.compass), '°',
         t('pos.compassSub', { v: fmtSigned(opts.deviation) })),
       cell(t('pos.reciprocal'), deg3(reciprocal), '°', t('pos.reciprocalSub')),
-      h('div.cell',
-        h('div.label', t('pos.eta')),
-        h('div.value.mid', formatDuration(eta)),
-        h('div.sub', opts.speed ? t('pos.etaAt', { v: num(opts.speed) }) : t('pos.etaNoSpeed')),
-      ),
-      relative && h('div.cell.wide',
-        h('div.label', t('pos.relative')),
-        h('div.value.mid', relativeText(relative)),
-        h('div.sub', t('pos.relativeSub')),
-      ),
-      eta && h('div.cell.wide',
-        h('div.label', t('pos.arrival')),
-        h('div.value.mid',
-          new Date(Date.now() + eta * 1000).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' }),
-          t('pos.clock') && h('span.unit', t('pos.clock'))),
+      cell(t('pos.eta'), formatDuration(eta), null,
+        opts.speed ? t('pos.etaAt', { v: num(opts.speed) }) : t('pos.etaNoSpeed')),
+      cell(t('pos.relative'), relative ? relativeText(relative) : '–', null,
+        relative ? t('pos.relativeSub') : t('pos.relativeNone')),
+      cell(
+        t('pos.arrival'),
+        eta
+          ? new Date(Date.now() + eta * 1000).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })
+          : '–',
+        eta ? t('pos.clock') : null,
+        t('pos.arrivalSub'),
       ),
     ),
 
@@ -675,8 +741,14 @@ function compassRose(bearing, heading, relative) {
   const hasHeading = heading !== null && heading !== undefined;
   // Mitdrehend: Die Rose wird um den eigenen Kurs zurückgedreht, damit oben
   // immer die eigene Fahrtrichtung liegt.
-  const courseUp = Boolean(settings.get('compassCourseUp')) && hasHeading;
-  const turn = courseUp ? -heading : 0;
+  //
+  // Liegt kein Kurs über Grund an – im Hafen, in der Flaute, beim Aufschießen –,
+  // wird Nord angenommen. Das ist die einzige Annahme, die stimmt, solange man
+  // steht: Ein Schiff ohne Fahrt hat keine Fahrtrichtung, und die Rose in die
+  // zuletzt bekannte zu drehen wäre eine Behauptung. Vor allem aber bleibt die
+  // Einstellung dadurch erhalten, statt bei jedem Stillstand umzuspringen.
+  const courseUp = Boolean(settings.get('compassCourseUp'));
+  const turn = courseUp ? -(hasHeading ? heading : 0) : 0;
 
   const el = svg('svg.compass', {
     viewBox: '0 0 200 200',
@@ -743,7 +815,9 @@ function compassRose(bearing, heading, relative) {
     class: 'center-text', x: C, y: C + 4, 'font-size': '30',
   }, `${deg3(bearing)}°`));
   el.appendChild(svg('text', { class: 'center-sub', x: C, y: C + 20 },
-    courseUp ? t('pos.courseUpShort') : t('pos.compassTrue')));
+    courseUp
+      ? (hasHeading ? t('pos.courseUpShort') : t('pos.courseUpShortNorth'))
+      : t('pos.compassTrue')));
 
   if (relative) {
     el.appendChild(svg('text', { class: 'center-sub', x: C, y: C + 36 }, relativeText(relative)));
@@ -775,9 +849,7 @@ function waypointList(fix, opts) {
     ),
     ...list.map((wp) => {
       const nav = fix ? solve(fix, wp, opts) : null;
-      const isTarget = state.target
-        && Math.abs(state.target.lat - wp.lat) < 1e-9
-        && Math.abs(state.target.lon - wp.lon) < 1e-9;
+      const isTarget = samePlace(state.target, wp);
       return h('div.wp-item',
         h('div.grow',
           h('div.wp-name', wp.name),

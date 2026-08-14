@@ -14,7 +14,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
-import { existsSync, mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -501,6 +501,31 @@ const mobRow = await page.locator('.mob-row').innerText();
 check('MOB-Position steht direkt unter der Taste', mobRow.includes('MOB'), mobRow.replace(/\n/g, ' | '));
 check('MOB-Position zeigt die Koordinaten', /54°30/.test(mobRow), mobRow.replace(/\n/g, ' | '));
 
+// Zweimal drücken heißt: neue Stelle, nicht zweite Person über Bord. Vorher
+// legte jeder Druck einen weiteren Eintrag an – der lag unsichtbar im Gerät
+// und stand auf der Karte als Geisterflagge herum.
+const mobZaehlen = () => page.evaluate(async () => {
+  const { waypoints } = await import('./js/lib/storage.js');
+  const alle = waypoints.list();
+  return { mob: alle.filter((w) => w.kind === 'mob').length, gesamt: alle.length };
+});
+await page.locator('.mob-card').getByRole('button', { name: /Mensch über Bord/ }).click();
+await page.waitForTimeout(300);
+const nachZweimal = await mobZaehlen();
+check('Zweimal MOB legt keine zweite Position an', nachZweimal.mob === 1,
+  `${nachZweimal.mob} MOB-Einträge`);
+check('Und es steht auch nur eine Zeile da', await page.locator('.mob-row').count() === 1);
+
+// Sie lässt sich auch nicht als gewöhnliches Ziel danebenlegen – sonst stünde
+// sie doch wieder in zwei Listen.
+await page.getByRole('button', { name: /Position merken/ }).click();
+await page.waitForTimeout(300);
+const nachMerken = await mobZaehlen();
+check('Die MOB-Position lässt sich nicht ein zweites Mal merken',
+  nachMerken.gesamt === nachZweimal.gesamt
+  && (await page.locator('.toast').innerText()).includes('steht schon oben'),
+  `${nachZweimal.gesamt} → ${nachMerken.gesamt}, Meldung: ${await page.locator('.toast').innerText()}`);
+
 // Anderes Ziel setzen, dann MOB wieder übernehmen.
 await page.locator('#coord-latMin').fill('26');
 await page.locator('.mob-row').getByRole('button', { name: '→ Als Ziel' }).click();
@@ -516,6 +541,47 @@ const merkenKnopf = page.getByRole('button', { name: /Position merken/ });
 check('Merken steht schon beim Tippen bereit',
   await merkenKnopf.count() === 1 && !(await merkenKnopf.isDisabled()));
 check('Der Kompass zeigt gleich mit', await page.locator('.compass').count() === 1);
+
+// „Nach meinem Kurs“ muss auch dann bedienbar sein, wenn kein Kurs über Grund
+// anliegt. Eingestellt wird so etwas im Hafen – also genau dann, wenn keiner
+// anliegt. Ohne Fahrt nimmt die Rose Nord an, statt auszugrauen.
+const kursOben = page.locator('#nav-result').getByRole('button', { name: 'Nach meinem Kurs' });
+check('Ohne Kurs über Grund ist „nach meinem Kurs“ trotzdem wählbar',
+  await kursOben.count() === 1 && !(await kursOben.isDisabled()));
+await kursOben.click();
+await page.waitForTimeout(250);
+check('Der Schalter bleibt umgelegt',
+  await kursOben.getAttribute('aria-pressed') === 'true',
+  await kursOben.getAttribute('aria-pressed'));
+check('Ohne Fahrt steht Nord oben',
+  (await page.locator('.compass .center-sub').first().textContent()) === 'Nord angenommen',
+  await page.locator('.compass .center-sub').first().textContent());
+check('Und die Rose ist dabei unverdreht',
+  await page.locator('.compass g[transform]').first().getAttribute('transform') === 'rotate(0 100 100)',
+  await page.locator('.compass g[transform]').first().getAttribute('transform'));
+await page.locator('#nav-result').getByRole('button', { name: 'Nach Norden' }).click();
+await page.waitForTimeout(200);
+
+// Die Kästchen im Ergebnis müssen stehen bleiben, ob nun ein Kurs über Grund
+// anliegt oder nicht. Vorher kamen und gingen sie mit jedem Fix, und alles
+// darunter sprang mit.
+const feste = page.locator('.readout-fest .cell');
+check('Das Ergebnis zeigt immer dieselben sechs Kästchen',
+  await feste.count() === 6, `${await feste.count()} Kästchen`);
+const beschriftungen = await page.locator('.readout-fest .cell .label').allInnerTexts();
+check('Auch ohne Kurs über Grund fehlt keines',
+  beschriftungen.some((l) => /Peilung relativ/i.test(l))
+  && beschriftungen.some((l) => /Ankunft/i.test(l))
+  && beschriftungen.some((l) => /Kompasskurs/i.test(l)),
+  beschriftungen.join(' | '));
+const werte = await page.locator('.readout-fest .cell .value').allInnerTexts();
+check('Was nicht bestimmbar ist, steht als Strich da',
+  werte.filter((v) => v.trim() === '–').length === 3, werte.join(' | '));
+const kaesten = await feste.evaluateAll((els) => els.map((el) => {
+  const b = el.getBoundingClientRect();
+  return `${Math.round(b.width)}x${Math.round(b.height)}`;
+}));
+check('Alle Kästchen sind gleich groß', new Set(kaesten).size === 1, kaesten.join(', '));
 
 // Ohne gültige Eingabe ist er gesperrt statt verschwunden – dann sucht
 // niemand, wo er hin ist.
@@ -575,6 +641,30 @@ check('Umgeschaltet steht dort die Karte',
 check('Sie zeigt die eigene Position und das Ziel',
   await page.locator('.chart-mark').count() >= 2,
   `${await page.locator('.chart-mark').count()} Punkte`);
+
+// Der Ausschnitt muss beim Wechsel so liegen, dass beides zugleich zu sehen
+// ist – ein Kartenbild, auf dem einer der beiden Punkte draußen liegt, sagt
+// nichts.
+await page.waitForSelector('.chart-mark.target', { timeout: 10000 });
+const beideDrin = await page.evaluate(() => {
+  const box = document.querySelector('.chart-klein').getBoundingClientRect();
+  const drin = (sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    const b = el.getBoundingClientRect();
+    const x = b.left + b.width / 2;
+    const y = b.top + b.height / 2;
+    return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+  };
+  return { eigen: drin('.chart-mark.own'), ziel: drin('.chart-mark.target') };
+});
+check('Beim Wechsel stehen eigene Position und Ziel beide im Bild',
+  beideDrin.eigen === true && beideDrin.ziel === true, JSON.stringify(beideDrin));
+check('Und die Verbindung dazwischen ist gezeichnet',
+  await page.locator('.plot-leg').count() === 1);
+check('Das Ziel ist als solches hervorgehoben',
+  await page.locator('.chart-mark.target .ring').count() === 1);
+
 check('Auch hier gibt es das Vollbild',
   await page.locator('#nav-result').getByRole('button', { name: 'Karte im Vollbild' }).count() === 1);
 await shot('04d-position-karte');
@@ -634,11 +724,19 @@ check('MOB-Position ist auf der Karte', await page.locator('.chart-mark.mob').co
 check('Die Liste nennt Entfernung und Kurs',
   await page.locator('.wp-dist').count() >= 1);
 
-// Auf der Kartenseite hat die Karte Vorrang: Sie füllt, was die Leisten übrig
-// lassen, und ist nicht abschaltbar – sie ist ja der Zweck der Seite.
+// Auf der Kartenseite hat die Karte Vorrang, aber nicht den ganzen Bildschirm:
+// Seit es das Vollbild gibt, darf sie wieder etwas kleiner sein, damit die
+// Liste darunter angerissen ist und der Daumen die Seite scrollen kann, ohne
+// die Karte zu verschieben. Abschaltbar ist sie nicht – sie ist ja der Zweck
+// der Seite.
 const chartHoehe = await page.locator('.chart-gross').evaluate(
   (el) => Math.round(el.getBoundingClientRect().height));
-check('Die Karte ist groß', chartHoehe >= 400, `${chartHoehe} px hoch`);
+check('Die Karte ist groß genug', chartHoehe >= 300, `${chartHoehe} px hoch`);
+check('Aber nicht mehr bildschirmfüllend', chartHoehe <= 440, `${chartHoehe} px hoch`);
+const listeOben = await page.locator('.card', { hasText: 'Auf der Karte' })
+  .first().evaluate((el) => Math.round(el.getBoundingClientRect().top));
+check('Unter der Karte fängt die Liste noch im Bild an', listeOben < 844 - 120,
+  `Liste beginnt bei ${listeOben} px`);
 check('Kein Ein- und Ausschalten der Seekarte auf der Kartenseite',
   await page.getByRole('button', { name: /Seekarte/ }).count() === 0);
 check('Die Bedienung liegt auf der Karte',
@@ -1092,6 +1190,57 @@ const kachelFilter = await page.locator('.chart-tile').first()
 check('Nachtmodus dämpft auch das Kartenbild',
   /brightness\(0?\.[0-3]\d*\)/.test(kachelFilter), kachelFilter);
 await shot('04c-karte-mit-paket');
+
+// --- Kartenpaket aus dem Gerät ---------------------------------------------
+// Der Weg, der immer geht. Über eine Adresse zu laden gelingt nur, wenn der
+// Server einer fremden Seite das Lesen erlaubt – die Dateispiegel, auf denen
+// die großen Pakete liegen, tun das nicht, und dann bricht der Griff mit
+// „Load failed“ ab, noch bevor der Dateiname eine Rolle spielt. Ein Download
+// im Browser selbst kennt diese Schranke nicht; von dort wird die Datei hier
+// hereingereicht.
+await goTab(5);
+await page.getByRole('button', { name: 'Karten', exact: true }).click();
+await page.waitForTimeout(200);
+check('Es gibt einen Weg über eine Datei aus dem Gerät',
+  await page.locator('#pack-file').count() === 1);
+check('Und er steht offen da, nicht in einer Klappe',
+  await page.locator('#pack-file').isVisible());
+
+await page.locator('#pack-file').setInputFiles(FIXTURE);
+await page.waitForFunction(
+  () => !document.querySelector('#pack-progress'),
+  null, { timeout: 30000 },
+).catch(() => {});
+await page.waitForTimeout(400);
+
+const dateiText = await page.locator('main').innerText();
+check('Die Datei liegt danach als Kartenpaket im Gerät',
+  (dateiText.match(/vollständig/g) ?? []).length >= 2,
+  dateiText.split('\n').filter((l) => /vollständig|Nicht geklappt|kein lesbares/.test(l)).join(' | '));
+
+// Und was keine Karte ist, wird als solches erkannt, statt Platz zu belegen.
+const müll = join(FIXTURE_DIR, 'kaputt.mbtiles');
+writeFileSync(müll, Buffer.from('Das ist keine Datenbank, sondern Text.'));
+await page.locator('#pack-file').setInputFiles(müll);
+await page.waitForTimeout(1200);
+check('Eine Datei, die kein Kartenpaket ist, wird abgewiesen',
+  (await page.locator('main').innerText()).includes('kein lesbares Kartenpaket'),
+  (await page.locator('main').innerText()).split('\n')
+    .filter((l) => /kein lesbares|ließ sich nicht/.test(l)).join(' | '));
+
+// Eine unerreichbare Adresse muss nicht nur scheitern, sondern auch sagen,
+// was stattdessen zu tun ist – und die Meldung muss stehen bleiben.
+await page.locator('summary', { hasText: 'Eigene Adresse verwenden' }).click();
+await page.waitForTimeout(150);
+await page.locator('input[placeholder*=".mbtiles"]').fill(`${base}gibtesnicht.mbtiles`);
+await page.locator('.foldout', { hasText: 'Eigene Adresse' })
+  .getByRole('button', { name: /Holen/ }).click();
+await page.waitForTimeout(1500);
+const fehlText = await page.locator('main').innerText();
+check('Ein Fehlschlag bleibt sichtbar stehen', /ließ sich nicht holen/.test(fehlText),
+  fehlText.split('\n').filter((l) => /ließ sich nicht|antwortet mit/.test(l)).join(' | '));
+check('Und nennt den Weg über die Datei', /Datei aus dem Gerät/.test(fehlText));
+await shot('07e-kartenpaket-datei');
 
 // --- Fortsetzen eines abgerissenen Downloads -------------------------------
 // Das ist der Fall, der auf einem Boot wirklich eintritt. Geprüft wird
