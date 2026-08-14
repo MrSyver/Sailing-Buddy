@@ -1874,6 +1874,83 @@ body.chart-open { overflow: hidden; }
 .knot-purpose { margin: 10px 0 0; }
 .knot-card .rule { font-size: .68rem; }
 
+/*
+ * Die Zeichnung.
+ *
+ * Zwei Striche je Part: ein breiter in der Farbe des Grundes und ein schmaler
+ * in der Farbe der Leine. Der breite schneidet den darunterliegenden Part weg
+ * – so sieht man, welcher Part über welchem liegt, und genau daran erkennt
+ * man einen Knoten. Deshalb muss `--knot-bg` immer wirklich die Farbe des
+ * Kastens sein; eine Farbe daneben ergäbe helle Ränder an jeder Kreuzung.
+ */
+.knot-draw {
+  --knot-bg: var(--surface-2);
+  --knot-rope: #9a7331;
+  margin: 14px 0 4px;
+}
+
+/* Auf dunklem Grund braucht die Leine die helle Seite derselben Farbe –
+   dasselbe Braun wäre dort ein Schatten. */
+[data-theme="dark"] .knot-draw { --knot-rope: #cdad6d; }
+
+.knot-stage {
+  background: var(--knot-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.knot-fig { display: block; width: 100%; height: auto; }
+
+.knot-casing {
+  fill: none;
+  stroke: var(--knot-bg);
+  stroke-width: 10;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.knot-core {
+  fill: none;
+  stroke: var(--knot-rope);
+  stroke-width: 5.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.knot-tip { fill: var(--knot-rope); }
+.knot-prop { fill: var(--surface); stroke: var(--border); stroke-width: 2; }
+.knot-prop-ring { fill: none; stroke: var(--border); stroke-width: 7; }
+
+/* Die Schrittzahlen darunter – groß genug für einen Daumen. */
+.knot-steps { display: flex; gap: 6px; margin-top: 8px; }
+
+.knot-steps button {
+  flex: 1;
+  min-height: 38px;
+  font-size: .9rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+}
+
+.knot-steps button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Im Nachtmodus ist auch die Leine langwelliges Rot – jede andere Farbe
+   kostet Dunkeladaption, und ein Knoten ist keine Ausnahme. */
+[data-theme="night"] .knot-draw {
+  --knot-bg: #000;
+  --knot-rope: #b3271b;
+}
+
 /* Die Etappe unter dem Törn – eine Ebene tiefer, und das soll man sehen. */
 .turn-row {
   display: flex;

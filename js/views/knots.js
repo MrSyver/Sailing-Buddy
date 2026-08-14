@@ -13,11 +13,23 @@
 import { h, render } from '../lib/dom.js';
 import { t, loc, uiLang } from '../lib/i18n.js';
 import { KNOTS, KNOT_USES, KNOT_TRAITS, matchesKnot } from '../data/knots.js';
+import { knotFigure } from '../lib/knotdraw.js';
+import { KNOT_DRAWINGS } from '../data/knotpaths.js';
 
 const state = {
   uses: new Set(),
   traits: new Set(),
 };
+
+/**
+ * Bei welchem Schritt jede Zeichnung gerade steht.
+ *
+ * Im Modul und nicht in der Karte: Beim Umschalten des Filters wird die Liste
+ * neu gebaut, und wer bei Schritt drei war, will nicht wieder bei eins
+ * anfangen.
+ */
+const schritte = new Map();
+const laufend = new Map();
 
 let container = null;
 
@@ -25,7 +37,12 @@ export function view(root) {
   container = h('div');
   render(root, container);
   draw();
-  return () => { container = null; };
+  return () => {
+    // Jede laufende Zeichnung anhalten – sonst tickt sie hinter dem Reiter
+    // weiter und kostet Strom, den unterwegs niemand übrig hat.
+    [...laufend.keys()].forEach(anhalten);
+    container = null;
+  };
 }
 
 const en = () => uiLang() === 'en';
@@ -101,6 +118,8 @@ function knotCard(k) {
 
     h('p.knot-purpose', en() ? k.purposeEn : k.purpose),
 
+    zeichnung(k),
+
     h('h4', t('knots.steps')),
     h('ol.checklist', ...(en() ? k.stepsEn : k.steps).map((x) => h('li', x))),
 
@@ -112,6 +131,75 @@ function knotCard(k) {
     caution && h('div.notice.warn', { style: { margin: '10px 0 0' } },
       h('strong', t('knots.caution')), caution),
   );
+}
+
+/**
+ * Die Zeichnung mit ihren Schritten.
+ *
+ * Sie läuft von selbst, sobald die Karte auf dem Schirm ist: „am liebsten
+ * bewegte“ heißt genau das, und eine Zeichnung, die man erst antippen muss,
+ * hat man mit nassen Händen schon nicht mehr angetippt. Wer sie anhalten oder
+ * einen Schritt festhalten will, kann das – ein Tipp auf einen Schritt hält
+ * dort an, ein Tipp auf das Bild läuft weiter.
+ *
+ * Knoten ohne Zeichnung bekommen nichts: ein leerer Kasten wäre schlechter
+ * als keiner. Solange nicht alle gezeichnet sind, steht bei den übrigen der
+ * Text allein – so wie bisher.
+ */
+function zeichnung(k) {
+  const d = KNOT_DRAWINGS[k.id];
+  if (!d) return null;
+
+  const stand = schritte.get(k.id) ?? d.steps;
+  const bild = h('div.knot-stage', { 'data-knot': k.id },
+    knotFigure(d, stand, { titel: `${loc(k, 'name')} – ${t('knots.step', { n: stand })}` }));
+
+  const zeige = (n, halten) => {
+    schritte.set(k.id, n);
+    render(bild, knotFigure(d, n, { titel: `${loc(k, 'name')} – ${t('knots.step', { n })}` }));
+    const leiste = document.querySelector(`[data-knotsteps="${k.id}"]`);
+    if (leiste) {
+      [...leiste.children].forEach((b, i) => b.setAttribute('aria-pressed', String(i + 1 === n)));
+    }
+    if (halten) anhalten(k.id);
+  };
+
+  // Die Schleife hängt am Bild und wird mit ihm aufgeräumt: Bleibt sie nach
+  // dem Verlassen des Reiters laufen, tickt sie bis zum nächsten Neustart
+  // weiter und kostet Strom, den unterwegs niemand übrig hat.
+  const starten = () => {
+    anhalten(k.id);
+    laufend.set(k.id, setInterval(() => {
+      if (!bild.isConnected) { anhalten(k.id); return; }
+      // Nur zeichnen, was jemand sieht. Bei vierzehn Knoten in der Liste
+      // liefen sonst vierzehn Zeichnungen gleichzeitig – und der Akku ist
+      // unterwegs das Knappste, was man an Bord hat.
+      const kasten = bild.getBoundingClientRect();
+      if (kasten.bottom < 0 || kasten.top > window.innerHeight) return;
+      const jetzt = schritte.get(k.id) ?? d.steps;
+      zeige(jetzt >= d.steps ? 1 : jetzt + 1, false);
+    }, 1400));
+  };
+
+  bild.onclick = () => (laufend.has(k.id) ? anhalten(k.id) : starten());
+  starten();
+
+  return h('div.knot-draw',
+    bild,
+    h('div.knot-steps', { 'data-knotsteps': k.id, role: 'group', 'aria-label': t('knots.steps') },
+      ...Array.from({ length: d.steps }, (_, i) => h('button', {
+        type: 'button',
+        'aria-pressed': String(i + 1 === stand),
+        'aria-label': t('knots.step', { n: i + 1 }),
+        onclick: (e) => { e.stopPropagation(); zeige(i + 1, true); },
+      }, String(i + 1))),
+    ),
+  );
+}
+
+function anhalten(id) {
+  clearInterval(laufend.get(id));
+  laufend.delete(id);
 }
 
 /** Die Übersetzung eines Feldes – hier nur für den Titel gebraucht. */

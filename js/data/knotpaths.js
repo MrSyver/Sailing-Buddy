@@ -26,28 +26,28 @@ export const KNOT_DRAWINGS = {
     steps: 4,
     strands: [
       // Hinter dem festen Part herum – deshalb ganz hinten.
-      { n: 3, p: [[39, 17], [30, 9], [18, 13], [15, 24]] },
+      { n: 3, p: [[42, 17], [34, 9], [24, 11], [19, 20]] },
       // Der feste Part, von oben herunter in die Bucht.
-      { n: 1, p: [[15, -6], [19, 9], [24, 23], [29, 35], [34, 46]] },
+      { n: 1, p: [[26, -6], [27, 8], [30, 22], [33, 34], [37, 46]] },
       // Von unten in die Bucht hinein: unter dem rechten Part hindurch.
-      { n: 3, p: [[67, 63], [59, 57], [51, 49]] },
+      { n: 3, p: [[70, 63], [62, 57], [54, 49]] },
       // Und am Ende wieder hinaus: unter dem unteren Part hindurch.
-      { n: 4, p: [[41, 50], [45, 62], [47, 76]], end: 'werk' },
+      { n: 4, p: [[38, 46], [43, 58], [45, 73]], end: 'werk' },
       // Die Bucht: der feste Part legt sich über sich selbst.
       {
         n: 2,
-        p: [[34, 46], [39, 58], [53, 63], [67, 55], [71, 39], [61, 26], [45, 23], [33, 29],
-          [28, 39]],
+        p: [[37, 46], [42, 58], [56, 63], [70, 55], [74, 39], [64, 26], [48, 23], [36, 29],
+          [31, 39]],
       },
       // Das Auge – es läuft unten aus dem Bild.
       {
         n: 2,
-        p: [[28, 39], [14, 56], [14, 80], [32, 95], [56, 96], [72, 84], [74, 70], [67, 63]],
+        p: [[31, 39], [17, 56], [17, 80], [35, 95], [59, 96], [75, 84], [77, 70], [70, 63]],
       },
       // Oben aus der Bucht heraus – über den oberen Part.
-      { n: 3, p: [[51, 49], [47, 35], [43, 24], [39, 17]] },
+      { n: 3, p: [[54, 49], [50, 35], [46, 24], [42, 17]] },
       // Und von der anderen Seite wieder hinein – über den linken Part.
-      { n: 4, p: [[15, 24], [14, 38], [21, 48], [33, 52], [41, 50]] },
+      { n: 4, p: [[19, 20], [19, 32], [26, 41], [38, 46]] },
     ],
   },
 };
