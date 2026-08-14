@@ -15,8 +15,11 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "icons"
 
-BG_TOP = (11, 32, 51)       # tiefes Marineblau
-BG_BOTTOM = (5, 16, 28)
+# Durchgehend dunkelblau. Der frühere Verlauf lief unten nach (5, 16, 28) aus,
+# und das liest sich auf dem Home-Bildschirm nicht mehr als Blau, sondern als
+# Schwarz – zwischen den übrigen Symbolen sah das Feld aus wie ein Loch.
+BG_TOP = (16, 48, 77)       # tiefes Marineblau
+BG_BOTTOM = (10, 30, 51)
 SAIL = (245, 249, 252)
 HULL = (200, 214, 226)
 PORT = (255, 69, 58)        # rot, Backbord

@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Sailing Buddy">
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#0b2033"/>
-      <stop offset="1" stop-color="#05101c"/>
+      <stop offset="0" stop-color="#10304d"/>
+      <stop offset="1" stop-color="#0a1e33"/>
     </linearGradient>
     <clipPath id="round">
       <rect width="512" height="512" rx="102" ry="102"/>

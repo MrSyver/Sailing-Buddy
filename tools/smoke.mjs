@@ -412,6 +412,7 @@ check('Daneben steht, wofür er gut ist',
   /mitschneiden/i.test(await page.locator('.rec-teaser').innerText()),
   await page.locator('.rec-teaser').innerText());
 
+const ruhigerTitel = await page.locator('.rec-title').innerText();
 await page.locator('.rec-trigger').click();
 await page.waitForSelector('.rec-trigger.running', { timeout: 8000 })
   .catch(() => problems.push('Aufnahme startet nicht'));
@@ -419,8 +420,9 @@ check('Aufnahme läuft', await page.locator('.rec-trigger.running').count() === 
 check('Und der Knopf sagt das auch',
   (await page.locator('.rec-title').innerText()).includes('läuft'),
   await page.locator('.rec-title').innerText());
+check('Vorher heißt er „Aufnahme starten“', ruhigerTitel === 'Aufnahme starten', ruhigerTitel);
 await page.waitForTimeout(1200);
-await page.getByRole('button', { name: /Beenden und speichern/ }).click();
+await page.getByRole('button', { name: /Aufnahme beenden/ }).click();
 await page.waitForSelector('.rec-item', { timeout: 8000 })
   .catch(() => problems.push('Aufnahme wurde nicht gespeichert'));
 check('Aufnahme gespeichert', await page.locator('.rec-item').count() === 1);

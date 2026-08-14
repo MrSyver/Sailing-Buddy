@@ -70,6 +70,18 @@
   --glow: 0;
 }
 
+/*
+ * Was der Browser selbst zeichnet, muss vom Schema wissen.
+ *
+ * Platzhalter, Schreibmarke, Auswahlbalken, die Pfeile einer Auswahlliste, die
+ * Bedienung eines Datumsfelds: All das malt der Browser, nicht dieses
+ * Stylesheet. Ohne diese Zeile nimmt er dafür die hellen Voreinstellungen und
+ * setzt weiße und graue Flecken in eine Oberfläche, die sonst durchgehend rot
+ * auf schwarz ist – und im Nachtmodus kostet jeder davon Dunkeladaption.
+ */
+:root { color-scheme: light; }
+[data-theme="dark"], [data-theme="night"] { color-scheme: dark; }
+
 /* ---------------------------------------------------------------- Grundlage */
 
 * { box-sizing: border-box; }
