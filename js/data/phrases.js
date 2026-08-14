@@ -860,6 +860,29 @@ export function localized(phrase, field, lang) {
   return phrase[field];
 }
 
+/**
+ * Ein Rufzeichen Zeichen für Zeichen ausgeschrieben.
+ *
+ * „DA1234“ wird zu „Delta Alfa Unaone Bissotwo Terrathree Kartefour“. Im Funk
+ * wird ein Rufzeichen so gesprochen, und wer es im Notfall vorliest, hat
+ * genau das vor Augen zu haben – nicht die vier Zeichen, aus denen er es
+ * selbst zusammensetzen müsste.
+ *
+ * Die Zahlwörter sind die des Seefunks (Unaone, Bissotwo …), nicht die
+ * gewöhnlichen: Sie sind über Rauschen zu verstehen, und darum geht es.
+ * Zeichen, für die es kein Wort gibt, bleiben stehen, wie sie sind.
+ */
+export function spellOut(text) {
+  const buchstaben = new Map(SPELLING_ALPHABET.map(([l, w]) => [l, w]));
+  const ziffern = new Map(SPELLING_NUMBERS.map(([l, w]) => [l, w]));
+  return String(text ?? '')
+    .toUpperCase()
+    .split('')
+    .filter((ch) => ch.trim() !== '')
+    .map((ch) => buchstaben.get(ch) ?? ziffern.get(ch) ?? ch)
+    .join(' ');
+}
+
 /** Setzt die Platzhalter in einer Zeile. */
 export function fillPlaceholders(text, values) {
   return text.replace(/\{\{(\w+)\}\}/g, (_, key) => {

@@ -710,7 +710,7 @@ function lightSwatch(code) {
 
 /** Schematische Tonne: Farbfolge und Toppzeichen. */
 function buoySchematic(b) {
-  const el = svg('svg.light-view', { viewBox: '0 0 100 100', 'aria-hidden': 'true' });
+  const el = svg('svg.light-view.buoy-view', { viewBox: '0 0 100 100', 'aria-hidden': 'true' });
   const bodyTop = 42;
   const bodyBottom = 92;
   const height = bodyBottom - bodyTop;

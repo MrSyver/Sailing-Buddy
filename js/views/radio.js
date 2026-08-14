@@ -26,7 +26,7 @@ import {
 import {
   PHRASES, CHANNELS, EMERGENCY_CONTACTS, SPELLING_ALPHABET,
   SPELLING_NUMBERS, PROWORDS, fillPlaceholders, localized,
-  emergenciesFor,
+  emergenciesFor, spellOut,
 } from '../data/phrases.js';
 
 let openId = null;
@@ -38,6 +38,17 @@ let recTimer = null;
 let recError = null;
 // Position im Funkspruch: Zahlen oder ausgeschrieben zum Vorlesen.
 let spokenPosition = false;
+/**
+ * Der Zustand der Aufnahmetaste – bewusst im Modul, nicht im Knopf.
+ *
+ * Das Drücken startet die Aufnahme, und das zeichnet die Karte neu: Der Knopf
+ * unter dem Finger ist danach ein anderes Element. Läge der Zustand an ihm,
+ * träfe das Loslassen einen Knopf, der vom Drücken nichts weiß – und die
+ * Aufnahme liefe weiter.
+ */
+let druckSeit = null;
+let druckStartete = false;
+let zeigerErledigt = false;
 
 /** Sprache der Funksprüche – unabhängig von der Oberflächensprache. */
 function phraseLang() {
@@ -75,8 +86,12 @@ function values(phrase = null) {
   const lang = phraseLang();
   return {
     boat: s.boat || null,
-    callsign: s.callsign || null,
-    mmsi: s.mmsi || null,
+    // „Ausgeschrieben“ gilt für alles, was im Funk buchstabiert wird, nicht
+    // nur für die Position: Ein Rufzeichen wird Zeichen für Zeichen
+    // gesprochen, und die MMSI Ziffer für Ziffer. Wer im Notfall vorliest,
+    // soll das Fertige vor Augen haben.
+    callsign: s.callsign ? (spokenPosition ? spellOut(s.callsign) : s.callsign) : null,
+    mmsi: s.mmsi ? (spokenPosition ? spellOut(s.mmsi) : s.mmsi) : null,
     pob: s.pob || null,
     loa: s.loa ? `${s.loa} m` : null,
     draft: s.draft ? `${s.draft} m` : null,
@@ -255,39 +270,91 @@ function recorderCard(wrap) {
   // Zeichen fürs Aufnehmen kennt jeder, es braucht keine Übersetzung, und es
   // ist auch mit klammen Fingern zu treffen. Beim Laufen wird daraus ein
   // Viereck – dieselbe Stelle, dieselbe Größe, kein Suchen.
+  /** Anschalten oder ausschalten – die eigentliche Arbeit. */
+  const umschalten = async () => {
+    recError = null;
+    if (recording.active) {
+      clearInterval(recTimer);
+      recTimer = null;
+      try {
+        await recording.stop();
+        recList = await recordings.list();
+      } catch (err) {
+        recError = err.message;
+      }
+      draw(wrap);
+      return;
+    }
+    try {
+      await recording.start();
+      // Laufzeit im Sekundentakt mitschreiben.
+      recTimer = setInterval(() => {
+        const label = document.getElementById('rec-elapsed');
+        if (label) label.textContent = formatSeconds(recording.elapsed());
+      }, 1000);
+    } catch (err) {
+      // Häufigster Fall: Mikrofonfreigabe abgelehnt.
+      recError = err.name === 'NotAllowedError' ? t('radio.recDenied') : err.message;
+    }
+    draw(wrap);
+  };
+
+  // Ein runder Knopf mit rotem Punkt statt einer Schaltfläche mit Text: Das
+  // Zeichen fürs Aufnehmen kennt jeder, es braucht keine Übersetzung, und es
+  // ist auch mit klammen Fingern zu treffen. Beim Laufen wird daraus ein
+  // Viereck – dieselbe Stelle, dieselbe Größe, kein Suchen.
   const startStop = h('button.rec-trigger', {
     class: active ? 'rec-trigger running' : 'rec-trigger',
     type: 'button',
     'aria-label': active ? t('radio.recStop') : t('radio.recStart'),
     title: active ? t('radio.recStop') : t('radio.recStart'),
-    onclick: async () => {
-      recError = null;
-      if (recording.active) {
-        clearInterval(recTimer);
-        recTimer = null;
-        try {
-          await recording.stop();
-          recList = await recordings.list();
-        } catch (err) {
-          recError = err.message;
-        }
-        draw(wrap);
-        return;
-      }
-      try {
-        await recording.start();
-        // Laufzeit im Sekundentakt mitschreiben.
-        recTimer = setInterval(() => {
-          const label = document.getElementById('rec-elapsed');
-          if (label) label.textContent = formatSeconds(recording.elapsed());
-        }, 1000);
-      } catch (err) {
-        // Häufigster Fall: Mikrofonfreigabe abgelehnt.
-        recError = err.name === 'NotAllowedError' ? t('radio.recDenied') : err.message;
-      }
-      draw(wrap);
-    },
   }, h('span.rec-glyph', { 'aria-hidden': 'true' }));
+
+  /**
+   * Zwei Arten, denselben Knopf zu bedienen.
+   *
+   * Antippen schaltet an und beim nächsten Antippen wieder aus. Gedrückt
+   * halten nimmt auf, solange man hält, und beendet beim Loslassen – wie eine
+   * Sprechtaste. Zweimal zu treffen ist zweimal zu zielen, und beim zweiten
+   * Mal ist die Meldung vorbei.
+   *
+   * Unterschieden wird an der Haltedauer: Unter einer Viertelsekunde war es
+   * ein Tippen, darüber ein Halten. Beides muss auf dieselbe Fläche, weil es
+   * nur eine gibt, auf die man im Dunkeln blind zielt.
+   */
+  const HALTEN_AB = 250;
+
+  startStop.onpointerdown = () => {
+    druckSeit = Date.now();
+    druckStartete = false;
+    zeigerErledigt = true;
+    if (!recording.active) {
+      druckStartete = true;
+      umschalten();
+    }
+  };
+
+  const losgelassen = () => {
+    if (druckSeit === null) return;
+    const gehalten = Date.now() - druckSeit;
+    druckSeit = null;
+    if (!recording.active) return;
+    // Gehalten: beenden. Getippt, während schon lief: ebenfalls beenden.
+    if (gehalten >= HALTEN_AB || !druckStartete) umschalten();
+  };
+
+  startStop.onpointerup = losgelassen;
+  // Fährt der Finger vom Knopf herunter oder kommt etwas dazwischen, gilt das
+  // als Loslassen: Eine Aufnahme, die heimlich weiterläuft, wäre schlimmer
+  // als eine, die zu früh endet.
+  startStop.onpointerleave = losgelassen;
+  startStop.onpointercancel = losgelassen;
+
+  // Für Tastatur und Vorlesehilfen, die keine Zeigerereignisse schicken.
+  startStop.onclick = () => {
+    if (zeigerErledigt) { zeigerErledigt = false; return; }
+    umschalten();
+  };
 
   return h('div.card.rec-card',
     h('div.rec-head',

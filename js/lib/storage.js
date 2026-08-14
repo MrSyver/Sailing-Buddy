@@ -35,6 +35,8 @@ const DEFAULTS = {
   packBaseUrl: '',      // Verzeichnis der fertigen Kartenpakete
   packUrls: {},         // einzelne Pakete mit abweichender Adresse
   autoTiles: true,      // fehlende Kacheln bei Verbindung nachholen
+  // Welche Bereiche unten stehen: die zuletzt benutzten, neuester zuerst.
+  recentTabs: [],
   setupDone: false,
   waypoints: [],       // [{ id, name, lat, lon, kind, ts }]
 };

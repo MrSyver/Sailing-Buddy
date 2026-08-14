@@ -15,26 +15,30 @@ import { initOffline, onOfflineChange } from './lib/offline.js';
 import { logbook } from './lib/logbook.js';
 
 import * as radioView from './views/radio.js';
-import * as positionView from './views/position.js';
-import * as mapView from './views/map.js';
-import * as nightView from './views/night.js';
-import * as logbookView from './views/logbook.js';
 import * as moreView from './views/more.js';
 import * as setupView from './views/setup.js';
+import { MODULES, moduleFor, barModules, markUsed } from './lib/modules.js';
 
-const TABS = [
-  { key: 'funk', label: 'tab.radio', title: 'title.radio', view: radioView, icon: iconRadio },
-  { key: 'position', label: 'tab.position', title: 'title.position', view: positionView, icon: iconTarget },
-  { key: 'karte', label: 'tab.map', title: 'title.map', view: mapView, icon: iconMap },
-  { key: 'nacht', label: 'tab.night', title: 'title.night', view: nightView, icon: iconMoon },
-  { key: 'logbuch', label: 'tab.log', title: 'title.log', view: logbookView, icon: iconBook },
-  // Unten ist Platz für sechs Reiter, und die gehören dem, was unterwegs
-  // zählt. Knoten, Einstellungen und was noch dazukommt, liegen dahinter.
-  { key: 'mehr', label: 'tab.more', title: 'title.more', view: moreView, icon: iconMore },
-];
+/** Die Symbole der Bereiche – hier, weil sie zur Hülle gehören. */
+const ICONS = {
+  funk: iconRadio,
+  position: iconTarget,
+  karte: iconMap,
+  nacht: iconMoon,
+  logbuch: iconBook,
+  knoten: iconKnot,
+  setup: iconGear,
+  mehr: iconMore,
+};
+
+/** „Mehr“ ist kein Bereich, sondern die Tür zu den übrigen. */
+const MEHR = { key: 'mehr', label: 'tab.more', title: 'title.more', view: moreView };
 
 let current = 'funk';
 let teardown = null;
+// Die Hülle wird beim Sprachwechsel neu gebaut, die Anmeldungen aber nicht:
+// Sonst hinge nach dem dritten Wechsel dreimal derselbe Zuhörer am Ereignis.
+let verdrahtet = false;
 
 const app = document.getElementById('app');
 
@@ -73,6 +77,12 @@ function shell() {
     h('main', { id: 'main' }),
     tabbar(),
   );
+  wireEvents();
+}
+
+function wireEvents() {
+  if (verdrahtet) return;
+  verdrahtet = true;
   gps.onUpdate(updateGpsBar);
   window.addEventListener('sb:settings', updateTopbar);
   // Sprachwechsel: die gesamte Oberfläche neu aufbauen.
@@ -80,6 +90,8 @@ function shell() {
     shell();
     show(current);
   });
+  // Ein Bereich wurde aus „Mehr“ heraus aufgerufen.
+  window.addEventListener('sb:open', (e) => show(e.detail));
 }
 
 function topbar() {
@@ -88,15 +100,19 @@ function topbar() {
 
 function topbarContent() {
   const s = settings.all();
-  const tab = TABS.find((tb) => tb.key === current);
+  const tab = current === 'mehr' ? MEHR : moduleFor(current);
   return [
     h('h1',
       tab ? t(tab.title) : t('app.name'),
       s.boat && h('span.boat-tag', s.boat, s.mmsi ? ` · MMSI ${s.mmsi}` : ''),
     ),
-    // Sprache der Funksprüche: klein und immer erreichbar. Sie wird im
-    // Ernstfall gewechselt, nicht beim Einrichten – dann zählt jeder Griff.
-    h('button.icon-btn.lang-btn', {
+    // Sprache der Funksprüche – und nur dort, wo sie etwas bewirkt.
+    //
+    // Auf der Positionsseite oder im Logbuch stand sie bisher mit, ohne dass
+    // sich etwas Sichtbares änderte: Sie schaltet den Sprechtext um, sonst
+    // nichts. Ein Schalter, der an vier von sechs Stellen nichts tut, lehrt
+    // einen, ihn zu übersehen – auch dort, wo er zählt.
+    current === 'funk' && h('button.icon-btn.lang-btn', {
       type: 'button',
       title: t('radio.phraseLang'),
       'aria-label': `${t('radio.phraseLang')}: ${s.phraseLang === 'en' ? 'English' : 'Deutsch'}`,
@@ -142,18 +158,40 @@ function updateGpsBar({ fix, status }) {
   );
 }
 
-function tabbar() {
-  return h('nav.tabs', { id: 'tabs' }, ...TABS.map((tab) => h('button', {
+/**
+ * Die Leiste unten: fünf Bereiche und „Mehr“.
+ *
+ * Welche fünf, entscheidet die Benutzung; wo sie stehen, die feste
+ * Reihenfolge. Sonst wanderten die Felder unter dem Daumen umher – und genau
+ * darauf verlässt man sich nach der zweiten Woche an Bord.
+ */
+function tabButtons() {
+  const felder = [...barModules(current), MEHR];
+  return felder.map((tab) => h('button', {
     type: 'button',
+    'data-tab': tab.key,
     'aria-current': current === tab.key ? 'page' : null,
     onclick: () => show(tab.key),
-  }, tab.icon(), h('span', t(tab.label)))));
+  }, (ICONS[tab.key] ?? iconMore)(), h('span', t(tab.label))));
+}
+
+function tabbar() {
+  return h('nav.tabs', { id: 'tabs' }, ...tabButtons());
+}
+
+/** Die Leiste auffrischen, ohne die Hülle neu zu bauen. */
+function refreshTabs() {
+  const bar = document.getElementById('tabs');
+  if (bar) render(bar, ...tabButtons());
 }
 
 function show(key) {
-  const tab = TABS.find((tb) => tb.key === key);
+  const tab = key === 'mehr' ? MEHR : moduleFor(key);
   if (!tab) return;
   current = key;
+  // Was aufgerufen wird, rückt in der Leiste nach vorn. „Mehr“ selbst nicht –
+  // es ist keiner der Bereiche, sondern die Tür zu den übrigen.
+  if (key !== 'mehr') markUsed(key);
   if (typeof teardown === 'function') teardown();
   const main = document.getElementById('main');
   if (!main) return;
@@ -161,9 +199,8 @@ function show(key) {
   if (key === 'funk' && radioView.resetView) radioView.resetView();
   teardown = tab.view.view(main) ?? null;
   updateTopbar();
-  document.querySelectorAll('nav.tabs button').forEach((btn, i) => {
-    btn.setAttribute('aria-current', TABS[i].key === key ? 'page' : 'false');
-  });
+  // Die Leiste kann sich geändert haben – ein Bereich aus „Mehr“ rückt nach.
+  refreshTabs();
   window.scrollTo(0, 0);
 }
 
@@ -215,6 +252,18 @@ function iconContrast() {
   el.querySelector('path').setAttribute('fill', 'currentColor');
   el.appendChild(svg('circle', { cx: '12', cy: '12', r: '9' }));
   return el;
+}
+
+function iconGear() {
+  const el = icon('M11 3h2l.4 2.2a7 7 0 0 1 1.8.75l1.9-1.2 1.4 1.4-1.2 1.9c.33.55.58 1.16.75 1.8L20.3 11v2l-2.2.4a7 7 0 0 1-.75 1.8l1.2 1.9-1.4 1.4-1.9-1.2c-.55.33-1.16.58-1.8.75L13 20.3h-2l-.4-2.2a7 7 0 0 1-1.8-.75l-1.9 1.2-1.4-1.4 1.2-1.9a7 7 0 0 1-.75-1.8L3.7 13v-2l2.2-.4c.17-.64.42-1.25.75-1.8L5.45 6.9l1.4-1.4 1.9 1.2c.55-.33 1.16-.58 1.8-.75z');
+  el.appendChild(svg('circle', { cx: '12', cy: '12', r: '2.8' }));
+  return el;
+}
+
+function iconKnot() {
+  // Zwei ineinandergreifende Buchten – ein Knoten als Zeichen, nicht als
+  // Anleitung.
+  return icon('M8 8c0 3 3 4 4 4s4 1 4 4-3 4-4 4', 'M16 8c0 3-3 4-4 4s-4 1-4 4 3 4 4 4');
 }
 
 function iconMore() {
