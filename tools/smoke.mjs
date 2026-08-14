@@ -390,7 +390,37 @@ await page.getByRole('button', { name: 'Ausgeschrieben' }).click();
 const spokenLine = await page.locator('.script .position').innerText();
 check('Position ausgeschrieben im Funkspruch',
   spokenLine.includes('Grad') && spokenLine.includes('Nord'), spokenLine);
+
+// Ziffern bleiben Ziffern. Die Zahlwörter des Seefunks sind über schlechtes
+// Rauschen sicherer – aber nur, wenn man sie kann. Wer sie vom Blatt abliest
+// und dabei stockt, ist mit „eins zwei drei vier“ besser dran.
+const rufAusgeschrieben = await page.locator('.script').innerText();
+check('Das Rufzeichen wird buchstabiert',
+  rufAusgeschrieben.includes('Delta Alfa'),
+  rufAusgeschrieben.split('\n').find((l) => /Delta/.test(l)) ?? '');
+check('Die Ziffern darin bleiben Ziffern',
+  /Delta Alfa 1 2 3 4/.test(rufAusgeschrieben) && !/Unaone|Kartefour/.test(rufAusgeschrieben),
+  rufAusgeschrieben.split('\n').find((l) => /Delta/.test(l)) ?? '');
+
+// Wer die Seefunkwörter will, bekommt sie – mit einem Griff.
+check('Ein Knopf stellt die Ziffern um',
+  await page.locator('#digit-style').count() === 1);
+await page.locator('#digit-style').click();
+await page.waitForTimeout(200);
+const mitWoertern = await page.locator('.script').innerText();
+check('Umgestellt stehen die Seefunkwörter da',
+  mitWoertern.includes('Unaone') && mitWoertern.includes('Kartefour'),
+  mitWoertern.split('\n').find((l) => /Delta/.test(l)) ?? '');
+check('Und die Umstellung bleibt gemerkt',
+  await page.evaluate(() => JSON.parse(localStorage.getItem('sailing-buddy')).spellNumbers) === true);
+await page.locator('#digit-style').click();
+await page.waitForTimeout(200);
+check('Und wieder zurück',
+  !(await page.locator('.script').innerText()).includes('Unaone'));
+
 await page.getByRole('button', { name: 'Als Zahlen' }).click();
+check('Bei Zahlen gibt es nichts umzustellen',
+  await page.locator('#digit-style').count() === 0);
 
 // Sprache der Funksprüche umschalten – der Umschalter sitzt oben in der
 // Titelleiste, nicht mehr als breite Leiste im Modul.
