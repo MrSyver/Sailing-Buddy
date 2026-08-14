@@ -22,6 +22,30 @@
  */
 
 export const KNOT_DRAWINGS = {
+  /**
+   * Webleinstek am Rundholz: zwei Törns über Kreuz, das Ende unter den
+   * zweiten gesteckt. Das Kreuz auf der Vorderseite ist das Erkennungszeichen –
+   * daran sieht man auf einen Blick, ob es ein Webleinstek ist oder zwei
+   * lose Schläge.
+   */
+  webleinstek: {
+    steps: 4,
+    props: [{ art: 'balken', x: -6, y: 36, w: 112, h: 24, rx: 4, n: 1 }],
+    strands: [
+      // Hinter der Spiere herum – liegt unter ihr.
+      { n: 2, hinter: true, p: [[44, 33], [54, 27], [64, 33], [66, 48], [60, 63]] },
+      { n: 3, hinter: true, p: [[34, 33], [24, 27], [14, 33], [12, 48], [18, 63]] },
+      // Der feste Part kommt von unten links.
+      { n: 1, p: [[10, 104], [16, 84], [22, 70], [26, 63]] },
+      // Erster Törn über die Vorderseite.
+      { n: 2, p: [[26, 63], [35, 48], [44, 33]] },
+      // Das Ende, unter dem zweiten Törn hindurch – deshalb vor ihm gezeichnet.
+      { n: 4, p: [[18, 63], [30, 58], [44, 55], [58, 56]], end: 'werk' },
+      // Zweiter Törn über die Vorderseite, über den ersten hinweg.
+      { n: 3, p: [[60, 63], [47, 48], [34, 33]] },
+    ],
+  },
+
   palstek: {
     steps: 4,
     strands: [
