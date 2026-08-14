@@ -1,0 +1,55 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Knotenwerkstatt</title>
+<style>
+  body { background:#0f1216; color:#e8edf3; font:14px system-ui; margin:0; padding:16px; }
+  .row { display:flex; flex-wrap:wrap; gap:14px; }
+  figure { margin:0; }
+  figcaption { text-align:center; font-size:12px; color:#98a4b3; margin-top:4px; }
+  .knot-fig { width:280px; height:280px; background:#1a2029; border-radius:12px; display:block; }
+  .knot-casing { fill:none; stroke:#1a2029; stroke-width:10; stroke-linecap:round; stroke-linejoin:round; }
+  .knot-core   { fill:none; stroke:#d8c08a; stroke-width:5.5;  stroke-linecap:round; stroke-linejoin:round; }
+  .knot-tip    { fill:#d8c08a; }
+  .knot-prop   { fill:#39424f; stroke:#5a6572; stroke-width:2; }
+  .knot-prop-ring { fill:none; stroke:#5a6572; stroke-width:7; }
+  .grid { stroke:#2a323d; stroke-width:.5; }
+</style>
+<div class="row" id="out"></div>
+<script type="module">
+import { knotFigure } from '../js/lib/knotdraw.js';
+import { KNOT_DRAWINGS } from '../js/data/knotpaths.js';
+
+const params = new URLSearchParams(location.search);
+const nur = params.get('k');
+const grid = params.has('grid');
+const out = document.getElementById('out');
+
+const ids = nur ? nur.split(',') : Object.keys(KNOT_DRAWINGS);
+for (const id of ids) {
+  const d = KNOT_DRAWINGS[id];
+  if (!d) continue;
+  const schritte = params.has('steps') ? d.steps : [d.steps];
+  for (const s of Array.isArray(schritte) ? schritte : [...Array(d.steps).keys()].map((n) => n + 1)) {
+    const fig = document.createElement('figure');
+    const el = knotFigure(d, s);
+    if (grid) {
+      for (let i = 10; i < 100; i += 10) {
+        const ns = 'http://www.w3.org/2000/svg';
+        const a = document.createElementNS(ns, 'line');
+        a.setAttribute('class', 'grid');
+        a.setAttribute('x1', 0); a.setAttribute('y1', i); a.setAttribute('x2', 100); a.setAttribute('y2', i);
+        el.insertBefore(a, el.firstChild);
+        const b = document.createElementNS(ns, 'line');
+        b.setAttribute('class', 'grid');
+        b.setAttribute('x1', i); b.setAttribute('y1', 0); b.setAttribute('x2', i); b.setAttribute('y2', 100);
+        el.insertBefore(b, el.firstChild);
+      }
+    }
+    fig.appendChild(el);
+    const cap = document.createElement('figcaption');
+    cap.textContent = `${id} · Schritt ${s}`;
+    fig.appendChild(cap);
+    out.appendChild(fig);
+  }
+}
+</script>
