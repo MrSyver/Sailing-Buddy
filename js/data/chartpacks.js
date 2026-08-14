@@ -18,6 +18,20 @@
  * Stimmt ein Dateiname nicht, sagt der Download das beim ersten Versuch
  * ("Der Server antwortet mit 404") und man trägt die richtige Adresse ein.
  * Nichts davon macht die App unbrauchbar.
+ *
+ * UND DIE ZWEITE EINSCHRÄNKUNG, die schwerer wiegt: Eine Seite darf per
+ * JavaScript nur dann eine Datei von einem anderen Server lesen, wenn dieser
+ * das ausdrücklich erlaubt (CORS). Reine Dateispiegel tun das so gut wie nie –
+ * sie sind für den Browser selbst gedacht, nicht für eine Seite darin. Dann
+ * scheitert der Griff schon vor dem ersten Byte, ohne Statuszeile, und Safari
+ * sagt dazu nur „Load failed“. Am Dateinamen liegt es in dem Fall nicht, und
+ * eine andere Adresse hilft auch nicht.
+ *
+ * Deshalb gibt es daneben den Weg, der immer geht: die Datei mit dem Browser
+ * selbst herunterladen und aus dem Gerät übernehmen (`importPack`). Die
+ * Adressen hier bleiben trotzdem stehen – wo ein Spiegel den Zugriff erlaubt
+ * oder jemand einen eigenen Server einträgt, ist der Weg über die Adresse der
+ * bequemere.
  */
 
 /** Verzeichnis, unter dem die Pakete liegen. In den Einstellungen änderbar. */

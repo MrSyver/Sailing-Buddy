@@ -152,8 +152,40 @@ export async function downloadPack({ id, name, url, expectedBytes = null }, {
   writeRegistry(registry);
 
   const headers = done > 0 ? { Range: `bytes=${done}-` } : {};
-  const response = await fetch(url, { headers, signal });
-  if (!response.ok) throw new Error(`Der Server antwortet mit ${response.status}`);
+
+  let response;
+  try {
+    response = await fetch(url, { headers, signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw err;
+    /**
+     * Ein Fehlschlag ohne Statuszeile – „Load failed“, „Failed to fetch“ –
+     * heißt fast immer: Der Server erlaubt fremden Seiten das Lesen nicht.
+     *
+     * Eine Seite darf per JavaScript nur dann eine Datei von einem anderen
+     * Server lesen, wenn dieser das ausdrücklich gestattet (CORS). Reine
+     * Dateispiegel tun das so gut wie nie – sie sind für den Browser selbst
+     * gedacht, nicht für eine Seite darin. Am Dateinamen liegt es dann nicht,
+     * und ein zweiter Versuch hilft auch nicht: Von hier aus ist die Datei
+     * nicht zu holen, Punkt.
+     *
+     * Der Weg, der immer geht, ist der Download im Browser selbst und danach
+     * die Datei aus dem Gerät – siehe `importPack`.
+     */
+    const fehler = new Error(
+      navigator.onLine === false
+        ? 'Keine Verbindung.'
+        : 'Der Server gibt die Datei an diese Seite nicht heraus (CORS) oder ist nicht erreichbar.',
+    );
+    fehler.code = navigator.onLine === false ? 'offline' : 'cors';
+    throw fehler;
+  }
+
+  if (!response.ok) {
+    const fehler = new Error(`Der Server antwortet mit ${response.status}`);
+    fehler.code = response.status === 404 ? 'notfound' : 'http';
+    throw fehler;
+  }
 
   let append = done > 0;
   if (done > 0 && response.status !== 206) {
@@ -222,6 +254,87 @@ export async function downloadPack({ id, name, url, expectedBytes = null }, {
   }
 
   return { id, bytes: part.size };
+}
+
+/**
+ * Nimmt eine Datei aus dem Gerät als Kartenpaket auf.
+ *
+ * Das ist der Weg, der immer geht. Über eine Adresse zu laden gelingt nur,
+ * wenn der Server das Lesen von einer fremden Seite aus erlaubt – die
+ * Dateispiegel, auf denen die großen Pakete liegen, tun das nicht. Der Browser
+ * selbst kennt diese Schranke nicht: Ein gewöhnlicher Download in Safari legt
+ * die Datei in „Dateien“ ab, und von dort wird sie hier hereingereicht.
+ *
+ * Geprüft wird vor dem Kopieren: Was kein lesbares Kartenpaket ist, soll nicht
+ * erst ein paar hundert Megabyte Platz kosten.
+ */
+export async function importPack(file, { id = null, name = null, onProgress = () => {} } = {}) {
+  const dir = await root();
+  const packId = id ?? `datei-${Date.now().toString(36)}`;
+  const partName = `${fileName(packId)}${PART}`;
+
+  let info;
+  try {
+    info = await openMbtiles(blobSource(file));
+  } catch (err) {
+    const fehler = new Error(`Die Datei ist kein lesbares Kartenpaket: ${err.message}`);
+    fehler.code = 'nombtiles';
+    throw fehler;
+  }
+
+  const space = await storageEstimate();
+  if (space && space.free < file.size) {
+    const fehler = new Error(
+      `Dafür ist kein Platz: nötig etwa ${Math.round(file.size / 1024 / 1024)} MB, frei ${Math.round(space.free / 1024 / 1024)} MB.`,
+    );
+    fehler.code = 'space';
+    throw fehler;
+  }
+
+  const handle = await dir.getFileHandle(partName, { create: true });
+  const writable = await handle.createWritable();
+  let done = 0;
+  try {
+    const reader = file.stream().getReader();
+    for (;;) {
+      // eslint-disable-next-line no-await-in-loop
+      const { value, done: finished } = await reader.read();
+      if (finished) break;
+      // eslint-disable-next-line no-await-in-loop
+      await writable.write(value);
+      done += value.byteLength;
+      onProgress({ done, total: file.size });
+    }
+    await writable.close();
+  } catch (err) {
+    await writable.close().catch(() => {});
+    await dir.removeEntry(partName).catch(() => {});
+    throw err;
+  }
+
+  const registry = readRegistry();
+  registry[packId] = {
+    name: name || info.name || file.name.replace(/\.mbtiles$/i, ''),
+    url: null,
+    ts: Date.now(),
+    total: file.size,
+    minzoom: info.minzoom,
+    maxzoom: info.maxzoom,
+    bounds: info.bounds,
+    format: info.format,
+  };
+  writeRegistry(registry);
+
+  if (typeof handle.move === 'function') {
+    await handle.move(fileName(packId));
+  } else {
+    const finalHandle = await dir.getFileHandle(fileName(packId), { create: true });
+    const copy = await finalHandle.createWritable();
+    await (await handle.getFile()).stream().pipeTo(copy);
+    await dir.removeEntry(partName).catch(() => {});
+  }
+
+  return { id: packId, bytes: file.size };
 }
 
 /** Wirft ein Paket weg, samt angefangenem Rest. */

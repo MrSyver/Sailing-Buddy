@@ -70,8 +70,8 @@ export function createChart({ collect, size = 'klein' }) {
   }
 
   function viewport() {
-    const { marks, track } = collect();
-    const points = [...marks, ...track];
+    const { marks, track, leg = [] } = collect();
+    const points = [...marks, ...track, ...leg];
     const { width, height } = measure();
 
     if (points.length === 0) {
@@ -116,7 +116,7 @@ export function createChart({ collect, size = 'klein' }) {
     if (!alive || !el.isConnected) return;
 
     const { z, center, width, height } = viewport();
-    const { marks, track } = collect();
+    const { marks, track, leg = [] } = collect();
 
     // Weltkoordinaten in Bildpunkten; der Ausschnitt liegt mittig darin.
     const originX = lonToTileX(center.lon, z) * TILE - width / 2;
@@ -147,7 +147,7 @@ export function createChart({ collect, size = 'klein' }) {
       tileLayer(z, originX, originY, width, height, generation);
     }
 
-    el.appendChild(overlay({ marks, track, toXY, width, height, z, center }));
+    el.appendChild(overlay({ marks, track, leg, toXY, width, height, z, center }));
     attachDrag(z, center);
   }
 
@@ -298,12 +298,25 @@ export function createChart({ collect, size = 'klein' }) {
 
   // --------------------------------------------------------------- Zeichnung
 
-  function overlay({ marks, track, toXY, width, height, z, center }) {
+  function overlay({ marks, track, leg = [], toXY, width, height, z, center }) {
     const plot = svg('svg.chart-plot', {
       viewBox: `0 0 ${width} ${height}`,
       role: 'img',
       'aria-label': t('map.title'),
     });
+
+    // Der Strich von hier zum Ziel. Er liegt unter allem anderen, damit er die
+    // Punkte nicht überdeckt – zeigen soll er, was zusammengehört, nicht die
+    // Stellen selbst.
+    if (leg.length > 1) {
+      plot.appendChild(svg('polyline', {
+        class: 'plot-leg',
+        points: leg.map((p) => {
+          const q = toXY(p);
+          return `${q.x.toFixed(1)},${q.y.toFixed(1)}`;
+        }).join(' '),
+      }));
+    }
 
     if (track.length > 1) {
       plot.appendChild(svg('polyline', {
@@ -337,9 +350,14 @@ export function createChart({ collect, size = 'klein' }) {
             transform: `rotate(${turn} ${p.x} ${p.y})`,
           }));
       } else {
-        g.appendChild(svg('circle', { cx: p.x, cy: p.y, r: 5.5, class: 'dot' }));
+        // Das Ziel und die MOB-Stelle bekommen einen Ring: Zwischen einem
+        // Dutzend gemerkter Punkte muss auf einen Blick zu sehen sein, welcher
+        // gerade gemeint ist.
+        const wichtig = mark.kind === 'target' || mark.kind === 'mob';
+        if (wichtig) g.appendChild(svg('circle', { cx: p.x, cy: p.y, r: 11, class: 'ring' }));
+        g.appendChild(svg('circle', { cx: p.x, cy: p.y, r: wichtig ? 6.5 : 5.5, class: 'dot' }));
         g.appendChild(svg('text', {
-          class: 'chart-label', x: p.x + 9, y: p.y + 4,
+          class: 'chart-label', x: p.x + (wichtig ? 15 : 9), y: p.y + 4,
         }, mark.kind === 'mob' ? `⚑ ${mark.name}` : mark.name));
       }
       plot.appendChild(g);

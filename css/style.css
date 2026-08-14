@@ -320,6 +320,9 @@ textarea { min-height: 76px; resize: vertical; line-height: 1.45; }
 }
 
 .btn:active { transform: scale(.98); }
+/* Ein Verweis, der als Schaltfläche auftritt, darf nicht unterstrichen sein –
+   sonst sieht er neben den echten Schaltflächen aus wie ein Fremdkörper. */
+a.btn { text-decoration: none; }
 .btn.primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .btn.danger { background: var(--danger); color: var(--accent-contrast); border-color: var(--danger); }
 .btn.block { width: 100%; }
@@ -585,6 +588,10 @@ table.data td.k { font-family: var(--mono); font-weight: 700; white-space: nowra
 .readout {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  /* Alle Kästchen gleich hoch, auch über mehrere Zeilen hinweg. Sonst gibt
+     eine längere Unterzeile ihrer Zeile mehr Höhe als der nächsten, und das
+     Feld wirkt schief. */
+  grid-auto-rows: 1fr;
   gap: 10px;
 }
 
@@ -597,6 +604,11 @@ table.data td.k { font-family: var(--mono); font-weight: 700; white-space: nowra
   /* Ohne das dehnt eine lange Zahl die Spalte auf und läuft aus der Karte. */
   min-width: 0;
   overflow-wrap: anywhere;
+  /* Bei gleicher Kästchenhöhe sitzt der Inhalt sonst oben und die Zahlen
+     stehen auf verschiedenen Linien. */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .readout .cell .label {
@@ -618,8 +630,12 @@ table.data td.k { font-family: var(--mono); font-weight: 700; white-space: nowra
 
 .readout .cell .unit { font-size: .95rem; font-weight: 600; color: var(--text-dim); margin-left: 2px; }
 .readout .cell .sub { font-size: .76rem; color: var(--text-dim); margin-top: 3px; }
-.readout .cell.wide { grid-column: 1 / -1; }
 .readout .cell.hero .value { font-size: 2.6rem; }
+
+/* Der feste Ergebnisblock: sechs Kästchen, die immer dastehen. Etwas kleiner
+   gesetzt als sonst, damit eine Gradzahl und eine Uhrzeit nebeneinander wie
+   ein Satz wirken und nicht wie zwei verschiedene Anzeigen. */
+.readout-fest .cell .value { font-size: 1.5rem; }
 
 .readout .cell .value.mid { font-size: 1.4rem; }
 
@@ -1245,9 +1261,11 @@ details.foldout > div { padding: 0 15px 15px; }
 }
 
 .chart-gross {
-  /* Kopfzeile, GPS-Leiste, Reiter und Ränder gehen ab – der Rest ist Karte. */
-  height: calc(100dvh - 232px);
-  min-height: 340px;
+  /* Groß genug, um etwas zu erkennen, klein genug, dass die Liste darunter
+     noch angerissen ist und der Daumen die Seite scrollen kann, ohne die
+     Karte zu verschieben. Wer wirklich Fläche braucht, nimmt das Vollbild –
+     dafür ist der Knopf oben rechts da. */
+  height: clamp(260px, 44dvh, 430px);
 }
 
 .chart-klein { height: 260px; }
@@ -1290,6 +1308,33 @@ details.foldout > div { padding: 0 15px 15px; }
   color: var(--accent);
 }
 
+/* Die Dateiauswahl für ein Kartenpaket. Der Knopf darin gehört dem System und
+   lässt sich nicht umlackieren – der Rahmen darum aber schon, damit er nicht
+   nackt zwischen den übrigen Karten steht. */
+.pack-file {
+  width: 100%;
+  font: inherit;
+  font-size: .9rem;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 54px;
+}
+
+.pack-file:disabled { opacity: .55; }
+.pack-file::file-selector-button {
+  font: inherit;
+  font-weight: 650;
+  margin-right: 10px;
+  padding: 9px 13px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
 .chart-credit { margin: 7px 4px 0; }
 .chart-note:empty { display: none; }
 
@@ -1312,6 +1357,23 @@ details.foldout > div { padding: 0 15px 15px; }
 .chart-mark.own .dot { fill: var(--accent); stroke: var(--bg); stroke-width: 1.5; }
 .chart-mark.wp .dot { fill: var(--ok); stroke: var(--bg); stroke-width: 1.5; }
 .chart-mark.mob .dot { fill: var(--danger); stroke: var(--bg); stroke-width: 1.5; }
+
+/* Der Ring um das Ziel und um die MOB-Stelle – damit klar ist, welcher Punkt
+   von allen gerade gemeint ist. */
+.chart-mark .ring { fill: none; stroke-width: 2; opacity: .85; }
+.chart-mark.target .ring { stroke: var(--accent); }
+.chart-mark.mob .ring { stroke: var(--danger); }
+
+/* Die Verbindung von der eigenen Position zum Ziel. Gestrichelt, damit sie
+   nicht mit der gefahrenen Spur verwechselt wird: Die eine war, die andere
+   soll erst noch. */
+.plot-leg {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 7 5;
+  opacity: .8;
+}
 
 .chart-label {
   fill: var(--text);
