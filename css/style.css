@@ -1793,12 +1793,16 @@ body.chart-open { overflow: hidden; }
 .knot-draw {
   --knot-bg: var(--surface-2);
   --knot-rope: #9a7331;
+  /* Die zweite Leine – für Knoten, die zwei Leinen verbinden. Deutlich
+     anders, aber nicht bunter: Zwei Farben sollen zwei Leinen zeigen, nicht
+     einen Zirkus. */
+  --knot-rope-b: #3d6b7d;
   margin: 14px 0 4px;
 }
 
 /* Auf dunklem Grund braucht die Leine die helle Seite derselben Farbe –
    dasselbe Braun wäre dort ein Schatten. */
-[data-theme="dark"] .knot-draw { --knot-rope: #cdad6d; }
+[data-theme="dark"] .knot-draw { --knot-rope: #cdad6d; --knot-rope-b: #7fb3c7; }
 
 .knot-stage {
   background: var(--knot-bg);
@@ -1826,6 +1830,7 @@ body.chart-open { overflow: hidden; }
   stroke-linejoin: round;
 }
 
+.knot-core-b { stroke: var(--knot-rope-b); }
 .knot-tip { fill: var(--knot-rope); }
 .knot-prop { fill: var(--surface); stroke: var(--border); stroke-width: 2; }
 .knot-prop-ring { fill: none; stroke: var(--border); stroke-width: 7; }
@@ -1856,6 +1861,8 @@ body.chart-open { overflow: hidden; }
 [data-theme="night"] .knot-draw {
   --knot-bg: #000;
   --knot-rope: #b3271b;
+  /* Auch die zweite Leine bleibt langwellig – dunkler statt andersfarbig. */
+  --knot-rope-b: #7a1a12;
 }
 
 /* Die Etappe unter dem Törn – eine Ebene tiefer, und das soll man sehen. */
