@@ -1039,49 +1039,56 @@ await shot('05e-ansichten');
 
 await firstCard.locator('.aspect-seg button[data-aspect="bow"]').click();
 
-// Lichtersuche: Auswahl grenzt ein, Unmögliches verschwindet.
-await page.getByRole('button', { name: /Lichter suchen/ }).click();
-await page.waitForSelector('.sheet');
-const facetsBefore = await page.locator('.facet').count();
-await page.locator('.facet[data-facet="r"]').click();
-await page.locator('.facet[data-facet="stack2"]').click();
-const facetsAfter = await page.locator('.facet').count();
+// Die Merkmale stehen offen da – kein Knopf, kein Blatt darüber.
+//
+// Vorher lagen sie hinter „Was sehe ich?“ und einem Blatt, das sich über den
+// Schirm legte: zwei Griffe mehr für dieselbe Frage, und die Antwort stand
+// hinter dem Blatt, das man erst wegschieben musste.
+check('Kein Knopf mehr vor der Lichtersuche',
+  await page.getByRole('button', { name: /Was sehe ich|Lichter suchen/ }).count() === 0);
+check('Die Merkmale stehen offen da',
+  await page.locator('.chip[data-facet]').count() > 8,
+  `${await page.locator('.chip[data-facet]').count()} Merkmale`);
+check('Und zwar nach Gruppen geordnet, wie bei Tage',
+  (await page.locator('main').innerText()).includes('Welche Farben siehst du?'));
+
+const facetsBefore = await page.locator('.chip[data-facet]').count();
+await page.locator('.chip[data-facet="r"]').click();
+await page.waitForTimeout(200);
+await page.locator('.chip[data-facet="stack2"]').click();
+await page.waitForTimeout(200);
+const facetsAfter = await page.locator('.chip[data-facet]').count();
 check('Unmögliche Merkmale fallen weg', facetsAfter < facetsBefore,
   `vorher ${facetsBefore}, nachher ${facetsAfter}`);
 
+// Die Treffer stehen unmittelbar darunter, ohne dass man etwas schließen muss.
+const resultCount = await page.locator('.light-card').count();
+check('Die Treffer stehen sofort darunter', resultCount > 0 && resultCount < cardsAll,
+  `${resultCount} von ${cardsAll}`);
+check('Und die Zahl steht dabei',
+  (await page.locator('main').innerText()).includes(`${resultCount} mögliche`),
+  (await page.locator('main').innerText()).split('\n').find((l) => /mögliche/.test(l)) ?? '');
+await shot('05-lichtersuche');
+await shot('05b-lights');
+
 // Seezeichen müssen in derselben Suche auftauchen – nachts weiß man ja
 // gerade nicht, ob da ein Schiff fährt oder eine Tonne liegt.
-await page.locator('.sheet').getByRole('button', { name: /zurücksetzen/ }).click();
-await page.locator('.facet[data-facet="w"]').click();
-await page.locator('.facet[data-facet="quick"]').click();
-await page.locator('.facet[data-facet="longflash"]').click();
-const cardinalHit = Number(await page.locator('.sheet-result .n').innerText());
-check('Suche findet auch Seezeichen', cardinalHit === 1, `${cardinalHit} Treffer`);
-await page.locator('.sheet').getByRole('button', { name: 'Anzeigen' }).click();
-await page.waitForSelector('.buoy-light');
+await page.locator('.chip', { hasText: 'zurücksetzen' }).first().click();
+await page.waitForTimeout(200);
+await page.locator('.chip[data-facet="w"]').click();
+await page.waitForTimeout(200);
+await page.locator('.chip[data-facet="quick"]').click();
+await page.waitForTimeout(200);
+await page.locator('.chip[data-facet="longflash"]').click();
+await page.waitForTimeout(300);
+check('Suche findet auch Seezeichen',
+  await page.locator('.buoy-light').count() === 1,
+  `${await page.locator('.buoy-light').count()} Treffer`);
 check('Gefundenes Seezeichen ist das Südzeichen',
   (await page.locator('main').innerText()).includes('Südzeichen'));
 await shot('05d-suche-tonne');
 
-await page.getByRole('button', { name: /Lichter suchen/ }).click();
-await page.waitForSelector('.sheet');
-await page.locator('.sheet').getByRole('button', { name: /zurücksetzen/ }).click();
-await page.locator('.facet[data-facet="r"]').click();
-await page.locator('.facet[data-facet="stack2"]').click();
-
-const resultCount = Number(await page.locator('.sheet-result .n').innerText());
-check('Suchmaske zeigt die Trefferzahl', resultCount > 0 && resultCount < cardsAll,
-  `${resultCount} von ${cardsAll}`);
-await shot('05-lichtersuche');
-
-await page.locator('.sheet').getByRole('button', { name: 'Anzeigen' }).click();
-await page.waitForSelector('.light-card');
-const cardsFiltered = await page.locator('.light-card').count();
-check('Suche grenzt die Liste ein', cardsFiltered === resultCount,
-  `${cardsFiltered} angezeigt, ${resultCount} erwartet`);
-await shot('05b-lights');
-
-await page.locator('.chip', { hasText: 'zurücksetzen' }).click();
+await page.locator('.chip', { hasText: 'zurücksetzen' }).first().click();
 check('Filter lässt sich im Reiter zurücksetzen',
   await page.locator('.light-card').count() === cardsAll,
   `${await page.locator('.light-card').count()} von ${cardsAll}`);

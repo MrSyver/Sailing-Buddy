@@ -1029,108 +1029,15 @@ details.foldout > div { padding: 0 15px 15px; }
 /* Im Nachtmodus leuchten Emoji unabhängig von der Textfarbe – abdunkeln. */
 [data-theme="night"] .emergency .ico { filter: grayscale(1) brightness(.5); }
 
-/* ============================================== Aufklappblatt (Lichtersuche) */
-
-.sheet-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 300;
-  background: rgba(0, 0, 0, .55);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: calc(12px + env(safe-area-inset-top)) 12px 12px;
-}
-
-.sheet {
-  width: 100%;
-  max-width: 460px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px;
-  box-shadow: var(--shadow);
-  max-height: calc(100vh - 24px);
-  overflow-y: auto;
-}
-
-.sheet-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 4px 12px;
-  position: sticky;
-  top: 0;
-  background: var(--surface);
-  z-index: 2;
-}
-
-[data-theme="night"] .sheet-overlay { background: rgba(0, 0, 0, .85); }
-
-/* Große Auswahlflächen – im Dunkeln und bei Seegang zählt jeder Millimeter. */
-.facet-group { margin-bottom: 14px; }
-
-.facet-group > h4 {
-  margin: 0 0 7px;
-  font-size: .76rem;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--text-dim);
-  font-weight: 700;
-}
-
-.facet-chips { display: flex; flex-wrap: wrap; gap: 7px; }
-
-.facet {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 46px;
-  padding: 9px 15px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text);
-  font: inherit;
-  font-size: .93rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.facet[aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-.facet .swatch {
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  border: 1px solid rgba(128, 128, 128, .5);
-  flex: none;
-}
-
-[data-theme="night"] .facet .swatch { filter: brightness(.45); }
-
-.facet .count {
+/* Die Zahl auf einem Merkmal: was bliebe, wenn man es wählte. */
+.chip .count {
   font-size: .78rem;
   color: var(--text-dim);
   font-weight: 500;
+  margin-left: 2px;
 }
 
-.sheet-result {
-  position: sticky;
-  bottom: 0;
-  background: var(--surface);
-  padding: 11px 4px 4px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.sheet-result .n { font-weight: 700; font-size: 1.05rem; }
+.chip[aria-pressed="true"] .count { color: inherit; }
 
 /* ------------------------------------------------- Koordinaten-Eingabe */
 

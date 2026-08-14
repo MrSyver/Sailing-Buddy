@@ -84,14 +84,7 @@ export function view(root) {
     if (!running) state.playing = null;
     draw();
   });
-  return () => { off(); audio.stop(); closeSearchQuietly(); container = null; };
-}
-
-/** Beim Verlassen des Moduls darf kein Blatt offen bleiben. */
-function closeSearchQuietly() {
-  const overlay = document.getElementById('light-search');
-  if (overlay?._onKey) document.removeEventListener('keydown', overlay._onKey);
-  overlay?.remove();
+  return () => { off(); audio.stop(); container = null; };
 }
 
 function draw() {
@@ -158,13 +151,7 @@ function lightsView() {
   const found = searchAll(state.facets, state.category);
 
   return h('div',
-    // Ein großer Knopf statt einer Filterleiste: Nachts will niemand
-    // zwischen kleinen Schaltflächen zielen.
-    h('button.btn.primary.block', {
-      type: 'button',
-      style: { 'margin-bottom': '12px', 'min-height': '58px', 'font-size': '1.05rem' },
-      onclick: openSearch,
-    }, t('night.searchOpen')),
+    h('div.notice', t('night.searchHint')),
 
     active.length > 0 && h('div.card',
       h('div.row.wrap', { style: { gap: '7px' } },
@@ -187,6 +174,15 @@ function lightsView() {
       ),
     ),
 
+    // Die Merkmale stehen offen da, wie bei Tage auch.
+    //
+    // Vorher lagen sie hinter einem Knopf und einem Blatt, das sich über den
+    // Schirm legte. Der Gedanke war, nachts große Flächen zum Zielen zu
+    // bieten; in Wahrheit waren es zwei Griffe mehr für dieselbe Frage, und
+    // die Antwort stand hinter dem Blatt, das man erst wegschieben musste.
+    // Jetzt tippt man ein Merkmal an und sieht darunter sofort, was bleibt.
+    facetCard(),
+
     h('div.filter-chips', { style: { 'margin-bottom': '12px' } },
       ...LIGHT_CATEGORIES.map((c) => h('button.chip', {
         type: 'button',
@@ -194,6 +190,9 @@ function lightsView() {
         onclick: () => { state.category = c.key; draw(); },
       }, en() ? c.labelEn : c.label)),
     ),
+
+    h('p.small.muted', { style: { margin: '0 4px 10px' } },
+      t('night.searchCount', { n: found.length })),
 
     found.length === 0
       ? h('div.card', h('div.empty', t('night.noMatch')))
@@ -204,94 +203,55 @@ function lightsView() {
 }
 
 /**
- * Suchmaske. Bei jeder Auswahl wird neu gerechnet, was überhaupt noch
- * möglich ist – Merkmale, die zu keinem Ergebnis mehr führen, verschwinden.
- * So kann man sich nie in eine leere Antwort hineinklicken.
+ * Die Merkmale, nach Gruppen.
+ *
+ * Was zu keinem Ergebnis mehr führte, wird gar nicht erst angeboten – so
+ * kann man sich nicht in eine leere Antwort hineinklicken. Diese Rechnung
+ * stammt aus der alten Suchmaske und ist das einzige daran, was zu behalten
+ * sich lohnte.
+ *
+ * Die Zahl auf dem Merkmal sagt, was danach bliebe. Nachts, wenn man ein
+ * grünes Licht sieht und nicht weiß, ob es ein Fahrzeug oder eine Tonne ist,
+ * ist das der Unterschied zwischen einem Griff und vieren.
  */
-function openSearch() {
-  const overlay = h('div.sheet-overlay', {
-    id: 'light-search',
-    role: 'dialog',
-    'aria-modal': 'true',
-    'aria-label': t('night.searchTitle'),
-    onclick: (e) => { if (e.target.id === 'light-search') closeSearch(); },
-  });
-  const sheet = h('div.sheet');
-  overlay.appendChild(sheet);
-  document.body.appendChild(overlay);
-
-  const onKey = (e) => { if (e.key === 'Escape') closeSearch(); };
-  document.addEventListener('keydown', onKey);
-  overlay._onKey = onKey;
-
-  const paint = () => {
-    const found = searchAll(state.facets, 'all');
-
-    const groups = FACET_GROUPS.map((group) => {
-      const chips = LIGHT_FACETS
-        .filter((f) => f.group === group.key)
-        .map((facet) => {
-          const chosen = state.facets.has(facet.key);
-          // Wie viele Ergebnisse bliebe es, wenn man dieses Merkmal wählte?
-          const probe = new Set(state.facets);
-          if (chosen) probe.delete(facet.key);
-          else probe.add(facet.key);
-          const count = searchAll(probe, 'all').length;
-          // Was zu nichts mehr führt, wird gar nicht erst angeboten.
-          if (!chosen && count === 0) return null;
-          return h('button.facet', {
-            type: 'button',
-            'data-facet': facet.key,
-            'aria-pressed': String(chosen),
-            onclick: () => {
-              if (chosen) state.facets.delete(facet.key);
-              else state.facets.add(facet.key);
-              paint();
-            },
-          },
-          facet.kind === 'color'
-            && h('span.swatch', { style: { background: LIGHT_COLORS[facet.key].hex } }),
-          en() ? facet.labelEn : facet.label,
-          !chosen && h('span.count', String(count)),
-          );
-        })
-        .filter(Boolean);
-
-      if (!chips.length) return null;
-      return h('div.facet-group',
-        h('h4', en() ? group.labelEn : group.label),
-        h('div.facet-chips', ...chips),
-      );
-    }).filter(Boolean);
-
-    render(sheet,
-      h('div.sheet-head',
-        h('strong.grow', t('night.searchTitle')),
-        h('button.btn.small', { type: 'button', onclick: closeSearch }, t('night.searchClose')),
-      ),
-      h('p.small.muted', { style: { margin: '0 0 14px' } }, t('night.searchHint')),
-      ...groups,
-      h('div.sheet-result',
-        h('span.n', String(found.length)),
-        h('span.grow.small', t('night.searchResults')),
-        state.facets.size > 0 && h('button.btn.small', {
+function facetCard() {
+  const gruppen = FACET_GROUPS.map((group) => {
+    const chips = LIGHT_FACETS
+      .filter((f) => f.group === group.key)
+      .map((facet) => {
+        const chosen = state.facets.has(facet.key);
+        const probe = new Set(state.facets);
+        if (chosen) probe.delete(facet.key);
+        else probe.add(facet.key);
+        const count = searchAll(probe, 'all').length;
+        if (!chosen && count === 0) return null;
+        return h('button.chip', {
           type: 'button',
-          onclick: () => { state.facets.clear(); paint(); },
-        }, t('night.resetFilter')),
-        h('button.btn.small.primary', { type: 'button', onclick: closeSearch }, t('night.searchShow')),
-      ),
+          'data-facet': facet.key,
+          'aria-pressed': String(chosen),
+          onclick: () => {
+            if (chosen) state.facets.delete(facet.key);
+            else state.facets.add(facet.key);
+            draw();
+          },
+        },
+        facet.kind === 'color'
+          && h('span.swatch', { style: { background: LIGHT_COLORS[facet.key].hex } }),
+        en() ? facet.labelEn : facet.label,
+        !chosen && h('span.count', String(count)),
+        );
+      })
+      .filter(Boolean);
+
+    if (!chips.length) return null;
+    return h('div', { style: { 'margin-bottom': '10px' } },
+      h('div.small.muted', { style: { 'margin-bottom': '6px' } },
+        en() ? group.labelEn : group.label),
+      h('div.filter-chips', ...chips),
     );
-  };
+  }).filter(Boolean);
 
-  paint();
-}
-
-function closeSearch() {
-  const overlay = document.getElementById('light-search');
-  if (overlay?._onKey) document.removeEventListener('keydown', overlay._onKey);
-  overlay?.remove();
-  draw();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  return h('div.card', ...gruppen);
 }
 
 function lightCard(l) {
