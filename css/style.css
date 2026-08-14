@@ -70,6 +70,18 @@
   --glow: 0;
 }
 
+/*
+ * Was der Browser selbst zeichnet, muss vom Schema wissen.
+ *
+ * Platzhalter, Schreibmarke, Auswahlbalken, die Pfeile einer Auswahlliste, die
+ * Bedienung eines Datumsfelds: All das malt der Browser, nicht dieses
+ * Stylesheet. Ohne diese Zeile nimmt er dafür die hellen Voreinstellungen und
+ * setzt weiße und graue Flecken in eine Oberfläche, die sonst durchgehend rot
+ * auf schwarz ist – und im Nachtmodus kostet jeder davon Dunkeladaption.
+ */
+:root { color-scheme: light; }
+[data-theme="dark"], [data-theme="night"] { color-scheme: dark; }
+
 /* ---------------------------------------------------------------- Grundlage */
 
 * { box-sizing: border-box; }
@@ -298,6 +310,16 @@ input:focus, select:focus, textarea:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
+
+/*
+ * Platzhalter tragen ihre Farbe sonst vom Browser.
+ *
+ * Ohne diese Zeile setzt jeder Browser sein eigenes Neutralgrau – im
+ * Nachtmodus ist das die einzige Stelle, an der noch etwas Farbloses und
+ * damit Weißliches auf dem Schirm steht. Genau die Farbe, die die
+ * Dunkeladaption kostet, und ausgerechnet in jedem Eingabefeld der App.
+ */
+::placeholder { color: var(--text-dim); opacity: .75; }
 
 input.mono, textarea.mono { font-family: var(--mono); }
 textarea { min-height: 76px; resize: vertical; line-height: 1.45; }
@@ -1733,3 +1755,63 @@ body.chart-open { overflow: hidden; }
 
 /* Im Nachtmodus keine bunten Flächen – die Farben stehen im Text. */
 [data-theme="night"] .flag-view { filter: saturate(0) brightness(.35) sepia(1) hue-rotate(-30deg); }
+
+/* ====================================================================== Mehr */
+
+/*
+ * Die Liste hinter „Mehr“.
+ *
+ * Große Zeilen statt einer Aufzählung: Es sind wenige Einträge, sie werden
+ * mit dem Daumen getroffen, und jeder sagt in einer Zeile, was dahinter
+ * liegt.
+ */
+.more-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  padding: 15px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  min-height: 68px;
+}
+
+.more-item:active { transform: scale(.99); }
+.more-icon { font-size: 1.5rem; line-height: 1; width: 1.4em; text-align: center; flex: none; }
+.more-name { display: block; font-weight: 650; }
+.more-hint { display: block; font-size: .82rem; color: var(--text-dim); margin-top: 2px; }
+.more-arrow { color: var(--text-dim); font-size: 1.4rem; flex: none; }
+
+/* ==================================================================== Knoten */
+
+.knot-card h4 {
+  margin: 14px 0 6px;
+  font-size: .8rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-dim);
+}
+
+.knot-purpose { margin: 10px 0 0; }
+.knot-card .rule { font-size: .68rem; }
+
+/* Die Etappe unter dem Törn – eine Ebene tiefer, und das soll man sehen. */
+.turn-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-2);
+}
+
+/* Etappen im Umschalter sind dem Törn untergeordnet und stehen kleiner. */
+.chip.chip-sub { font-size: .8rem; padding: 6px 11px; min-height: 34px; }

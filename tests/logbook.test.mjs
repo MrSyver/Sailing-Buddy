@@ -159,3 +159,71 @@ test('Jedes Ereignis hat ein Zeichen und einen eindeutigen Schlüssel', () => {
     assert.ok(e.sym && e.sym.length <= 2, `${e.key} hat kein brauchbares Zeichen`);
   });
 });
+
+// --------------------------------------------------------------- Kennzahlen
+
+test('Die Kennzahlen rechnen beide Mittelwerte getrennt', async () => {
+  const { stats } = await import('../js/lib/logbook.js');
+  // Zwei Stunden Fahrt, dann zwei Stunden vor Anker an derselben Stelle.
+  const track = [
+    eintrag(1, 8, 54.0, 10.0, { sog: 6 }),
+    eintrag(1, 10, 54.2, 10.0, { sog: 6 }),
+    eintrag(1, 12, 54.2, 10.0, { sog: 0 }),
+  ];
+  const s = stats(track);
+
+  // 0,2° Breite sind 12 sm.
+  assert.ok(Math.abs(s.distance - 12) < 0.1, `Strecke ${s.distance}`);
+  assert.equal(s.seconds, 4 * 3600);
+  // Über Grund: 12 sm in vier Stunden – die Ankerzeit zählt mit.
+  assert.ok(Math.abs(s.avgOverGround - 3) < 0.05, `über Grund ${s.avgOverGround}`);
+  // Gemessen: der Schnitt der Werte, die im Logbuch stehen.
+  assert.equal(s.avgSog, 4);
+  assert.equal(s.maxSog, 6);
+  assert.equal(s.points, 3);
+});
+
+test('Ohne verstrichene Zeit wird kein Schnitt behauptet', async () => {
+  const { stats } = await import('../js/lib/logbook.js');
+  const s = stats([eintrag(1, 8, 54, 10)]);
+  assert.equal(s.seconds, 0);
+  assert.equal(s.avgOverGround, null);
+  assert.equal(stats([]), null);
+});
+
+test('Motorstunden zählen von „an“ bis „aus“', async () => {
+  const { engineTime } = await import('../js/lib/logbook.js');
+  const track = [
+    eintrag(1, 8, 54.0, 10.0, { event: 'engineOn' }),
+    eintrag(1, 9, 54.1, 10.0),
+    eintrag(1, 10, 54.2, 10.0, { event: 'engineOff' }),
+    eintrag(1, 12, 54.3, 10.0),
+    eintrag(1, 13, 54.4, 10.0, { event: 'engineOn' }),
+    eintrag(1, 14, 54.5, 10.0, { event: 'engineOff' }),
+  ];
+  assert.equal(engineTime(track), 3 * 3600);
+});
+
+test('Ein vergessenes Ausschalten zählt bis zum letzten Eintrag', async () => {
+  const { engineTime } = await import('../js/lib/logbook.js');
+  const track = [
+    eintrag(1, 8, 54.0, 10.0, { event: 'engineOn' }),
+    eintrag(1, 11, 54.3, 10.0),
+  ];
+  assert.equal(engineTime(track), 3 * 3600);
+});
+
+test('Zweimal „Motor an“ setzt die Zählung nicht zurück', async () => {
+  const { engineTime } = await import('../js/lib/logbook.js');
+  const track = [
+    eintrag(1, 8, 54.0, 10.0, { event: 'engineOn' }),
+    eintrag(1, 9, 54.1, 10.0, { event: 'engineOn' }),
+    eintrag(1, 10, 54.2, 10.0, { event: 'engineOff' }),
+  ];
+  assert.equal(engineTime(track), 2 * 3600);
+});
+
+test('Ohne Motorereignisse gibt es keine Motorstunden', async () => {
+  const { engineTime } = await import('../js/lib/logbook.js');
+  assert.equal(engineTime([eintrag(1, 8, 54, 10)]), 0);
+});

@@ -15,13 +15,16 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "icons"
 
-BG_TOP = (11, 32, 51)       # tiefes Marineblau
-BG_BOTTOM = (5, 16, 28)
+# Durchgehend dunkelblau. Der ursprüngliche Verlauf lief unten nach
+# (5, 16, 28) aus, und das liest sich auf dem Home-Bildschirm nicht mehr als
+# Blau, sondern als Schwarz – zwischen den übrigen Symbolen sah das Feld aus
+# wie ein Loch. Dunkel genug, um nicht zu leuchten, blau genug, um Blau zu
+# sein: Der Blauanteil bleibt überall deutlich über dem Rotanteil.
+BG_TOP = (12, 36, 60)       # tiefes Marineblau
+BG_BOTTOM = (7, 22, 40)
 SAIL = (245, 249, 252)
 HULL = (200, 214, 226)
-PORT = (255, 69, 58)        # rot, Backbord
-STARBOARD = (50, 215, 75)   # grün, Steuerbord
-SEA = (26, 62, 92)
+SEA = (18, 46, 72)
 
 SS = 4  # Überabtastung je Achse
 
@@ -70,10 +73,9 @@ def shade(x, y, n):
     if 0.492 <= u <= 0.508 and 0.14 <= v <= 0.735:
         color = SAIL
 
-    # Positionslaternen als farbige Punkte an den Bordseiten
-    for cx, cy, tint in ((0.205, 0.727, PORT), (0.795, 0.727, STARBOARD)):
-        if (u - cx) ** 2 + (v - cy) ** 2 <= 0.034 ** 2:
-            color = tint
+    # Ohne Positionslaternen: Zwei farbige Punkte auf einem Symbol, das sonst
+    # aus zwei Tönen besteht, ziehen den Blick auf sich und sagen bei dieser
+    # Größe nichts – auf dem Home-Bildschirm sind sie drei Bildpunkte groß.
 
     return color
 

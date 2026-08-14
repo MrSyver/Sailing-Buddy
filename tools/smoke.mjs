@@ -276,6 +276,20 @@ const goTab = async (index) => {
   await page.locator('nav.tabs button').nth(index).click();
 };
 
+/**
+ * Zu den Einstellungen: Sie liegen hinter „Mehr“ und damit einen Griff
+ * weiter. Über die Kennung statt über die Beschriftung, damit es auch dann
+ * geht, wenn die Oberfläche gerade auf Englisch steht.
+ */
+const goSettings = async () => {
+  await goTab(5);
+  await page.waitForTimeout(150);
+  if (await page.locator('[data-mod="einstellungen"]').count()) {
+    await page.locator('[data-mod="einstellungen"]').click();
+    await page.waitForTimeout(200);
+  }
+};
+
 // --- Einrichtung -----------------------------------------------------------
 check('Einrichtung erscheint', await page.getByText('Willkommen an Bord').isVisible());
 
@@ -398,6 +412,7 @@ check('Daneben steht, wofür er gut ist',
   /mitschneiden/i.test(await page.locator('.rec-teaser').innerText()),
   await page.locator('.rec-teaser').innerText());
 
+const ruhigerTitel = await page.locator('.rec-title').innerText();
 await page.locator('.rec-trigger').click();
 await page.waitForSelector('.rec-trigger.running', { timeout: 8000 })
   .catch(() => problems.push('Aufnahme startet nicht'));
@@ -405,8 +420,9 @@ check('Aufnahme läuft', await page.locator('.rec-trigger.running').count() === 
 check('Und der Knopf sagt das auch',
   (await page.locator('.rec-title').innerText()).includes('läuft'),
   await page.locator('.rec-title').innerText());
+check('Vorher heißt er „Aufnahme starten“', ruhigerTitel === 'Aufnahme starten', ruhigerTitel);
 await page.waitForTimeout(1200);
-await page.getByRole('button', { name: /Beenden und speichern/ }).click();
+await page.getByRole('button', { name: /Aufnahme beenden/ }).click();
 await page.waitForSelector('.rec-item', { timeout: 8000 })
   .catch(() => problems.push('Aufnahme wurde nicht gespeichert'));
 check('Aufnahme gespeichert', await page.locator('.rec-item').count() === 1);
@@ -1210,9 +1226,87 @@ check('Der so entstandene Eintrag ist als automatisch gekennzeichnet',
 await page.getByRole('button', { name: 'Nur bei Fahrt', exact: true }).click();
 await shot('06-logbuch');
 
+// --- Etappen: eine Ebene unter dem Törn ------------------------------------
+// Mehrere Einträge sind eine Etappe, mehrere Etappen ein Törn. Ohne diese
+// Klammer sagt „312 Seemeilen“ nichts; mit ihr steht daneben, in wie vielen
+// Schlägen und wie lang der längste war.
+const antwortenEt = ['Kiel – Marstal', 'Kiel'];
+const aufDialogEt = (d) => d.accept(antwortenEt.shift() ?? '');
+page.on('dialog', aufDialogEt);
+await page.getByRole('button', { name: /Etappe beginnen/ }).click();
+await page.waitForTimeout(500);
+page.off('dialog', aufDialogEt);
+
+check('Die Etappe läuft',
+  (await page.locator('.turn-row').innerText()).includes('Kiel – Marstal'),
+  (await page.locator('.turn-row').innerText()).replace(/\n/g, ' | '));
+check('Sie steht im Umschalter unter ihrem Törn',
+  (await page.locator('.chip-sub').first().innerText()).includes('Kiel – Marstal'),
+  await page.locator('.chip-sub').first().innerText());
+
+const inEtappe = await page.locator('.log-item').count();
+await page.getByRole('button', { name: /Motor an/ }).click();
+await page.waitForTimeout(300);
+check('Ein Eintrag landet in der laufenden Etappe',
+  await page.locator('.log-item').count() === inEtappe + 1,
+  `${inEtappe} → ${await page.locator('.log-item').count()}`);
+check('Und trägt sie auch im Speicher',
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('sailing-buddy-log'));
+    return d.entries[0].turnId === d.currentTurnId && d.currentTurnId !== null;
+  }));
+
+// Der Umschalter bestimmt, worauf sich alles bezieht.
+const inTrip = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem('sailing-buddy-log'));
+  return d.entries.filter((e) => e.tripId === d.currentTripId).length;
+});
+await page.locator('[data-scope="wahl"] button').nth(1).click();
+await page.waitForTimeout(400);
+check('Auf den Törn umgeschaltet stehen mehr Einträge da',
+  await page.locator('.log-item').count() === inTrip,
+  `Törn: ${await page.locator('.log-item').count()}, erwartet ${inTrip}`);
+await page.locator('.chip-sub').first().click();
+await page.waitForTimeout(400);
+check('Und auf die Etappe zurück nur ihre eigenen',
+  await page.locator('.log-item').count() < inTrip,
+  `${await page.locator('.log-item').count()} von ${inTrip}`);
+
+// Die Kennzahlen: acht Kästchen, gleich groß, mit dem Namen des Ausschnitts.
+const zahlen = page.locator('.readout-fest .cell');
+check('Zu jedem Ausschnitt gibt es Kennzahlen',
+  await zahlen.count() === 8, `${await zahlen.count()} Kästchen`);
+const zahlenText = await page.locator('.readout-fest').innerText();
+check('Darunter Strecke, Schnitt über Grund und Motorstunden',
+  /strecke/i.test(zahlenText) && /über grund/i.test(zahlenText) && /motor gelaufen/i.test(zahlenText),
+  zahlenText.replace(/\n/g, ' | ').slice(0, 160));
+check('Der Ausschnitt steht als Merkmal an der Spur',
+  (await page.locator('.card', { has: page.locator('.track-plot') }).locator('.rule').innerText())
+    .includes('Kiel – Marstal'));
+const zahlenGroesse = await zahlen.evaluateAll((els) => els.map((el) => {
+  const b = el.getBoundingClientRect();
+  return `${Math.round(b.width)}x${Math.round(b.height)}`;
+}));
+check('Auch hier sind alle Kästchen gleich groß',
+  new Set(zahlenGroesse).size === 1, zahlenGroesse.join(', '));
+
+// Motorstunden kommen aus den Ereignissen, nicht aus einer zweiten Quelle.
+await page.getByRole('button', { name: /Motor aus/ }).click();
+await page.waitForTimeout(400);
+check('Motorstunden werden aus „an“ und „aus“ gerechnet',
+  !/motor gelaufen\s*\n\s*–/i.test(await page.locator('.readout-fest').innerText()),
+  (await page.locator('.readout-fest').innerText()).replace(/\n/g, ' | ').slice(0, 200));
+
+await shot('06b-etappen');
+
 // --- Ausgabe als Datei -----------------------------------------------------
 // In die Zwischenablage nützt ein Logbuch niemandem: Fünfhundert Einträge
 // lassen sich auf einem Telefon nirgends einfügen.
+//
+// Ausgegeben wird, was gerade gewählt ist – hier der ganze Törn, damit auch
+// die Ereignisse der ersten Etappe mit hineinkommen.
+await page.locator('[data-scope="wahl"] button').nth(1).click();
+await page.waitForTimeout(400);
 const [gpxDatei] = await Promise.all([
   page.waitForEvent('download'),
   page.getByRole('button', { name: /GPX/ }).click(),
@@ -1237,6 +1331,62 @@ const csvText = readFileSync(await csvDatei.path(), 'utf8');
 check('Die Tabelle führt das Wetter mit',
   csvText.split('\n')[0].includes('wind_bft') && /"SW"/.test(csvText),
   csvText.split('\n')[0]);
+
+// --- Meilenbestätigung -----------------------------------------------------
+// Ein Blatt, das jemand unterschreibt: Die Zahlen darauf kommen aus dem
+// Logbuch und nirgends sonst, und ohne Namen wird gar keins ausgestellt.
+await page.locator('summary', { hasText: 'Meilenbestätigung' }).click();
+await page.waitForTimeout(250);
+check('Die Bestätigung fragt nach zwei Namen',
+  await page.getByText('Für wen ist die Bestätigung?').count() === 1
+  && await page.getByText('Wer bestätigt?').count() === 1);
+
+// Ohne Namen darf nichts entstehen.
+await page.locator('#miles-make').click();
+await page.waitForTimeout(400);
+check('Ohne Namen wird keine ausgestellt',
+  (await page.locator('.toast').innerText()).includes('Ohne Namen'),
+  await page.locator('.toast').innerText());
+
+const milesFelder = page.locator('.foldout', { hasText: 'Meilenbestätigung' }).locator('input');
+await milesFelder.nth(0).fill('Änne Muster');
+await milesFelder.nth(1).fill('Moritz Skipper');
+const [milesDatei] = await Promise.all([
+  page.waitForEvent('download'),
+  page.locator('#miles-make').click(),
+]);
+check('Die Bestätigung kommt als PDF heraus',
+  /\.pdf$/.test(milesDatei.suggestedFilename()), milesDatei.suggestedFilename());
+// Ohne Umlaut im Dateinamen, und zwar aus Not: Chromium wirft den Namen
+// weg, sobald ein Zeichen über 127 darin steht, und lädt die Datei als
+// „download“ herunter. Wer Änne heißt, bekäme ein Blatt ohne Namen.
+check('Und trägt den Namen im Dateinamen',
+  /^Meilen-Aenne-Muster-/.test(milesDatei.suggestedFilename()),
+  milesDatei.suggestedFilename());
+check('Der Dateiname kommt ohne Sonderzeichen aus',
+  [...milesDatei.suggestedFilename()].every((ch) => ch.codePointAt(0) < 128),
+  milesDatei.suggestedFilename());
+
+const pdfRoh = readFileSync(await milesDatei.path());
+const pdfText = pdfRoh.toString('latin1');
+check('Die Datei ist ein PDF', pdfText.startsWith('%PDF-1.4'), pdfText.slice(0, 20));
+check('Und sie ist vollständig', pdfText.trimEnd().endsWith('%%EOF'),
+  pdfText.slice(-30).replace(/\n/g, '\\n'));
+check('Die Namen stehen darin',
+  pdfText.includes('\u00c4nne Muster') && pdfText.includes('Moritz Skipper'));
+check('Das Schiff steht darin', pdfText.includes('SEEB\u00c4R'));
+check('Und die Zeile für die Unterschrift',
+  pdfText.includes('Unterschrift des Schiffsf\u00fchrers'));
+check('Die Meilen stehen als Zahl darauf',
+  /\(\d+,\d\)/.test(pdfText), 'keine Zahl mit Dezimalkomma gefunden');
+
+// Der Byteversatz in der Querverweistabelle muss stimmen – sonst öffnet
+// mancher Betrachter die Datei, mancher nicht.
+const startxref = Number(pdfText.match(/startxref\n(\d+)\n/)[1]);
+check('Die Querverweistabelle liegt, wo sie soll',
+  pdfText.slice(startxref, startxref + 4) === 'xref',
+  `bei ${startxref} steht "${pdfText.slice(startxref, startxref + 8)}"`);
+await shot('06c-meilenbestaetigung');
 
 // --- Sicherung -------------------------------------------------------------
 // Das Logbuch liegt im Speicher des Browsers, und den wirft iOS bei
@@ -1365,6 +1515,24 @@ check('Nachtmodus: Flächen bleiben fast schwarz',
   nightColors.surface.every((c) => c <= 20), JSON.stringify(nightColors.surface));
 longWaveOnly(nightColors.text, 'Text');
 longWaveOnly(nightColors.accent, 'Akzent');
+
+// Die Platzhalter trugen ihre Farbe vom Browser – ein neutrales Grau, und
+// damit die einzige farblose, weißliche Stelle im ganzen Nachtmodus.
+// Im Logbuch steht ein Eingabefeld mit Platzhalter – die Lichterliste hat
+// keines.
+await goTab(4);
+await page.waitForSelector('input[placeholder]');
+const platzhalterNacht = await page.evaluate(() => {
+  const el = document.querySelector('input[placeholder]');
+  if (!el) return null;
+  const c = getComputedStyle(el, '::placeholder').color;
+  return (c.match(/[\d.]+/g) ?? []).map(Number);
+});
+await goTab(3);
+await page.waitForTimeout(300);
+check('Auch die Platzhalter stehen im Nachtmodus in Rot',
+  platzhalterNacht !== null, 'kein Eingabefeld mit Platzhalter gefunden');
+if (platzhalterNacht) longWaveOnly(platzhalterNacht, 'Platzhalter');
 // Zurück auf die Lichterliste: Dort zeigt sich, ob die Schemabilder im
 // Nachtmodus gedämpft werden, statt mit Weiß und Grün zu blenden.
 await page.evaluate(() => window.scrollTo(0, 0));
@@ -1392,7 +1560,7 @@ await shot('06-night-mode');
 // --- Einstellungen: Reiter „Karten“ ----------------------------------------
 // Zurück auf ein helles Schema, damit die folgenden Prüfungen nicht am
 // Nachtmodus hängen.
-await goTab(5);
+await goSettings();
 await page.waitForSelector('.card');
 await page.getByRole('button', { name: 'Karten', exact: true }).click();
 await page.waitForTimeout(200);
@@ -1523,7 +1691,7 @@ await shot('04c-karte-mit-paket');
 // „Load failed“ ab, noch bevor der Dateiname eine Rolle spielt. Ein Download
 // im Browser selbst kennt diese Schranke nicht; von dort wird die Datei hier
 // hereingereicht.
-await goTab(5);
+await goSettings();
 await page.getByRole('button', { name: 'Karten', exact: true }).click();
 await page.waitForTimeout(200);
 check('Es gibt einen Weg über eine Datei aus dem Gerät',
@@ -1650,7 +1818,7 @@ await page.evaluate(async (url) => {
   localStorage.setItem('sailing-buddy-packs', JSON.stringify(reg));
 }, `${base}test.mbtiles`);
 
-await goTab(5);
+await goSettings();
 await page.getByRole('button', { name: 'Karten', exact: true }).click();
 await page.waitForTimeout(400);
 const halbeZeile = page.locator('.wp-item', { hasText: 'Halbes Paket' });
@@ -1676,7 +1844,7 @@ await page.locator('.wp-item', { hasText: 'Prüfgebiet Kiel' })
 await page.waitForTimeout(600);
 
 // Wieder weg damit, damit die folgenden Prüfungen nichts erben.
-await goTab(5);
+await goSettings();
 await page.getByRole('button', { name: 'Karten', exact: true }).click();
 await page.waitForTimeout(200);
 page.once('dialog', (d) => d.accept());
@@ -1688,14 +1856,81 @@ check('Kartenpaket wieder löschbar',
 await page.getByRole('button', { name: 'Allgemein', exact: true }).click();
 await page.waitForTimeout(150);
 
-// --- Oberflächensprache ----------------------------------------------------
+// --- Mehr: was keinen eigenen Reiter braucht -------------------------------
+// Unten ist Platz für sechs Reiter, und die gehören dem, was unterwegs zählt.
 await goTab(5);
+await page.waitForSelector('.more-item');
+check('Der letzte Reiter heißt Mehr',
+  (await page.locator('nav.tabs button').nth(5).innerText()).includes('Mehr'),
+  await page.locator('nav.tabs button').nth(5).innerText());
+check('Dahinter liegt eine Liste der übrigen Module',
+  await page.locator('.more-item').count() >= 2,
+  `${await page.locator('.more-item').count()} Einträge`);
+check('Die Einstellungen sind einer davon',
+  await page.locator('[data-mod="einstellungen"]').count() === 1);
+check('Und die Zeilen sind groß genug zum Treffen',
+  await page.locator('.more-item').first()
+    .evaluate((el) => Math.round(el.getBoundingClientRect().height)) >= 60,
+  `${await page.locator('.more-item').first().evaluate((el) => Math.round(el.getBoundingClientRect().height))} px`);
+await shot('08a-mehr');
+
+// --- Knoten ----------------------------------------------------------------
+await page.locator('[data-mod="knoten"]').click();
+await page.waitForSelector('.knot-card');
+const knotenAlle = await page.locator('.knot-card').count();
+check('Die Knoten sind da', knotenAlle >= 12, `${knotenAlle} Knoten`);
+check('Der Palstek ist dabei',
+  (await page.locator('main').innerText()).includes('Palstek'));
+check('Bei jedem steht, wie er gelegt wird',
+  await page.locator('.knot-card ol.checklist').count() === knotenAlle);
+check('Und was er hält',
+  (await page.locator('main').innerText()).includes('Was er hält'));
+
+// Gesucht wird nach dem Zweck, nicht nach dem Namen – den weiß man ja nicht.
+await page.locator('[data-filter="use"]').getByRole('button', { name: 'Ein Auge legen' }).click();
+await page.waitForTimeout(300);
+const augen = await page.locator('.knot-card').count();
+check('Der Filter fragt nach dem Zweck', augen > 0 && augen < knotenAlle,
+  `${augen} von ${knotenAlle}`);
+check('„Ein Auge legen“ führt zum Palstek',
+  (await page.locator('.knot-card').first().innerText()).includes('Palstek'),
+  (await page.locator('.knot-card').first().innerText()).split('\n')[0]);
+
+await page.locator('[data-filter="use"]').getByRole('button', { name: 'Festmachen' }).click();
+await page.waitForTimeout(300);
+check('Mehrere Zwecke erweitern die Auswahl',
+  await page.locator('.knot-card').count() > augen,
+  `${await page.locator('.knot-card').count()} statt ${augen}`);
+
+await page.locator('[data-filter="trait"]').getByRole('button', { name: 'Auf Slip zu lösen' }).click();
+await page.waitForTimeout(300);
+check('Eine Eigenschaft grenzt zusätzlich ein',
+  await page.locator('.knot-card').count() < augen + 6,
+  `${await page.locator('.knot-card').count()} übrig`);
+
+await page.getByRole('button', { name: /Filter zurücksetzen|zurücksetzen/ }).first().click();
+await page.waitForTimeout(300);
+check('Zurücksetzen zeigt wieder alle',
+  await page.locator('.knot-card').count() === knotenAlle);
+await shot('08b-knoten');
+
+await page.getByRole('button', { name: /Zurück/ }).first().click();
+await page.waitForTimeout(300);
+check('Und zurück zur Übersicht',
+  await page.locator('.more-item').count() >= 2);
+
+// --- Oberflächensprache ----------------------------------------------------
+await goSettings();
 await page.waitForSelector('.card');
 await page.getByRole('button', { name: 'English' }).first().click();
 await page.waitForTimeout(150);
 const tabsText = await page.locator('nav.tabs').innerText();
-check('Reiter auf Englisch', tabsText.includes('Radio') && tabsText.includes('Settings'), tabsText);
-check('Titel auf Englisch', (await page.locator('.topbar h1').innerText()).includes('Settings'));
+check('Reiter auf Englisch', tabsText.includes('Radio') && tabsText.includes('More'), tabsText);
+check('Titel auf Englisch', (await page.locator('.topbar h1').innerText()).includes('More'),
+  await page.locator('.topbar h1').innerText());
+check('Die Einstellungen liegen auf Englisch genauso hinter „Mehr“',
+  (await page.locator('[data-mod="einstellungen"]').innerText()).includes('Settings'),
+  await page.locator('[data-mod="einstellungen"]').innerText());
 await shot('07-settings-en');
 
 // Funkspruchsprache blieb davon unberührt (steht noch auf Deutsch).
@@ -1747,7 +1982,7 @@ check('Eine Stunde danach schon', sonne.spaeter === true);
 check('Und vor dem Sonnenaufgang ebenfalls', sonne.vorAufgang === true);
 
 // Der Schalter dafür steht in den Einstellungen und lässt sich abschalten.
-await goTab(5);
+await goSettings();
 await page.waitForSelector('.card');
 // Die Oberfläche steht an dieser Stelle auf Englisch.
 check('Der automatische Nachtmodus lässt sich einstellen',
@@ -1811,7 +2046,7 @@ await page.evaluate(async () => {
 });
 
 // --- Helligkeit ------------------------------------------------------------
-await goTab(5);
+await goSettings();
 await page.locator('input[type="range"]').fill('40');
 // Der Dimmer blendet über 0,2 s ein – erst danach steht der Endwert.
 await page.waitForTimeout(400);
@@ -1826,7 +2061,7 @@ await page.waitForFunction(() => navigator.serviceWorker?.controller != null, nu
   .catch(() => problems.push('Service Worker hat die Seite nicht übernommen'));
 
 // Die App muss selbst nachweisen können, dass sie vollständig im Gerät liegt.
-await goTab(5);
+await goSettings();
 await page.waitForSelector('.card');
 await page.waitForFunction(
   () => /Fully stored|Vollständig im Gerät/.test(document.body.innerText),
