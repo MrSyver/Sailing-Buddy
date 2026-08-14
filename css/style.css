@@ -1232,6 +1232,8 @@ details.foldout > div { padding: 0 15px 15px; }
 
 /* ==================================================================== Karte */
 
+/* Auf der Kartenseite hat die Fläche Vorrang: alles, was die Leisten übrig
+   lassen. Auf der Positionsseite ist sie eine Beigabe und bleibt klein. */
 .chart {
   position: relative;
   overflow: hidden;
@@ -1241,6 +1243,55 @@ details.foldout > div { padding: 0 15px 15px; }
   touch-action: none;   /* Ziehen und Kneifen gehören der Karte, nicht der Seite */
   cursor: grab;
 }
+
+.chart-gross {
+  /* Kopfzeile, GPS-Leiste, Reiter und Ränder gehen ab – der Rest ist Karte. */
+  height: calc(100dvh - 232px);
+  min-height: 340px;
+}
+
+.chart-klein { height: 260px; }
+
+.chart-frame { position: relative; }
+
+/* Die Bedienung liegt auf der Karte. Jede Zeile darüber wäre eine Zeile
+   weniger Karte. */
+.chart-controls {
+  position: absolute;
+  right: 9px;
+  top: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 2;
+}
+
+.chart-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 650;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: .93;
+}
+
+.chart-btn:active { transform: scale(.95); }
+
+.chart-btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chart-credit { margin: 7px 4px 0; }
+.chart-note:empty { display: none; }
 
 .chart-tiles { position: absolute; inset: 0; }
 
@@ -1411,3 +1462,18 @@ details.foldout > div { padding: 0 15px 15px; }
 
 .rec-seek:focus { outline: none; }
 .rec-seek:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent); }
+
+/* Mensch über Bord steht allein und ganz oben – deshalb auch optisch
+   abgesetzt und mit der größten Taste der App. */
+.mob-card {
+  border-color: var(--danger);
+  padding: 12px 13px;
+}
+
+.mob-btn {
+  min-height: 62px;
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.chart-mark.target .dot { fill: var(--accent); stroke: var(--bg); stroke-width: 1.5; }

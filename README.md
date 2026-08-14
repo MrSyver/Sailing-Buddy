@@ -9,7 +9,7 @@ Fünf Module:
 |---|---|
 | **Funk** | Die wichtigsten Funksprüche mit bereits eingesetztem Schiffsnamen, Rufzeichen, MMSI und aktueller GPS-Position. Zum Vorlesen, in Deutsch oder Englisch. Häufige Notfälle auf Antippen einsetzbar. Dazu Sprachaufnahmen für empfangene Meldungen. |
 | **Position** | Zielkoordinate in reinen Zahlenfeldern eingeben – Grad, ganze Minuten und Nachkommastellen je in einem eigenen Kästchen, ohne Gradzeichen und Hochkomma – und Entfernung, rechtweisenden Kurs, Kompasskurs und Fahrzeit ablesen. MOB-Taste mit gemerkter Position. |
-| **Karte** | Alle gemerkten Positionen und die eigene auf einer Zeichnung, nordorientiert, mit Maßstab. Das Kartenbild von OpenSeaMap ist zuschaltbar und stammt ausschließlich aus dem, was vorher heruntergeladen wurde. Kartenmaterial kommt am besten als **fertiges Paket** von OpenSeaMap – eine MBTiles-Datei je Seegebiet, mit Zoomstufe 14 an der Küste und 16 in den Häfen. Daneben gibt es 38 fertige Reviere, einen Umkreis um die eigene Position und einen Streifen entlang einer Route. Fehlt eine Stelle ganz, wird bei bestehender Verbindung der sichtbare Ausschnitt nachgeholt und gleich abgelegt – abschaltbar. |
+| **Karte** | Eine große Karte, die den Bildschirm füllt: alle gemerkten Positionen und die eigene, nordorientiert, mit Maßstab. Die Bedienung liegt als kleine Knöpfe darauf. Das Kartenbild von OpenSeaMap ist zuschaltbar und stammt ausschließlich aus dem, was vorher heruntergeladen wurde. Kartenmaterial kommt am besten als **fertiges Paket** von OpenSeaMap – eine MBTiles-Datei je Seegebiet, mit Zoomstufe 14 an der Küste und 16 in den Häfen. Daneben gibt es 38 fertige Reviere, einen Umkreis um die eigene Position und einen Streifen entlang einer Route. Fehlt eine Stelle ganz, wird bei bestehender Verbindung der sichtbare Ausschnitt nachgeholt und gleich abgelegt – abschaltbar. |
 | **Nachtfahrt** | Lichterführung, Seezeichen und Schallsignale nach KVR und IALA. Die Lichtersuche geht über Fahrzeuge und Tonnen zugleich und bietet nach jeder Auswahl nur noch an, was überhaupt möglich ist. Die Lichterbilder werden aus den Sektoren der Laternen abgeleitet und lassen sich zwischen „von vorn“, „querab“ und „von achtern“ umschalten. Jede Feuerkennung als Balken. |
 | **Logbuch** | Positionen von Hand oder in festem Takt mitschreiben, als Spur zeichnen, als Text oder Tabelle ausgeben. |
 
@@ -153,6 +153,7 @@ js/lib/gps.js            Geolocation
 js/lib/i18n.js           Sprache der Oberfläche
 js/lib/logbook.js        Logbuch samt automatischem Takt und Spurberechnung
 js/lib/tiles.js          Kachelrechnung, Kachelspeicher und Herunterladen
+js/lib/chartview.js      der Kartenausschnitt als Baustein für beide Seiten
 js/lib/sqlite.js         lesender Zugriff auf SQLite-Dateien, seitenweise
 js/lib/mbtiles.js        Kartenpakete lesen (MBTiles)
 js/lib/packs.js          Kartenpakete holen, ablegen und wiederfinden

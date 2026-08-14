@@ -485,8 +485,14 @@ check('Position ausgeschrieben',
   (await page.locator('.spoken-position').innerText()).includes('Grad'),
   await page.locator('.spoken-position').innerText());
 
-// MOB-Knopf merkt die Position direkt darunter.
-await page.getByRole('button', { name: /Mensch über Bord/ }).click();
+// Mensch über Bord steht ganz oben – über der eigenen Position, damit man
+// im Ernstfall nicht erst scrollen muss.
+const mobY = await page.locator('.mob-card').evaluate((el) => el.getBoundingClientRect().top);
+const eigeneY = await page.locator('.posline').evaluate((el) => el.getBoundingClientRect().top);
+check('Mensch über Bord steht über der eigenen Position', mobY < eigeneY,
+  `MOB bei ${Math.round(mobY)}, eigene Position bei ${Math.round(eigeneY)}`);
+
+await page.locator('.mob-card').getByRole('button', { name: /Mensch über Bord/ }).click();
 await page.waitForSelector('.mob-row');
 const mobRow = await page.locator('.mob-row').innerText();
 check('MOB-Position steht direkt unter der Taste', mobRow.includes('MOB'), mobRow.replace(/\n/g, ' | '));
@@ -494,17 +500,48 @@ check('MOB-Position zeigt die Koordinaten', /54°30/.test(mobRow), mobRow.replac
 
 // Anderes Ziel setzen, dann MOB wieder übernehmen.
 await page.locator('#coord-latMin').fill('26');
-// Die MOB-Position steht unter der Taste und zusätzlich in der Liste der
-// gemerkten Positionen – beide bieten das Übernehmen an.
-const asTarget = await page.getByRole('button', { name: '→ Als Ziel' }).count();
-check('MOB lässt sich wieder als Ziel setzen', asTarget >= 1, `${asTarget} Knöpfe`);
 await page.locator('.mob-row').getByRole('button', { name: '→ Als Ziel' }).click();
-check('MOB ist jetzt das Ziel',
-  await page.getByRole('button', { name: '✓ Ist Ziel' }).count() >= 1);
+check('MOB lässt sich wieder als Ziel setzen',
+  await page.locator('.mob-row').getByRole('button', { name: '✓ Ist Ziel' }).count() === 1);
 
-// Auch gemerkte Positionen aus der Liste lassen sich mit einem Klick setzen.
+// Ein gemerktes Ziel anlegen – und prüfen, dass die MOB-Position dort nicht
+// mit auftaucht. Zwei Listen im Ernstfall wären eine zu viel.
+await page.locator('#coord-latMin').fill('35');
+page.once('dialog', (d) => d.accept('Ansteuerung Kiel'));
+await page.getByRole('button', { name: /Merken/ }).click();
+await page.waitForSelector('.wp-item');
+const zielListe = await page.locator('.wp-item').allInnerTexts();
+check('Gemerktes Ziel steht in der Liste',
+  zielListe.some((z) => z.includes('Ansteuerung Kiel')), zielListe.join(' | '));
+check('Die MOB-Position steht nicht in der Zielliste',
+  !zielListe.some((z) => z.includes('MOB')), zielListe.join(' | '));
 check('Gemerkte Position hat einen Übernehmen-Knopf',
   await page.locator('.wp-item').getByRole('button', { name: /Ist Ziel|Als Ziel/ }).count() >= 1);
+
+// Erst ein anderes Ziel setzen – sonst steht dort „Ist Ziel“ und es gibt
+// nichts zu übernehmen.
+await page.locator('#coord-latMin').fill('26');
+await page.waitForTimeout(150);
+// Der Knopf muss die Koordinatenfelder wirklich füllen, nicht nur rechnen.
+await page.locator('.wp-item').getByRole('button', { name: '→ Als Ziel' }).first().click();
+await page.waitForTimeout(200);
+check('Übernehmen füllt die Eingabefelder',
+  (await page.locator('#coord-latMin').inputValue()) === '35',
+  `Minutenfeld: ${await page.locator('#coord-latMin').inputValue()}`);
+
+// Die Karte als Beigabe zum Kompass – erst auf Knopfdruck.
+check('Ohne Knopfdruck keine Karte auf der Positionsseite',
+  await page.locator('.chart').count() === 0);
+await page.getByRole('button', { name: /Karte einblenden/ }).click();
+await page.waitForTimeout(400);
+check('Karte lässt sich auf der Positionsseite einblenden',
+  await page.locator('.chart-klein').count() === 1);
+check('Sie zeigt die eigene Position und das Ziel',
+  await page.locator('.chart-mark').count() >= 2,
+  `${await page.locator('.chart-mark').count()} Punkte`);
+await shot('04d-position-karte');
+await page.getByRole('button', { name: /Karte ausblenden/ }).click();
+check('Und wieder ausblenden', await page.locator('.chart').count() === 0);
 
 // --- Karte -----------------------------------------------------------------
 // Die untere Leiste muss unten stehen und dort bleiben. Ein früherer Versuch,
@@ -549,10 +586,17 @@ check('MOB-Position ist auf der Karte', await page.locator('.chart-mark.mob').co
 check('Die Liste nennt Entfernung und Kurs',
   await page.locator('.wp-dist').count() >= 1);
 
-// Das Kartenbild ist ausdrücklich zuschaltbar und ohne Kacheln ehrlich.
-check('Ohne Knopfdruck kein Kartenbild', await page.locator('.chart-tiles').count() === 0);
-await page.getByRole('button', { name: /Seekarte einblenden/ }).click();
-// Die App versucht jetzt nachzuholen; die echten Kachelserver sind abgeklemmt.
+// Auf der Kartenseite hat die Karte Vorrang: Sie füllt, was die Leisten übrig
+// lassen, und ist nicht abschaltbar – sie ist ja der Zweck der Seite.
+const chartHoehe = await page.locator('.chart-gross').evaluate(
+  (el) => Math.round(el.getBoundingClientRect().height));
+check('Die Karte ist groß', chartHoehe >= 400, `${chartHoehe} px hoch`);
+check('Kein Ein- und Ausschalten der Seekarte auf der Kartenseite',
+  await page.getByRole('button', { name: /Seekarte/ }).count() === 0);
+check('Die Bedienung liegt auf der Karte',
+  await page.locator('.chart-frame .chart-controls .chart-btn').count() >= 4);
+
+// Die App versucht nachzuholen; die echten Kachelserver sind abgeklemmt.
 // Gewartet wird auf die endgültige Aussage, nicht auf eine feste Zeit.
 await page.waitForFunction(
   () => /Kein Kartenmaterial/.test(document.querySelector('main')?.innerText ?? ''),
@@ -567,7 +611,6 @@ check('Fehlgeschlagene Abrufe schlagen nicht durch',
   problems.filter((p) => p.startsWith('Ausnahme')).slice(0, 2).join(' | '));
 check('Es wurde überhaupt versucht nachzuholen', fremdeAbrufe.length > 0,
   `${fremdeAbrufe.length} Versuche`);
-await page.getByRole('button', { name: /Seekarte ausblenden/ }).click();
 await shot('04b-karte');
 
 // --- Nachholen unterwegs ---------------------------------------------------
@@ -580,7 +623,9 @@ await page.evaluate(async (vorlage) => {
 }, `${base}kachel/{z}/{x}/{y}.png`);
 
 const vorher = tileHits.length;
-await page.getByRole('button', { name: /Seekarte einblenden/ }).click();
+// Ein Neuaufbau der Seite genügt: Die Karte holt sich, was ihr fehlt.
+await goTab(1);
+await goTab(2);
 await page.waitForFunction(
   () => document.querySelectorAll('.chart-tile').length > 0,
   null, { timeout: 30000 },
@@ -602,7 +647,6 @@ const abgelegt = await page.evaluate(async () => {
 check('Nachgeholte Kacheln bleiben im Gerät', abgelegt > 0, `${abgelegt} im Speicher`);
 
 // Ausgeschaltet wird auch nichts geholt.
-await page.getByRole('button', { name: /Seekarte ausblenden/ }).click();
 await page.evaluate(async () => {
   const { settings } = await import('./js/lib/storage.js');
   settings.set('autoTiles', false);
@@ -610,11 +654,11 @@ await page.evaluate(async () => {
   await tileStore.clear();
 });
 const vorAus = tileHits.length;
-await page.getByRole('button', { name: /Seekarte einblenden/ }).click();
-await page.waitForTimeout(1200);
+await goTab(1);
+await goTab(2);
+await page.waitForTimeout(1500);
 check('Ausgeschaltet wird nichts nachgeholt', tileHits.length === vorAus,
   `${tileHits.length - vorAus} Abrufe trotz Schalter aus`);
-await page.getByRole('button', { name: /Seekarte ausblenden/ }).click();
 
 // Zurück auf die Voreinstellung, damit die folgenden Prüfungen nichts erben.
 await page.evaluate(async () => {
@@ -957,7 +1001,6 @@ await shot('07d-kartenpaket');
 // Und jetzt der eigentliche Beweis: Die Karte zeigt daraus Kacheln.
 await goTab(2);
 await page.waitForSelector('.chart');
-await page.getByRole('button', { name: /Seekarte einblenden/ }).click();
 await page.waitForFunction(
   () => document.querySelectorAll('.chart-tile').length > 0,
   null, { timeout: 15000 },
@@ -980,8 +1023,6 @@ const kachelFilter = await page.locator('.chart-tile').first()
 check('Nachtmodus dämpft auch das Kartenbild',
   /brightness\(0?\.[0-3]\d*\)/.test(kachelFilter), kachelFilter);
 await shot('04c-karte-mit-paket');
-
-await page.getByRole('button', { name: /Seekarte ausblenden/ }).click();
 
 // --- Fortsetzen eines abgerissenen Downloads -------------------------------
 // Das ist der Fall, der auf einem Boot wirklich eintritt. Geprüft wird
