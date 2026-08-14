@@ -1286,11 +1286,16 @@ check('Bemerkung übernommen', logText.includes('Wind SW 4'));
 
 // Zweiter Eintrag, damit eine Spur entsteht
 await page.getByRole('button', { name: /Position jetzt eintragen/ }).click();
-await page.waitForSelector('.track-plot');
-check('Spur wird gezeichnet', await page.locator('.track-plot').count() === 1);
+// Die Spur liegt jetzt auf derselben Karte wie im Kartenreiter – ohne
+// Kartenmaterial bleibt der Grund leer, die Spur steht trotzdem darauf.
+await page.waitForSelector('.chart-frame .chart-plot');
+check('Spur wird auf der Karte gezeichnet',
+  await page.locator('.chart-frame').count() >= 1);
 check('Linie zwischen den Positionen',
-  await page.locator('.track-plot .plot-line').count() === 1);
-check('Positionen als Punkte', await page.locator('.track-plot .plot-dot').count() >= 2);
+  await page.locator('.chart-plot .plot-line').count() === 1);
+check('Anfang und letzte Position sind markiert',
+  await page.locator('.chart-plot .chart-mark').count() >= 2,
+  `${await page.locator('.chart-plot .chart-mark').count()} Marken`);
 
 // --- Törn: die Klammer um die Einträge -------------------------------------
 // Ohne sie ist das Logbuch ein endloser Strom, in dem die Fahrt von letztem
@@ -1324,8 +1329,8 @@ check('Ein Ereignis lässt sich mit einem Griff eintragen',
   (await page.locator('.log-item').first().innerText()).includes('Anker fällt'),
   (await page.locator('.log-item').first().innerText()).replace(/\n/g, ' | '));
 check('Das Ereignis bekommt sein Zeichen in der Spur',
-  await page.locator('.track-plot .plot-event').count() >= 1,
-  `${await page.locator('.track-plot .plot-event').count()} Zeichen`);
+  await page.locator('.chart-plot .plot-event').count() >= 1,
+  `${await page.locator('.chart-plot .plot-event').count()} Zeichen`);
 
 // --- Wetter ----------------------------------------------------------------
 // Ein Logbuch ohne Wetter ist keins. Alles zum Antippen, und was einmal
@@ -1437,7 +1442,7 @@ check('Darunter Strecke, Schnitt über Grund und Motorstunden',
   /strecke/i.test(zahlenText) && /über grund/i.test(zahlenText) && /motor gelaufen/i.test(zahlenText),
   zahlenText.replace(/\n/g, ' | ').slice(0, 160));
 check('Der Ausschnitt steht als Merkmal an der Spur',
-  (await page.locator('.card', { has: page.locator('.track-plot') }).locator('.rule').innerText())
+  (await page.locator('.card', { has: page.locator('.chart-frame') }).locator('.rule').first().innerText())
     .includes('Kiel – Marstal'));
 const zahlenGroesse = await zahlen.evaluateAll((els) => els.map((el) => {
   const b = el.getBoundingClientRect();
@@ -1512,6 +1517,24 @@ check('Die gefahrene Strecke steht in den Kennzahlen',
 // Logbuch und nirgends sonst, und ohne Namen wird gar keins ausgestellt.
 await page.locator('summary', { hasText: 'Meilenbestätigung' }).click();
 await page.waitForTimeout(250);
+
+// Aufgeklappt heißt aufgeklappt.
+//
+// Das Logbuch zeichnet sich neu, sobald ein Eintrag dazukommt, und der
+// Empfänger meldete sich jede Sekunde – damit fiel das Feld mitten im
+// Ausfüllen wieder zu, immer wieder.
+await page.locator('[data-miles="person"]').fill('Probe');
+await page.evaluate(() => window.dispatchEvent(new CustomEvent('sb:settings')));
+await page.getByRole('button', { name: /Wende/ }).click();
+await page.waitForTimeout(500);
+check('Die Meilenbestätigung bleibt beim Mitschreiben offen',
+  await page.locator('[data-fold="miles"]').first().evaluate((el) => el.open));
+check('Und was schon eingetragen war, steht noch da',
+  await page.locator('[data-miles="person"]').inputValue() === 'Probe',
+  await page.locator('[data-miles="person"]').inputValue());
+// Wieder leeren: Die nächste Prüfung will wissen, was ohne Namen passiert.
+await page.locator('[data-miles="person"]').fill('');
+
 check('Die Bestätigung fragt nach zwei Namen',
   await page.getByText('Für wen ist die Bestätigung?').count() === 1
   && await page.getByText('Wer bestätigt?').count() === 1);
