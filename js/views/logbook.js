@@ -19,32 +19,56 @@ import { t, locale, num } from '../lib/i18n.js';
 import { formatPosition, formatDuration, formatLat, formatLon } from '../lib/geo.js';
 import { shareFile, stamped } from '../lib/share.js';
 import {
-  logbook, trackDistance, projectTrack, niceScaleStep, dailyRuns, speedStats,
+  logbook, trackDistance, projectTrack, niceScaleStep, dailyRuns, stats,
   toGpx, toCsv, LOG_INTERVALS, LOG_EVENTS, WIND_DIRECTIONS, VISIBILITY_STEPS,
 } from '../lib/logbook.js';
 
 let container = null;
 let noteDraft = '';
-// Welcher Törn in Spur und Liste gezeigt wird: null = alles.
-let filterTripId = null;
+/**
+ * Was gerade gezeigt wird.
+ *
+ * `{}` heißt alles, `{ tripId }` ein ganzer Törn, `{ turnId }` eine einzelne
+ * Etappe. Danach richten sich Liste, Spur, Kennzahlen und Ausgabe – wer eine
+ * Etappe anschaut, will auch ihre Zahlen und ihr GPX, nicht die der ganzen
+ * Saison.
+ */
+let scope = {};
 let showWeather = false;
 
 export function view(root) {
   container = h('div');
   render(root, container);
-  // Beim Aufschlagen den laufenden Törn zeigen, sonst alles.
-  filterTripId = logbook.currentTrip()?.id ?? null;
+  // Beim Aufschlagen das Engste zeigen, was gerade läuft: die Etappe, sonst
+  // den Törn, sonst alles.
+  const turn = logbook.currentTurn();
+  const trip = logbook.currentTrip();
+  scope = turn ? { turnId: turn.id } : (trip ? { tripId: trip.id } : {});
   draw();
   const offLog = logbook.onChange(() => draw());
   const offGps = gps.onUpdate(() => draw());
   return () => { offLog(); offGps(); container = null; };
 }
 
-/** Die Einträge, die gerade gezeigt werden. */
+/** Die Einträge, die gerade gezeigt werden – neueste zuerst. */
 function selection() {
   const all = logbook.entries();
-  if (!filterTripId) return all;
-  return all.filter((e) => e.tripId === filterTripId);
+  if (scope.turnId) return all.filter((e) => e.turnId === scope.turnId);
+  if (scope.tripId) return all.filter((e) => e.tripId === scope.tripId);
+  return all;
+}
+
+/** Wie heißt der gewählte Ausschnitt? Für Überschrift und Dateiname. */
+function scopeName() {
+  if (scope.turnId) {
+    const turn = logbook.turn(scope.turnId);
+    return turn?.name || t('log.turnUnnamed');
+  }
+  if (scope.tripId) {
+    const trip = logbook.trip(scope.tripId);
+    return trip?.name || t('log.tripUnnamed');
+  }
+  return '';
 }
 
 function draw() {
@@ -71,76 +95,127 @@ function draw() {
  * auf das, was man gerade fährt.
  */
 function tripCard() {
-  const current = logbook.currentTrip();
+  const trip = logbook.currentTrip();
+  const turn = logbook.currentTurn();
   const trips = logbook.trips();
 
   return h('div.card',
     h('div.row', { style: { 'margin-bottom': '10px' } },
       h('h2.grow', { style: { margin: 0 } }, t('log.trip')),
-      current
+      trip
         ? h('button.btn.small', { type: 'button', onclick: endTrip }, t('log.tripEnd'))
         : h('button.btn.small.primary', { type: 'button', onclick: startTrip }, t('log.tripStart')),
     ),
 
-    current
+    trip
       ? h('div',
-        h('div.trip-name', current.name || t('log.tripUnnamed')),
+        h('div.trip-name', trip.name || t('log.tripUnnamed')),
         h('div.small.muted',
-          [current.from, t('log.tripSince', { v: whenShort(current.startTs) })]
+          [trip.from, t('log.tripSince', { v: whenShort(trip.startTs) })]
             .filter(Boolean).join(' · ')),
       )
       : h('p.small.muted', { style: { margin: 0 } }, t('log.tripNone')),
 
-    // Umschalten, was Spur und Liste zeigen. Ohne das sieht man immer alles.
-    trips.length > 0 && h('div.filter-chips', { style: { 'margin-top': '12px' } },
+    // Die Etappe darunter: ein Schlag von hier nach dort, meist ein Tag. Sie
+    // darf auch ohne Törn stehen – wer nur einen Tagesschlag mitschreibt,
+    // soll dafür nicht erst eine Reise anlegen müssen.
+    h('div.turn-row', { style: { 'margin-top': '12px' } },
+      h('div.grow',
+        h('div.small.muted', t('log.turn')),
+        turn
+          ? h('div', { style: { 'font-weight': '650' } },
+            turn.name || t('log.turnUnnamed'),
+            h('span.small.muted', { style: { 'margin-left': '7px' } },
+              t('log.tripSince', { v: whenShort(turn.startTs) })))
+          : h('div.small.muted', t('log.turnNone')),
+      ),
+      turn
+        ? h('button.btn.small', { type: 'button', onclick: endTurn }, t('log.turnEnd'))
+        : h('button.btn.small', { type: 'button', onclick: startTurn }, t('log.turnStart')),
+    ),
+
+    // Umschalten, worauf sich Liste, Spur, Kennzahlen und Ausgabe beziehen.
+    h('div.filter-chips', { style: { 'margin-top': '12px' }, 'data-scope': 'wahl' },
       h('button.chip', {
         type: 'button',
-        'aria-pressed': String(filterTripId === null),
-        onclick: () => { filterTripId = null; draw(); },
+        'data-scope': 'alles',
+        'aria-pressed': String(!scope.tripId && !scope.turnId),
+        onclick: () => { scope = {}; draw(); },
       }, t('log.tripAll')),
-      ...trips.map((trip) => h('button.chip', {
+      ...trips.flatMap((r) => [
+        h('button.chip', {
+          type: 'button',
+          'aria-pressed': String(scope.tripId === r.id),
+          onclick: () => { scope = { tripId: r.id }; draw(); },
+        }, r.name || whenShort(r.startTs)),
+        // Die Etappen eines Törns direkt darunter, eingerückt – sonst weiß
+        // niemand, wozu sie gehören.
+        ...logbook.turns(r.id).map((et) => h('button.chip.chip-sub', {
+          type: 'button',
+          'aria-pressed': String(scope.turnId === et.id),
+          onclick: () => { scope = { turnId: et.id }; draw(); },
+        }, `↳ ${et.name || whenShort(et.startTs)}`)),
+      ]),
+      // Etappen ohne Törn stehen für sich.
+      ...logbook.turns(null).map((et) => h('button.chip.chip-sub', {
         type: 'button',
-        'aria-pressed': String(filterTripId === trip.id),
-        onclick: () => { filterTripId = trip.id; draw(); },
-      }, trip.name || whenShort(trip.startTs))),
+        'aria-pressed': String(scope.turnId === et.id),
+        onclick: () => { scope = { turnId: et.id }; draw(); },
+      }, `↳ ${et.name || whenShort(et.startTs)}`)),
     ),
 
     trips.length > 0 && h('details.foldout', { style: { 'margin-top': '12px', 'margin-bottom': 0 } },
       h('summary', t('log.tripList', { v: trips.length })),
       h('div',
-        ...trips.map((trip) => h('div.wp-item',
-          h('div.grow',
-            h('div.wp-name', trip.name || t('log.tripUnnamed')),
-            h('div.small.muted',
-              [trip.from, trip.to].filter(Boolean).join(' → ')
-              || t('log.tripSpan', {
-                a: whenShort(trip.startTs),
-                b: trip.endTs ? whenShort(trip.endTs) : t('log.tripOpen'),
-              })),
-          ),
-          h('button.btn.small', {
-            type: 'button',
-            'aria-label': `${trip.name || t('log.tripUnnamed')} – ${t('log.tripRename')}`,
-            onclick: () => {
-              const name = prompt(t('log.tripRename'), trip.name ?? '');
-              if (name === null) return;
-              logbook.updateTrip(trip.id, { name: name.trim() });
-              draw();
-            },
-          }, '✎'),
-          h('button.btn.small', {
-            type: 'button',
-            'aria-label': `${trip.name || t('log.tripUnnamed')} – ${t('common.delete')}`,
-            onclick: () => {
-              if (!confirm(t('log.tripConfirmDelete'))) return;
-              logbook.removeTrip(trip.id);
-              if (filterTripId === trip.id) filterTripId = null;
-              draw();
-            },
-          }, '✕'),
+        ...trips.map((r) => h('div',
+          verwaltungsZeile(r, false),
+          ...logbook.turns(r.id).map((et) => h('div', { style: { 'padding-left': '18px' } },
+            verwaltungsZeile(et, true))),
         )),
+        ...logbook.turns(null).map((et) => verwaltungsZeile(et, true)),
       ),
     ),
+  );
+}
+
+/** Eine Zeile zum Umbenennen und Wegwerfen – für Törns wie für Etappen. */
+function verwaltungsZeile(eintrag, istEtappe) {
+  const name = eintrag.name || t(istEtappe ? 'log.turnUnnamed' : 'log.tripUnnamed');
+  const umbenennen = t(istEtappe ? 'log.turnRename' : 'log.tripRename');
+  const nachfrage = t(istEtappe ? 'log.turnConfirmDelete' : 'log.tripConfirmDelete');
+
+  return h('div.wp-item',
+    h('div.grow',
+      h('div.wp-name', name),
+      h('div.small.muted',
+        [eintrag.from, eintrag.to].filter(Boolean).join(' → ')
+        || t('log.tripSpan', {
+          a: whenShort(eintrag.startTs),
+          b: eintrag.endTs ? whenShort(eintrag.endTs) : t('log.tripOpen'),
+        })),
+    ),
+    h('button.btn.small', {
+      type: 'button',
+      'aria-label': `${name} – ${umbenennen}`,
+      onclick: () => {
+        const neuerName = prompt(umbenennen, eintrag.name ?? '');
+        if (neuerName === null) return;
+        if (istEtappe) logbook.updateTurn(eintrag.id, { name: neuerName.trim() });
+        else logbook.updateTrip(eintrag.id, { name: neuerName.trim() });
+        draw();
+      },
+    }, '✎'),
+    h('button.btn.small', {
+      type: 'button',
+      'aria-label': `${name} – ${t('common.delete')}`,
+      onclick: () => {
+        if (!confirm(nachfrage)) return;
+        if (istEtappe) logbook.removeTurn(eintrag.id);
+        else logbook.removeTrip(eintrag.id);
+        if (scope.tripId === eintrag.id || scope.turnId === eintrag.id) scope = {};
+        draw();
+      },
+    }, '✕'),
   );
 }
 
@@ -149,7 +224,7 @@ function startTrip() {
   if (name === null) return;
   const from = prompt(t('log.tripFromPrompt'), '') ?? '';
   const trip = logbook.startTrip({ name, from });
-  filterTripId = trip.id;
+  scope = { tripId: trip.id };
   // Der Anfang einer Reise gehört ins Logbuch, nicht nur in die Verwaltung.
   logbook.add({ kind: 'manual', event: 'depart', note: from.trim() });
   toast(t('log.tripStarted'));
@@ -162,6 +237,26 @@ function endTrip() {
   logbook.add({ kind: 'manual', event: 'arrive', note: to.trim() });
   logbook.endTrip({ to });
   toast(t('log.tripEnded'));
+  draw();
+}
+
+function startTurn() {
+  const name = prompt(t('log.turnNamePrompt'), '');
+  if (name === null) return;
+  const from = prompt(t('log.tripFromPrompt'), '') ?? '';
+  const turn = logbook.startTurn({ name, from });
+  scope = { turnId: turn.id };
+  logbook.add({ kind: 'manual', event: 'depart', note: from.trim() });
+  toast(t('log.turnStarted'));
+  draw();
+}
+
+function endTurn() {
+  const to = prompt(t('log.tripToPrompt'), '');
+  if (to === null) return;
+  logbook.add({ kind: 'manual', event: 'arrive', note: to.trim() });
+  logbook.endTurn({ to });
+  toast(t('log.turnEnded'));
   draw();
 }
 
@@ -362,25 +457,33 @@ function weatherShort(w) {
 // ------------------------------------------------------------------- Spur
 
 function trackCard(track) {
-  const distance = trackDistance(track);
-  const from = track[0];
-  const to = track[track.length - 1];
-  const duration = (to.ts - from.ts) / 1000;
-  const speeds = speedStats(track);
+  const k = stats(track);
   const etmale = dailyRuns(track);
+  const name = scopeName();
 
   return h('div.card',
-    h('h2', t('log.track')),
+    h('div.row', { style: { 'margin-bottom': '10px' } },
+      h('h2.grow', { style: { margin: 0 } }, t('log.track')),
+      // Woraufhin gerechnet wird, muss dabeistehen – sonst weiß man nicht,
+      // ob 312 Seemeilen die Etappe oder die Saison sind.
+      name && h('span.rule', name),
+    ),
 
     trackPlot(track),
 
-    h('div.readout', { style: { 'margin-top': '12px' } },
-      cell(t('log.points'), String(track.length), ''),
-      cell(t('log.distance'), num(distance, distance < 10 ? 2 : 1), 'sm'),
-      cell(t('log.duration'), formatDuration(duration), ''),
-      cell(t('log.speedMax'), speeds.max === null ? '–' : num(speeds.max), 'kn'),
-      cell(t('log.speedAvg'), speeds.avg === null ? '–' : num(speeds.avg), 'kn'),
-      cell(t('log.days'), String(etmale.length), ''),
+    // Immer dieselben Kästchen, immer gleich groß – wie im Ergebnis auf der
+    // Positionsseite. Was fehlt, steht als Strich da.
+    h('div.readout.readout-fest', { style: { 'margin-top': '12px' } },
+      cell(t('log.distance'), num(k.distance, k.distance < 10 ? 2 : 1), 'sm', t('log.distanceSub')),
+      cell(t('log.duration'), formatDuration(k.seconds), null, t('log.durationSub')),
+      cell(t('log.speedOverGround'),
+        k.avgOverGround === null ? '–' : num(k.avgOverGround), 'kn', t('log.speedOverGroundSub')),
+      cell(t('log.speedAvg'), k.avgSog === null ? '–' : num(k.avgSog), 'kn', t('log.speedAvgSub')),
+      cell(t('log.speedMax'), k.maxSog === null ? '–' : num(k.maxSog), 'kn', t('log.speedMaxSub')),
+      cell(t('log.engine'), k.engineSeconds ? formatDuration(k.engineSeconds) : '–', null,
+        t('log.engineSub')),
+      cell(t('log.points'), String(k.points), null, t('log.pointsSub', { v: k.events })),
+      cell(t('log.days'), String(Math.max(1, k.days)), null, t('log.daysSub')),
     ),
 
     // Etmal: der klassische Eintrag – wie weit ist das Schiff seit gestern
@@ -484,10 +587,11 @@ function trackPlot(track) {
   return el;
 }
 
-function cell(label, value, unit) {
+function cell(label, value, unit, sub) {
   return h('div.cell',
     h('div.label', label),
-    h(`div.value.mid${fit(value)}`, value, unit && h('span.unit', unit)),
+    h(`div.value${fit(value)}`, value, unit && h('span.unit', unit)),
+    sub && h('div.sub', sub),
   );
 }
 
@@ -570,8 +674,7 @@ function entriesCard(entries) {
  */
 function outputCard(track) {
   const s = settings.all();
-  const trip = filterTripId ? logbook.trip(filterTripId) : null;
-  const basis = trip?.name || s.boat || 'logbuch';
+  const basis = scopeName() || s.boat || 'logbuch';
 
   const geben = async (endung, mime, inhalt, leerMeldung) => {
     if (!inhalt) { toast(leerMeldung); return; }
@@ -591,7 +694,7 @@ function outputCard(track) {
       h('button.btn.small.grow', {
         type: 'button',
         onclick: () => geben('gpx', 'application/gpx+xml',
-          track.length ? toGpx(track, { boat: s.boat, name: trip?.name ?? '' }) : '',
+          track.length ? toGpx(track, { boat: s.boat, name: scopeName() }) : '',
           t('log.emptyTrack')),
       }, t('log.asGpx')),
       h('button.btn.small.grow', {
@@ -642,7 +745,7 @@ function outputCard(track) {
 
 function asText(track, s) {
   const head = [s.boat, s.callsign, s.mmsi].filter(Boolean).join(' · ');
-  const trip = filterTripId ? logbook.trip(filterTripId) : null;
+  const trip = scope.tripId ? logbook.trip(scope.tripId) : null;
   const lines = track.map((e) => {
     const when = new Date(e.ts).toLocaleString(locale());
     const speed = e.sog !== null && e.sog !== undefined ? ` ${num(e.sog)} kn` : '';
@@ -655,7 +758,8 @@ function asText(track, s) {
   const distance = trackDistance(track);
   return [
     head,
-    trip ? [trip.name, trip.from, trip.to].filter(Boolean).join(' · ') : null,
+    scopeName() || null,
+    trip ? [trip.from, trip.to].filter(Boolean).join(' → ') || null : null,
     `${t('log.distance')}: ${num(distance, 2)} sm`,
     '',
     ...lines,

@@ -19,7 +19,7 @@ import * as positionView from './views/position.js';
 import * as mapView from './views/map.js';
 import * as nightView from './views/night.js';
 import * as logbookView from './views/logbook.js';
-import * as settingsView from './views/settings.js';
+import * as moreView from './views/more.js';
 import * as setupView from './views/setup.js';
 
 const TABS = [
@@ -28,7 +28,9 @@ const TABS = [
   { key: 'karte', label: 'tab.map', title: 'title.map', view: mapView, icon: iconMap },
   { key: 'nacht', label: 'tab.night', title: 'title.night', view: nightView, icon: iconMoon },
   { key: 'logbuch', label: 'tab.log', title: 'title.log', view: logbookView, icon: iconBook },
-  { key: 'setup', label: 'tab.settings', title: 'title.settings', view: settingsView, icon: iconGear },
+  // Unten ist Platz für sechs Reiter, und die gehören dem, was unterwegs
+  // zählt. Knoten, Einstellungen und was noch dazukommt, liegen dahinter.
+  { key: 'mehr', label: 'tab.more', title: 'title.more', view: moreView, icon: iconMore },
 ];
 
 let current = 'funk';
@@ -215,11 +217,16 @@ function iconContrast() {
   return el;
 }
 
-function iconGear() {
-  const el = icon('M11 3h2l.4 2.2a7 7 0 0 1 1.8.75l1.9-1.2 1.4 1.4-1.2 1.9c.33.55.58 1.16.75 1.8L20.3 11v2l-2.2.4a7 7 0 0 1-.75 1.8l1.2 1.9-1.4 1.4-1.9-1.2c-.55.33-1.16.58-1.8.75L13 20.3h-2l-.4-2.2a7 7 0 0 1-1.8-.75l-1.9 1.2-1.4-1.4 1.2-1.9a7 7 0 0 1-.75-1.8L3.7 13v-2l2.2-.4c.17-.64.42-1.25.75-1.8L5.45 6.9l1.4-1.4 1.9 1.2c.55-.33 1.16-.58 1.8-.75z');
-  el.appendChild(svg('circle', { cx: '12', cy: '12', r: '2.8' }));
+function iconMore() {
+  // Drei Punkte – das Zeichen für „und noch mehr“, das keiner Übersetzung
+  // bedarf. Als Kreise statt als Pfad, damit sie gefüllt sind.
+  const el = icon('M0 0');
+  [6, 12, 18].forEach((cx) => el.appendChild(svg('circle', {
+    cx: String(cx), cy: '12', r: '1.9', fill: 'currentColor', stroke: 'none',
+  })));
   return el;
 }
+
 
 // ------------------------------------------------------- Offline-Bereitstellung
 

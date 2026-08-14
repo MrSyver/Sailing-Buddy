@@ -5,6 +5,15 @@
  * Einstellungen – ein langer Törn bringt schnell einige hundert Einträge
  * zusammen, und die sollen die Schiffsdaten nicht ausbremsen.
  *
+ * Drei Ebenen, von unten nach oben: Ein **Eintrag** ist ein Zeitpunkt mit
+ * Position. Mehrere Einträge bilden eine **Etappe** – ein Schlag von hier nach
+ * dort, meist ein Tag. Mehrere Etappen bilden einen **Törn**, die ganze Reise.
+ *
+ * Das ist keine Ordnungsliebe, sondern der Unterschied zwischen einer Zahl und
+ * einer Aussage: „312 Seemeilen“ sagt nichts, „312 Seemeilen in elf Etappen,
+ * die längste 58“ sagt alles. Und die Spur einer Etappe ist eine Fahrt, die
+ * Spur eines ganzen Törns ein Knäuel.
+ *
  * Ein Eintrag ist mehr als eine Position. Er kann ein Ereignis tragen
  * (Ablegen, Anker fällt, Motor an) und einen Wetterstand. Das Wetter wird
  * fortgeschrieben: Was zuletzt eingetragen wurde, gilt weiter, bis jemand es
@@ -90,7 +99,9 @@ function read() {
     cache = {
       entries: Array.isArray(data?.entries) ? data.entries : [],
       trips: Array.isArray(data?.trips) ? data.trips : [],
+      turns: Array.isArray(data?.turns) ? data.turns : [],
       currentTripId: data?.currentTripId ?? null,
+      currentTurnId: data?.currentTurnId ?? null,
       intervalMinutes: Number(data?.intervalMinutes) || 0,
       // Voreinstellung an: Ein Eintragsberg vor Anker nützt niemandem.
       onlyMoving: data?.onlyMoving !== false,
@@ -101,7 +112,9 @@ function read() {
     cache = {
       entries: [],
       trips: [],
+      turns: [],
       currentTripId: null,
+      currentTurnId: null,
       intervalMinutes: 0,
       onlyMoving: true,
       onChange: false,
@@ -135,10 +148,22 @@ export const logbook = {
   /** Einträge, neueste zuerst. */
   entries: () => [...read().entries],
 
-  /** Einträge in zeitlicher Reihenfolge – so wird die Spur gezeichnet. */
-  track: (tripId = undefined) => [...read().entries]
-    .filter((e) => tripId === undefined || (e.tripId ?? null) === tripId)
-    .sort((a, b) => a.ts - b.ts),
+  /**
+   * Einträge in zeitlicher Reihenfolge – so wird die Spur gezeichnet.
+   *
+   * `scope` ist entweder nichts (alles), `{ tripId }` oder `{ turnId }`.
+   */
+  track: (scope = undefined) => {
+    const alle = [...read().entries].sort((a, b) => a.ts - b.ts);
+    if (!scope) return alle;
+    if (scope.turnId !== undefined && scope.turnId !== null) {
+      return alle.filter((e) => e.turnId === scope.turnId);
+    }
+    if (scope.tripId !== undefined && scope.tripId !== null) {
+      return alle.filter((e) => e.tripId === scope.tripId);
+    }
+    return alle;
+  },
 
   intervalMinutes: () => read().intervalMinutes,
   onlyMoving: () => read().onlyMoving,
@@ -188,7 +213,12 @@ export const logbook = {
       startTs: Date.now(),
       endTs: null,
     };
-    write({ ...data, trips: [trip, ...trips], currentTripId: trip.id });
+    const turns = data.turns.map((r) => (r.id === data.currentTurnId && !r.endTs
+      ? { ...r, endTs: Date.now() }
+      : r));
+    write({
+      ...data, trips: [trip, ...trips], turns, currentTripId: trip.id, currentTurnId: null,
+    });
     return trip;
   },
 
@@ -199,7 +229,13 @@ export const logbook = {
     const trips = data.trips.map((r) => (r.id === data.currentTripId
       ? { ...r, to: to.trim(), endTs: Date.now() }
       : r));
-    write({ ...data, trips, currentTripId: null });
+    // Wer den Törn beendet, ist auch nicht mehr auf einer Etappe davon.
+    const turns = data.turns.map((r) => (r.id === data.currentTurnId && !r.endTs
+      ? { ...r, to: to.trim(), endTs: Date.now() }
+      : r));
+    write({
+      ...data, trips, turns, currentTripId: null, currentTurnId: null,
+    });
     return trips.find((r) => r.id === data.currentTripId) ?? null;
   },
 
@@ -218,7 +254,75 @@ export const logbook = {
       ...data,
       trips: data.trips.filter((r) => r.id !== id),
       currentTripId: data.currentTripId === id ? null : data.currentTripId,
+      turns: data.turns.map((r) => (r.tripId === id ? { ...r, tripId: null } : r)),
       entries: data.entries.map((e) => (e.tripId === id ? { ...e, tripId: null } : e)),
+    });
+  },
+
+  // ----------------------------------------------------------------- Etappen
+
+  /** Alle Etappen, die jüngste zuerst. Wahlweise nur die eines Törns. */
+  turns: (tripId = undefined) => [...read().turns]
+    .filter((r) => tripId === undefined || r.tripId === tripId)
+    .sort((a, b) => b.startTs - a.startTs),
+
+  currentTurn() {
+    const data = read();
+    return data.turns.find((r) => r.id === data.currentTurnId) ?? null;
+  },
+
+  turn(id) {
+    return read().turns.find((r) => r.id === id) ?? null;
+  },
+
+  /**
+   * Fängt eine Etappe an. Eine laufende wird dabei beendet.
+   *
+   * Ohne laufenden Törn wird auch keiner erfunden: Eine Etappe darf für sich
+   * stehen – wer nur einen Tagesschlag mitschreibt, soll dafür nicht erst
+   * eine Reise anlegen müssen.
+   */
+  startTurn({ name = '', from = '' } = {}) {
+    const data = read();
+    const turns = data.turns.map((r) => (r.id === data.currentTurnId && !r.endTs
+      ? { ...r, endTs: Date.now() }
+      : r));
+    const turn = {
+      id: newId('turn'),
+      tripId: data.currentTripId,
+      name: name.trim(),
+      from: from.trim(),
+      to: '',
+      startTs: Date.now(),
+      endTs: null,
+    };
+    write({ ...data, turns: [turn, ...turns], currentTurnId: turn.id });
+    return turn;
+  },
+
+  endTurn({ to = '' } = {}) {
+    const data = read();
+    if (!data.currentTurnId) return null;
+    const turns = data.turns.map((r) => (r.id === data.currentTurnId
+      ? { ...r, to: to.trim(), endTs: Date.now() }
+      : r));
+    write({ ...data, turns, currentTurnId: null });
+    return turns.find((r) => r.id === data.currentTurnId) ?? null;
+  },
+
+  updateTurn(id, patch) {
+    const data = read();
+    write({ ...data, turns: data.turns.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
+  },
+
+  /** Wirft eine Etappe weg. Ihre Einträge bleiben und fallen an den Törn. */
+  removeTurn(id) {
+    const data = read();
+    write({
+      ...data,
+      turns: data.turns.filter((r) => r.id !== id),
+      currentTurnId: data.currentTurnId === id ? null : data.currentTurnId,
+      entries: data.entries.map((e) => (e.turnId === id ? { ...e, turnId: null } : e)),
     });
   },
 
@@ -244,6 +348,7 @@ export const logbook = {
       event: event && EVENT_KEYS.has(event) ? event : null,
       note: note.trim(),
       tripId: data.currentTripId,
+      turnId: data.currentTurnId,
       // Der Stand wird mitgeschrieben, nicht verwiesen: Ein Eintrag von
       // gestern soll das Wetter von gestern zeigen, auch wenn heute anderes
       // eingetragen wird.
@@ -398,6 +503,7 @@ export const logbook = {
       saved: new Date().toISOString(),
       entries: data.entries,
       trips: data.trips,
+      turns: data.turns,
       intervalMinutes: data.intervalMinutes,
       onlyMoving: data.onlyMoving,
       onChange: data.onChange,
@@ -432,15 +538,22 @@ export const logbook = {
     const neueTrips = (Array.isArray(data.trips) ? data.trips : [])
       .filter((r) => r && r.id && !bekannteTrips.has(r.id));
 
+    const bekannteTurns = new Set(now.turns.map((r) => r.id));
+    const neueTurns = (Array.isArray(data.turns) ? data.turns : [])
+      .filter((r) => r && r.id && !bekannteTurns.has(r.id));
+
     write({
       ...now,
       entries: [...now.entries, ...neueEintraege]
         .sort((a, b) => b.ts - a.ts)
         .slice(0, MAX_ENTRIES),
       trips: [...now.trips, ...neueTrips],
+      turns: [...now.turns, ...neueTurns],
     });
 
-    return { entries: neueEintraege.length, trips: neueTrips.length };
+    return {
+      entries: neueEintraege.length, trips: neueTrips.length, turns: neueTurns.length,
+    };
   },
 };
 
@@ -472,6 +585,70 @@ export function dailyRuns(track) {
   return [...days.entries()]
     .map(([day, distance]) => ({ day, distance }))
     .sort((a, b) => (a.day < b.day ? 1 : -1));
+}
+
+/**
+ * Die Kennzahlen zu einer Spur.
+ *
+ * Alles aus den Einträgen gerechnet, nichts aus einer zweiten Quelle: Was
+ * hier steht, steht auch im Logbuch, und zwar genau so.
+ *
+ * Zwei Mittelwerte, weil sie Verschiedenes sagen. Die Fahrt über Grund
+ * (`avgOverGround`) ist Strecke durch verstrichene Zeit – inklusive der
+ * Stunden vor Anker, und deshalb die Zahl, die zählt, wenn man eine Ankunft
+ * schätzt. Der Durchschnitt der gemessenen Fahrt (`avgSog`) lässt die Pausen
+ * weg und sagt, wie schnell das Schiff war, wenn es fuhr.
+ */
+export function stats(track) {
+  if (!track.length) return null;
+  const distance = trackDistance(track);
+  const from = track[0];
+  const to = track[track.length - 1];
+  const seconds = Math.max(0, (to.ts - from.ts) / 1000);
+  const speeds = speedStats(track);
+
+  return {
+    points: track.length,
+    distance,
+    seconds,
+    from: from.ts,
+    to: to.ts,
+    // Ohne verstrichene Zeit gibt es keinen Schnitt – eine Division durch
+    // null wäre eine Zahl, die nichts bedeutet.
+    avgOverGround: seconds > 60 ? distance / (seconds / 3600) : null,
+    avgSog: speeds.avg,
+    maxSog: speeds.max,
+    engineSeconds: engineTime(track),
+    days: dailyRuns(track).length,
+    events: track.filter((e) => e.event).length,
+  };
+}
+
+/**
+ * Motorlaufzeit aus den Ereignissen.
+ *
+ * Gezählt wird von „Motor an“ bis „Motor aus“. Fehlt das Ausschalten – weil
+ * jemand es vergessen hat oder der Törn noch läuft –, zählt die Zeit bis zum
+ * letzten Eintrag: Das ist die vorsichtige Annahme, und sie ist allemal
+ * näher an der Wahrheit als null.
+ *
+ * Ein „Motor an“ ohne vorheriges „aus“ wird übergangen, statt die Zählung
+ * zurückzusetzen; an Bord drückt man diese Taste auch mal zweimal.
+ */
+export function engineTime(track) {
+  let sum = 0;
+  let seit = null;
+  track.forEach((e) => {
+    if (e.event === 'engineOn' && seit === null) seit = e.ts;
+    if (e.event === 'engineOff' && seit !== null) {
+      sum += Math.max(0, e.ts - seit);
+      seit = null;
+    }
+  });
+  if (seit !== null && track.length) {
+    sum += Math.max(0, track[track.length - 1].ts - seit);
+  }
+  return sum / 1000;
 }
 
 /** Höchste und mittlere Fahrt über Grund entlang der Spur. */
