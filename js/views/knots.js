@@ -150,9 +150,20 @@ function zeichnung(k) {
   const d = KNOT_DRAWINGS[k.id];
   if (!d) return null;
 
-  const stand = schritte.get(k.id) ?? d.steps;
+  // Knoten mit nur einem Schritt zeigen den fertigen Knoten und sonst nichts.
+  //
+  // Nicht jeder Knoten lässt sich sinnvoll wachsen lassen: Wo vier Kreuzungen
+  // dicht beieinanderliegen, ist jeder Zwischenschritt ein Knäuel, und vier
+  // Knäuel sind schlechter als ein lesbares Bild. Dann lieber das Ergebnis –
+  // wie er gelegt wird, steht ohnehin darunter im Text.
+  const einBild = (d.steps ?? 1) <= 1;
+  const stand = einBild ? 1 : (schritte.get(k.id) ?? d.steps);
   const bild = h('div.knot-stage', { 'data-knot': k.id },
-    knotFigure(d, stand, { titel: `${loc(k, 'name')} – ${t('knots.step', { n: stand })}` }));
+    knotFigure(d, stand, {
+      titel: einBild ? loc(k, 'name') : `${loc(k, 'name')} – ${t('knots.step', { n: stand })}`,
+    }));
+
+  if (einBild) return h('div.knot-draw', bild);
 
   const zeige = (n, halten) => {
     schritte.set(k.id, n);
