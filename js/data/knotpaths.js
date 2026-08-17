@@ -1,104 +1,134 @@
 /**
  * Der Verlauf der Leine je Knoten.
  *
- * Ein Abschnitt ist ein Stück Leine mit seinen Stützpunkten im Raster 0…100.
- * Zwei Ordnungen liegen darüber, und sie sind mit Absicht getrennt:
+ * Eine Leine ist ein durchgehender Zug von Stützpunkten im Raster 0…100 – vom
+ * festen Part bis zum losen Ende, in der Reihenfolge, in der man sie in die
+ * Hand nimmt. Die Rundung dazwischen rechnet der Code.
  *
- *   Die Reihenfolge im Feld ist die *Tiefe*. Was weiter vorn steht, liegt
- *   weiter hinten – der letzte Abschnitt liegt obenauf. Genau daran erkennt
- *   man einen Knoten: nicht am Schwung der Kurven, sondern daran, welcher
- *   Part über welchem liegt.
+ * Das einzige, was zusätzlich gesagt werden muss, ist `unter`: an welchen
+ * Stellen die Leine unter etwas hindurchläuft. Angegeben wird die
+ * Stützpunktnummer, auch krumm – 3.5 liegt zwischen dem vierten und fünften
+ * Punkt. Dort bleibt eine Lücke, und der Part, der darüber läuft, füllt sie.
  *
- *   `n` ist die Reihenfolge *entlang der Leine* und bestimmt, ab welchem
- *   Schritt der Abschnitt da ist. So wächst dieselbe Zeichnung Schritt für
- *   Schritt mit, statt dass jeder Schritt ein eigenes Bild bräuchte.
+ * Mehr braucht ein Knoten nicht, und weniger auch nicht: Welcher Part über
+ * welchem liegt, ist die einzige Frage, die einen Knoten von einer gekringelten
+ * Schnur unterscheidet. `tools/knotcheck.mjs` rechnet nach, ob jede Kreuzung
+ * genau eine Unterführung hat und jede Unterführung ihre Kreuzung – eine Lücke
+ * ohne Kreuzung ist im Bild nichts anderes als eine gerissene Leine.
  *
- * `end: 'werk'` setzt an das Ende einen Abschluss: Das ist das lose Ende und
- * kein Part, der hinter etwas verschwindet.
- *
- * Der Knoten selbst füllt das Bild; was nur dranhängt – ein langes Auge, ein
- * langer fester Part – läuft aus dem Rand heraus. Auf einem Telefon ist der
- * Platz die knappste Größe, und die Länge eines Auges muss niemand sehen.
+ * Der Knoten füllt das Bild; was nur dranhängt – ein langes Auge, ein langer
+ * fester Part – läuft aus dem Rand heraus. Auf einem Telefon ist der Platz die
+ * knappste Größe, und die Länge eines Auges muss niemand sehen.
  */
 
 export const KNOT_DRAWINGS = {
   /**
+   * Palstek: das Ende kommt von unten durch die Bucht, um den festen Part
+   * herum und wieder zurück – „aus dem See, um den Baum, zurück in den See“.
+   * Das Auge läuft unten aus dem Bild; wie groß es ist, gehört nicht zum
+   * Knoten.
+   */
+  palstek: {
+    lines: [{
+      p: [
+        // Der feste Part von oben herunter …
+        [26, -6], [27, 8], [30, 22], [33, 34], [37, 46],
+        // … legt sich als Bucht über sich selbst …
+        [42, 58], [56, 63], [70, 55], [74, 39], [64, 26], [48, 23], [36, 29], [29, 43],
+        // … und läuft als Auge unten aus dem Bild.
+        [17, 58], [17, 80], [35, 95], [59, 96], [75, 84], [77, 70], [70, 63],
+        // Von unten durch die Bucht …
+        [62, 57], [54, 49],
+        // … oben wieder heraus …
+        [50, 35], [46, 24], [42, 17],
+        // … hinter dem festen Part herum …
+        [34, 9], [24, 11], [18, 20], [15, 38],
+        // … und zurück durch die Bucht nach unten.
+        [20, 54], [32, 50], [44, 50], [54, 58], [60, 80],
+      ],
+      unter: [3.01, 10.17, 19.62, 25.66, 28.93, 30.49, 32.25],
+      ende: 'werk',
+    }],
+  },
+
+  /**
+   * Achtknoten: ein Auge legen, das Ende hinter dem festen Part herum und von
+   * vorn wieder durch das Auge.
+   *
+   * Der Unterschied zum einfachen Überhandknoten steht genau in diesem einen
+   * Wort „herum“: Der Achtknoten führt das Ende ganz um den festen Part, der
+   * Überhandknoten nicht. Im Bild sind das vier Kreuzungen statt drei – und an
+   * Deck ein Stopper, der dicker aufträgt und sich hinterher noch aufmachen
+   * lässt.
+   *
+   * Über und Unter wechseln sich entlang der Leine lückenlos ab. Das ist keine
+   * Zierde, sondern die Probe: Ein Achtknoten ist ein alternierender Knoten,
+   * und wo die Folge stolpert, stimmt das Bild nicht.
+   */
+  achtknoten: {
+    lines: [{
+      p: [
+        // Der feste Part von oben …
+        [48, -8], [46, 8], [45, 22], [44, 36], [44, 50],
+        // … legt sich als Auge über sich selbst …
+        [58, 60], [70, 52], [71, 36], [60, 26], [46, 26], [34, 32],
+        // … das Ende hinter dem festen Part herum …
+        [30, 20], [42, 13], [58, 20],
+        // … und von vorn wieder durch das Auge nach unten.
+        [64, 34], [58, 48], [52, 60], [49, 76],
+      ],
+      unter: [2.32, 7.79, 12.23, 15.85],
+      ende: 'werk',
+    }],
+  },
+
+  /**
    * Kreuzknoten: zwei Buchten, die ineinandergreifen.
    *
-   * Quer gezeichnet wie in der Vorlage – beide Leinen laufen waagerecht aus
-   * dem Bild, der Knoten sitzt in der Mitte. Die Buchten liegen dabei
-   * gegeneinander versetzt: Der untere Part der einen läuft zwischen den
-   * Parten der anderen hindurch, und andersherum genauso. Genau das macht ihn
-   * aus – liegen beide gleich herum, ist es der Altweiberknoten, und der geht
-   * unter Last auf.
-   *
-   * Deshalb wechseln sich die Kreuzungen ab: An der einen liegt die helle
-   * Leine oben, an der anderen die dunkle.
+   * Beide Leinen laufen waagerecht aus dem Bild, der Knoten sitzt in der Mitte.
+   * Die beiden Kreuzungen wechseln sich ab – an der einen liegt die helle Leine
+   * oben, an der anderen die dunkle. Genau das ist der Unterschied zum
+   * Altweiberknoten, und genau das sagt der Merksatz: rechts über links, links
+   * über rechts.
    */
   kreuzknoten: {
-    steps: 2,
-    strands: [
-      // Der obere Part der ersten Leine – liegt unter der Kehre der zweiten.
-      { n: 1, p: [[58, 50], [54, 45], [42, 42], [22, 41], [-8, 41]] },
-      // Die zweite Leine: Kehre und oberer Part, über der ersten.
-      { n: 2, leine: 2, p: [[42, 42], [46, 37], [58, 34], [78, 33], [108, 33]] },
-      // Ihr unterer Part – unter der Kehre der ersten.
-      { n: 2, leine: 2, p: [[108, 51], [78, 51], [58, 50], [46, 47], [42, 42]] },
-      // Der untere Part der ersten mit ihrer Kehre, obenauf.
-      { n: 1, p: [[-8, 59], [22, 59], [42, 58], [54, 55], [58, 50]] },
+    lines: [
+      {
+        p: [[-8, 30], [14, 31], [34, 34], [50, 40], [60, 50], [52, 60], [36, 62], [22, 56],
+          [8, 52]],
+        unter: [5.09],
+        ende: 'werk',
+      },
+      {
+        leine: 2,
+        p: [[108, 70], [86, 69], [66, 66], [50, 60], [40, 50], [48, 40], [64, 38], [78, 44],
+          [92, 48]],
+        unter: [5.09],
+        ende: 'werk',
+      },
     ],
   },
 
   /**
-   * Webleinstek am Rundholz: zwei Törns über Kreuz, das Ende unter den
-   * zweiten gesteckt. Das Kreuz auf der Vorderseite ist das Erkennungszeichen –
-   * daran sieht man auf einen Blick, ob es ein Webleinstek ist oder zwei
-   * lose Schläge.
+   * Webleinstek am Rundholz: zwei Törns über Kreuz, das Ende unter den zweiten
+   * gesteckt. Das Kreuz auf der Vorderseite ist das Erkennungszeichen – daran
+   * sieht man auf einen Blick, ob es ein Webleinstek ist oder zwei lose
+   * Schläge.
    */
   webleinstek: {
-    steps: 4,
-    props: [{ art: 'balken', x: -6, y: 36, w: 112, h: 24, rx: 4, n: 1 }],
-    strands: [
-      // Hinter der Spiere herum – liegt unter ihr.
-      { n: 2, hinter: true, p: [[44, 33], [54, 27], [64, 33], [66, 48], [60, 63]] },
-      { n: 3, hinter: true, p: [[34, 33], [24, 27], [14, 33], [12, 48], [18, 63]] },
-      // Der feste Part kommt von unten links.
-      { n: 1, p: [[10, 104], [16, 84], [22, 70], [26, 63]] },
-      // Erster Törn über die Vorderseite.
-      { n: 2, p: [[26, 63], [35, 48], [44, 33]] },
-      // Das Ende, unter dem zweiten Törn hindurch – deshalb vor ihm gezeichnet.
-      { n: 4, p: [[18, 63], [30, 58], [44, 55], [58, 56]], end: 'werk' },
-      // Zweiter Törn über die Vorderseite, über den ersten hinweg.
-      { n: 3, p: [[60, 63], [47, 48], [34, 33]] },
-    ],
-  },
-
-  palstek: {
-    steps: 4,
-    strands: [
-      // Hinter dem festen Part herum – deshalb ganz hinten.
-      { n: 3, p: [[42, 17], [34, 9], [24, 11], [19, 20]] },
-      // Der feste Part, von oben herunter in die Bucht.
-      { n: 1, p: [[26, -6], [27, 8], [30, 22], [33, 34], [37, 46]] },
-      // Von unten in die Bucht hinein: unter dem rechten Part hindurch.
-      { n: 3, p: [[70, 63], [62, 57], [54, 49]] },
-      // Und am Ende wieder hinaus: unter dem unteren Part hindurch.
-      { n: 4, p: [[38, 46], [43, 58], [45, 73]], end: 'werk' },
-      // Die Bucht: der feste Part legt sich über sich selbst.
-      {
-        n: 2,
-        p: [[37, 46], [42, 58], [56, 63], [70, 55], [74, 39], [64, 26], [48, 23], [36, 29],
-          [31, 39]],
-      },
-      // Das Auge – es läuft unten aus dem Bild.
-      {
-        n: 2,
-        p: [[31, 39], [17, 56], [17, 80], [35, 95], [59, 96], [75, 84], [77, 70], [70, 63]],
-      },
-      // Oben aus der Bucht heraus – über den oberen Part.
-      { n: 3, p: [[54, 49], [50, 35], [46, 24], [42, 17]] },
-      // Und von der anderen Seite wieder hinein – über den linken Part.
-      { n: 4, p: [[19, 20], [19, 32], [26, 41], [38, 46]] },
-    ],
+    props: [{ art: 'balken', x: -6, y: 42, w: 112, h: 16, rx: 4 }],
+    lines: [{
+      p: [
+        [19, 104], [25, 84], [31, 70], [35, 63],
+        [44, 50], [53, 38],
+        [63, 28], [75, 34], [77, 50], [69, 62],
+        [56, 50], [43, 38],
+        [33, 28], [21, 34], [19, 50], [27, 62],
+        [35, 68], [51, 62], [67, 57], [81, 52],
+      ],
+      hinter: [[5, 9], [11, 15]],
+      unter: [2.33, 4.54, 17.77],
+      ende: 'werk',
+    }],
   },
 };

@@ -1784,11 +1784,11 @@ body.chart-open { overflow: hidden; }
 /*
  * Die Zeichnung.
  *
- * Zwei Striche je Part: ein breiter in der Farbe des Grundes und ein schmaler
- * in der Farbe der Leine. Der breite schneidet den darunterliegenden Part weg
- * – so sieht man, welcher Part über welchem liegt, und genau daran erkennt
- * man einen Knoten. Deshalb muss `--knot-bg` immer wirklich die Farbe des
- * Kastens sein; eine Farbe daneben ergäbe helle Ränder an jeder Kreuzung.
+ * Ein Strich je Part, sonst nichts. Wo ein Part unter einem anderen
+ * hindurchläuft, ist die Leine dort schlicht nicht gezeichnet – die Lücke
+ * rechnet `knotgeom.js` aus. Das ist die Art, wie Knoten seit jeher gezeichnet
+ * werden, und sie hat den Vorteil, dass nichts etwas anderes wegschneiden
+ * muss: Zwei Parte überlappen sich an einer Kreuzung gar nicht erst.
  */
 .knot-draw {
   --knot-bg: var(--surface-2);
@@ -1809,18 +1809,9 @@ body.chart-open { overflow: hidden; }
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
-  cursor: pointer;
 }
 
 .knot-fig { display: block; width: 100%; height: auto; }
-
-.knot-casing {
-  fill: none;
-  stroke: var(--knot-bg);
-  stroke-width: 10;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 
 .knot-core {
   fill: none;
@@ -1832,29 +1823,9 @@ body.chart-open { overflow: hidden; }
 
 .knot-core-b { stroke: var(--knot-rope-b); }
 .knot-tip { fill: var(--knot-rope); }
+.knot-tip-b { fill: var(--knot-rope-b); }
 .knot-prop { fill: var(--surface); stroke: var(--border); stroke-width: 2; }
 .knot-prop-ring { fill: none; stroke: var(--border); stroke-width: 7; }
-
-/* Die Schrittzahlen darunter – groß genug für einen Daumen. */
-.knot-steps { display: flex; gap: 6px; margin-top: 8px; }
-
-.knot-steps button {
-  flex: 1;
-  min-height: 38px;
-  font-size: .9rem;
-  font-weight: 600;
-  font-family: inherit;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--surface-2);
-  color: var(--text-dim);
-}
-
-.knot-steps button[aria-pressed="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
-}
 
 /* Im Nachtmodus ist auch die Leine langwelliges Rot – jede andere Farbe
    kostet Dunkeladaption, und ein Knoten ist keine Ausnahme. */
