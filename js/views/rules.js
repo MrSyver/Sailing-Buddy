@@ -20,7 +20,7 @@
 
 import { h, svg, render } from '../lib/dom.js';
 import { t, loc, uiLang } from '../lib/i18n.js';
-import { SEA_RULES, RULE_GROUPS, RULE_ORDER } from '../data/searules.js';
+import { SEA_RULES, RULE_GROUPS, RULE_ORDER, ORDER_MNEMONIC } from '../data/searules.js';
 
 let container = null;
 let gruppe = 'alle-zeigen';
@@ -81,6 +81,10 @@ function ruleCard(r) {
       h('h3.grow', { style: { margin: 0 } }, loc(r, 'title')),
       h('span.rule', r.rule),
     ),
+
+    // Die Kurzformel ganz oben: Das ist der Satz, den man an Deck im Kopf
+    // hat. Alles darunter erklärt ihn nur.
+    r.kurz && h('div.rule-short', loc(r, 'kurz')),
 
     h('p.small.muted', { style: { margin: '0 0 10px' } }, loc(r, 'situation')),
 
@@ -209,6 +213,17 @@ function rankCard() {
         h('span.rank-name', en() ? x.labelEn : x.label),
         h('span.rank-hint', en() ? x.hintEn : x.hint),
       )),
+    ),
+
+    // Was man sich merkt, ist die Buchstabenfolge – der Satz dazu ist nur
+    // der Haken, an dem sie hängt. Deshalb steht sie groß und er darunter.
+    h('div.rank-mnemonic',
+      h('div.rank-letters', ORDER_MNEMONIC.letters),
+      h('div.mnemonic', { style: { margin: '8px 0 0' } },
+        '„', en() ? ORDER_MNEMONIC.sentenceEn : ORDER_MNEMONIC.sentence, '“'),
+      h('p.small.muted', { style: { margin: '8px 0 0' } },
+        en() ? ORDER_MNEMONIC.hintEn : ORDER_MNEMONIC.hint),
+      h('p.small.muted', { style: { margin: '6px 0 0' } }, t('rules.mnemonicNote')),
     ),
   );
 }

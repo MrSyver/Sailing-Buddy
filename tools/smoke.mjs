@@ -2264,6 +2264,16 @@ check('Die Regelnummer steht dabei',
   /Regel \d+/.test(await page.locator('.rule-card').first().innerText()));
 check('Kreuzende Kurse sind dabei',
   (await page.locator('main').innerText()).includes('Steuerbord hat Vorrang'));
+check('Die Kurzformel steht ganz oben',
+  await page.locator('.rule-short').count() >= 6,
+  `${await page.locator('.rule-short').count()} Kurzformeln`);
+check('„Steuerbord vor Backbord“ ist dabei',
+  (await page.locator('main').innerText()).includes('Steuerbord vor Backbord'));
+check('Und der Merksatz zur Rangfolge',
+  (await page.locator('.rank-letters').innerText()).includes('M · M · T · F · S · M'),
+  await page.locator('.rank-letters').innerText());
+check('Mit dem Hinweis, dass der Satz austauschbar ist',
+  (await page.locator('main').innerText()).includes('viele Fassungen'));
 check('Und die Rangfolge nach Regel 18',
   await page.locator('.rank-list li').count() === 6,
   `${await page.locator('.rank-list li').count()} Stufen`);
