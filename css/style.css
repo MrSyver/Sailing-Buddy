@@ -1982,3 +1982,25 @@ body.chart-open { overflow: hidden; }
 .rank-list li { margin-bottom: 8px; }
 .rank-name { display: block; font-weight: 650; }
 .rank-hint { display: block; font-size: .82rem; color: var(--text-dim); }
+
+/* Die Kurzformel: der Satz, den man an Deck im Kopf hat. */
+.rule-short {
+  font-weight: 700;
+  font-size: 1.02rem;
+  color: var(--accent);
+  margin: 0 0 8px;
+}
+
+.rank-mnemonic {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.rank-letters {
+  font-family: var(--mono);
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--accent);
+}
