@@ -2236,7 +2236,7 @@ check('Was unten steht, liegt nicht doppelt dahinter',
   dahinterVorher.every((k) => !untenVorher.includes(k)),
   `unten ${untenVorher.join(', ')} – dahinter ${dahinterVorher.join(', ')}`);
 check('Zusammen sind es alle Bereiche',
-  untenVorher.length === 5 && untenVorher.length + dahinterVorher.length === 7,
+  untenVorher.length === 5 && untenVorher.length + dahinterVorher.length === 8,
   `${untenVorher.length} unten, ${dahinterVorher.length} dahinter`);
 check('Und die Zeilen sind groß genug zum Treffen',
   await page.locator('.more-item').first()
@@ -2244,8 +2244,45 @@ check('Und die Zeilen sind groß genug zum Treffen',
   `${await page.locator('.more-item').first().evaluate((el) => Math.round(el.getBoundingClientRect().height))} px`);
 await shot('08a-mehr');
 
+// --- Ausweichregeln --------------------------------------------------------
+// Wer ausweicht und wer Kurs hält, hängt davon ab, wer wo steht. Deshalb
+// gehört zu jeder Regel die Lage von oben.
+await goTab('regeln');
+await page.waitForSelector('.rule-card');
+const regeln = await page.locator('.rule-card').count();
+check('Die Ausweichregeln sind da', regeln >= 6, `${regeln} Regeln`);
+check('Jede hat ihre Lage von oben',
+  await page.locator('.rule-plan').count() === regeln);
+check('Und in jeder Lage stehen zwei Fahrzeuge',
+  await page.locator('.rule-plan').first().locator('.plan-boat').count() === 2);
+check('Der Ausweichpflichtige ist hervorgehoben',
+  await page.locator('.rule-plan').first().locator('.plan-boat.weicht').count() >= 1);
+check('Beide Rollen stehen im Text',
+  (await page.locator('.rule-card').first().innerText()).includes('weicht aus')
+  && (await page.locator('.rule-card').first().innerText()).includes('hält Kurs'));
+check('Die Regelnummer steht dabei',
+  /Regel \d+/.test(await page.locator('.rule-card').first().innerText()));
+check('Kreuzende Kurse sind dabei',
+  (await page.locator('main').innerText()).includes('Steuerbord hat Vorrang'));
+check('Und die Rangfolge nach Regel 18',
+  await page.locator('.rank-list li').count() === 6,
+  `${await page.locator('.rank-list li').count()} Stufen`);
+// Der Satz, der über allen anderen steht.
+check('Regel 17 steht dabei: Kurshalter muss handeln',
+  (await page.locator('main').innerText()).includes('Recht auf Vorfahrt'));
+
+const alleRegeln = await page.locator('.rule-card').count();
+await page.locator('[data-group="segel"]').click();
+await page.waitForTimeout(300);
+check('Der Filter grenzt auf Segelfahrzeuge ein',
+  await page.locator('.rule-card').count() < alleRegeln,
+  `${await page.locator('.rule-card').count()} von ${alleRegeln}`);
+await page.locator('[data-group="alle-zeigen"]').click();
+await page.waitForTimeout(300);
+await shot('08c-ausweichregeln');
+
 // --- Knoten ----------------------------------------------------------------
-await page.locator('[data-mod="knoten"]').click();
+await goTab('knoten');
 await page.waitForSelector('.knot-card');
 check('Aus „Mehr“ heraus wird der Bereich aufgeschlagen, nicht eingebettet',
   await page.locator('nav.tabs button[data-tab="knoten"][aria-current="page"]').count() === 1,
@@ -2338,8 +2375,10 @@ check('„Mehr“ bleibt das letzte davon',
   await page.locator('nav.tabs button').last().getAttribute('data-tab') === 'mehr');
 const untenNachher = await barKeys();
 const verdraengt = untenVorher.filter((k) => !untenNachher.includes(k));
-check('Und dafür weicht genau einer – der am längsten nicht benutzte',
-  verdraengt.length === 1 && verdraengt[0] === 'funk',
+// Der am längsten nicht benutzte weicht zuerst – hier ist das der Funk, den
+// die Vorbereitung oben als Erstes aufgerufen hat.
+check('Und dafür weicht der am längsten nicht benutzte',
+  verdraengt.includes('funk') && untenNachher.length === 5,
   `gewichen: ${verdraengt.join(', ') || '–'} | jetzt unten: ${untenNachher.join(', ')}`);
 
 // Aufgerufen heißt aufgeschlagen: Der Bereich steht jetzt als eigener Reiter

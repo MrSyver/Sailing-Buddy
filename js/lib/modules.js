@@ -25,6 +25,7 @@ import * as mapView from '../views/map.js';
 import * as nightView from '../views/night.js';
 import * as logbookView from '../views/logbook.js';
 import * as knotsView from '../views/knots.js';
+import * as rulesView from '../views/rules.js';
 import * as settingsView from '../views/settings.js';
 
 /** Die feste Reihenfolge. Sie bestimmt die Anordnung, nicht die Auswahl. */
@@ -34,6 +35,7 @@ export const MODULES = [
   { key: 'karte', label: 'tab.map', title: 'title.map', view: mapView, icon: '▤' },
   { key: 'nacht', label: 'tab.night', title: 'title.night', view: nightView, icon: '☾' },
   { key: 'logbuch', label: 'tab.log', title: 'title.log', view: logbookView, icon: '▤' },
+  { key: 'regeln', label: 'more.rules', title: 'more.rules', view: rulesView, icon: '⇄' },
   { key: 'knoten', label: 'more.knots', title: 'more.knots', view: knotsView, icon: '∞' },
   { key: 'setup', label: 'more.settings', title: 'title.settings', view: settingsView, icon: '⚙' },
 ];
