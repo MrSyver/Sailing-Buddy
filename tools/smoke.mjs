@@ -2333,40 +2333,29 @@ await page.waitForTimeout(300);
 check('Zurücksetzen zeigt wieder alle',
   await page.locator('.knot-card').count() === knotenAlle);
 
-// Die Zeichnung: Wo eine ist, wächst sie Schritt für Schritt mit. Wo keine
-// ist, steht auch kein leerer Kasten – der wäre schlechter als keiner.
+// Die Zeichnung: ein Bild vom fertigen Knoten. Wo keine ist, steht auch kein
+// leerer Kasten – der wäre schlechter als keiner.
 const palstekKarte = page.locator('.knot-card', { hasText: 'Palstek' }).first();
 check('Der Palstek hat eine Zeichnung',
   await palstekKarte.locator('.knot-fig').count() === 1);
-check('Und darunter die Schritte zum Antippen',
-  await palstekKarte.locator('.knot-steps button').count() === 4,
-  `${await palstekKarte.locator('.knot-steps button').count()} Schritte`);
+check('Und keine Schrittfolge mehr, sondern den fertigen Knoten',
+  await palstekKarte.locator('.knot-steps').count() === 0);
 
-// Sie läuft von selbst: „am liebsten bewegte“ heißt genau das.
-const teileBei = async (n) => {
-  await page.locator('[data-knotsteps="palstek"] button').nth(n - 1).click();
-  await page.waitForTimeout(200);
-  return page.locator('[data-knot="palstek"] .knot-core').count();
-};
-const teile1 = await teileBei(1);
-const teile4 = await teileBei(4);
-check('Bei Schritt eins liegt erst ein Part da', teile1 === 1, `${teile1} Parte`);
-check('Bei Schritt vier der ganze Knoten', teile4 === 8, `${teile4} Parte`);
-check('Der gewählte Schritt steht angetippt da',
-  await page.locator('[data-knotsteps="palstek"] button[aria-pressed="true"]').innerText() === '4');
+// Eine Leine ist ein durchgehender Zug, aufgetrennt nur da, wo sie unter etwas
+// hindurchläuft. Sieben Unterführungen ergeben also acht Stücke – und wären es
+// weniger, läge irgendwo ein Part über einem anderen, ohne dass man es sähe.
+const parte = await page.locator('[data-knot="palstek"] .knot-core').count();
+check('Die Leine ist an jeder Unterführung aufgetrennt', parte === 8, `${parte} Stücke`);
 
-// Jeder Part wird zweimal gezeichnet: einmal als Rand in der Farbe des
-// Grundes, einmal als Kern. Ohne den Rand sähe man an keiner Kreuzung, welcher
-// Part über welchem liegt – und genau daran erkennt man einen Knoten.
-check('Jeder Part hat seinen Rand',
-  await page.locator('[data-knot="palstek"] .knot-casing').count()
-  === await page.locator('[data-knot="palstek"] .knot-core').count());
+// Der Rand in Hintergrundfarbe ist weg: Über einer Spiere ist der Hintergrund
+// nicht die Farbe der Spiere, und dort malte er in jede Lücke einen dunklen
+// Fleck. Wo sich nichts überlappt, braucht es auch nichts, das freistellt.
+check('Ohne Rand in Hintergrundfarbe',
+  await page.locator('[data-knot="palstek"] .knot-casing').count() === 0);
 
-// Ein Tipp auf das Bild hält an und lässt wieder laufen.
-await page.locator('[data-knot="palstek"]').click();
-await page.waitForTimeout(1800);
-const nachHalt = await page.locator('[data-knotsteps="palstek"] button[aria-pressed="true"]').innerText();
-check('Ein Tipp auf das Bild lässt es weiterlaufen', nachHalt !== '4', `steht bei ${nachHalt}`);
+// Der Webleinstek sitzt an einem Rundholz, und die Leine läuft dahinter herum.
+check('Der Webleinstek hat sein Rundholz',
+  await page.locator('[data-knot="webleinstek"] .knot-prop').count() === 1);
 
 check('Knoten ohne Zeichnung bekommen keinen leeren Kasten',
   await page.locator('.knot-card').count() > await page.locator('.knot-fig').count(),

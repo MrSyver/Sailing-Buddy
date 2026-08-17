@@ -21,28 +21,13 @@ const state = {
   traits: new Set(),
 };
 
-/**
- * Bei welchem Schritt jede Zeichnung gerade steht.
- *
- * Im Modul und nicht in der Karte: Beim Umschalten des Filters wird die Liste
- * neu gebaut, und wer bei Schritt drei war, will nicht wieder bei eins
- * anfangen.
- */
-const schritte = new Map();
-const laufend = new Map();
-
 let container = null;
 
 export function view(root) {
   container = h('div');
   render(root, container);
   draw();
-  return () => {
-    // Jede laufende Zeichnung anhalten – sonst tickt sie hinter dem Reiter
-    // weiter und kostet Strom, den unterwegs niemand übrig hat.
-    [...laufend.keys()].forEach(anhalten);
-    container = null;
-  };
+  return () => { container = null; };
 }
 
 const en = () => uiLang() === 'en';
@@ -134,83 +119,27 @@ function knotCard(k) {
 }
 
 /**
- * Die Zeichnung mit ihren Schritten.
+ * Die Zeichnung: ein Bild vom fertigen Knoten.
  *
- * Sie läuft von selbst, sobald die Karte auf dem Schirm ist: „am liebsten
- * bewegte“ heißt genau das, und eine Zeichnung, die man erst antippen muss,
- * hat man mit nassen Händen schon nicht mehr angetippt. Wer sie anhalten oder
- * einen Schritt festhalten will, kann das – ein Tipp auf einen Schritt hält
- * dort an, ein Tipp auf das Bild läuft weiter.
+ * Vorher lief hier eine Schrittfolge, die sich selbst weiterschaltete. Sie ist
+ * weg, und zwar aus einem Grund, den man erst am Bild sieht: Ein Zwischenschritt
+ * eines Knotens ist eine lose Schlaufe, die noch nichts hält – und vier lose
+ * Schlaufen hintereinander sagen weniger als ein sauberes Bild von dem, was am
+ * Ende in der Hand liegt. Wie er gelegt wird, steht ohnehin darunter im Text,
+ * und der Text kann etwas, was keine Zeichnung kann: „hinter dem festen Part
+ * herum“ in vier Wörtern.
  *
- * Knoten ohne Zeichnung bekommen nichts: ein leerer Kasten wäre schlechter
- * als keiner. Solange nicht alle gezeichnet sind, steht bei den übrigen der
- * Text allein – so wie bisher.
+ * Knoten ohne Zeichnung bekommen nichts: ein leerer Kasten wäre schlechter als
+ * keiner. Solange nicht alle gezeichnet sind, steht bei den übrigen der Text
+ * allein.
  */
 function zeichnung(k) {
   const d = KNOT_DRAWINGS[k.id];
   if (!d) return null;
-
-  // Knoten mit nur einem Schritt zeigen den fertigen Knoten und sonst nichts.
-  //
-  // Nicht jeder Knoten lässt sich sinnvoll wachsen lassen: Wo vier Kreuzungen
-  // dicht beieinanderliegen, ist jeder Zwischenschritt ein Knäuel, und vier
-  // Knäuel sind schlechter als ein lesbares Bild. Dann lieber das Ergebnis –
-  // wie er gelegt wird, steht ohnehin darunter im Text.
-  const einBild = (d.steps ?? 1) <= 1;
-  const stand = einBild ? 1 : (schritte.get(k.id) ?? d.steps);
-  const bild = h('div.knot-stage', { 'data-knot': k.id },
-    knotFigure(d, stand, {
-      titel: einBild ? loc(k, 'name') : `${loc(k, 'name')} – ${t('knots.step', { n: stand })}`,
-    }));
-
-  if (einBild) return h('div.knot-draw', bild);
-
-  const zeige = (n, halten) => {
-    schritte.set(k.id, n);
-    render(bild, knotFigure(d, n, { titel: `${loc(k, 'name')} – ${t('knots.step', { n })}` }));
-    const leiste = document.querySelector(`[data-knotsteps="${k.id}"]`);
-    if (leiste) {
-      [...leiste.children].forEach((b, i) => b.setAttribute('aria-pressed', String(i + 1 === n)));
-    }
-    if (halten) anhalten(k.id);
-  };
-
-  // Die Schleife hängt am Bild und wird mit ihm aufgeräumt: Bleibt sie nach
-  // dem Verlassen des Reiters laufen, tickt sie bis zum nächsten Neustart
-  // weiter und kostet Strom, den unterwegs niemand übrig hat.
-  const starten = () => {
-    anhalten(k.id);
-    laufend.set(k.id, setInterval(() => {
-      if (!bild.isConnected) { anhalten(k.id); return; }
-      // Nur zeichnen, was jemand sieht. Bei vierzehn Knoten in der Liste
-      // liefen sonst vierzehn Zeichnungen gleichzeitig – und der Akku ist
-      // unterwegs das Knappste, was man an Bord hat.
-      const kasten = bild.getBoundingClientRect();
-      if (kasten.bottom < 0 || kasten.top > window.innerHeight) return;
-      const jetzt = schritte.get(k.id) ?? d.steps;
-      zeige(jetzt >= d.steps ? 1 : jetzt + 1, false);
-    }, 1400));
-  };
-
-  bild.onclick = () => (laufend.has(k.id) ? anhalten(k.id) : starten());
-  starten();
-
   return h('div.knot-draw',
-    bild,
-    h('div.knot-steps', { 'data-knotsteps': k.id, role: 'group', 'aria-label': t('knots.steps') },
-      ...Array.from({ length: d.steps }, (_, i) => h('button', {
-        type: 'button',
-        'aria-pressed': String(i + 1 === stand),
-        'aria-label': t('knots.step', { n: i + 1 }),
-        onclick: (e) => { e.stopPropagation(); zeige(i + 1, true); },
-      }, String(i + 1))),
-    ),
+    h('div.knot-stage', { 'data-knot': k.id },
+      knotFigure(d, { titel: loc(k, 'name') })),
   );
-}
-
-function anhalten(id) {
-  clearInterval(laufend.get(id));
-  laufend.delete(id);
 }
 
 /** Die Übersetzung eines Feldes – hier nur für den Titel gebraucht. */

@@ -1,70 +1,44 @@
 /**
  * Knoten zeichnen.
  *
- * Zwei frühere Versuche, Knoten als freihändige Bézierkurven zu setzen, sind
- * gescheitert – beide ergaben Knäuel, an denen man nichts erkannte. Der Grund
- * war nicht zu wenig Mühe, sondern das falsche Werkzeug: Bei einer Kurve, die
- * man Stützpunkt für Stützpunkt hinschreibt, geht die einzige Frage unter, auf
- * die es bei einem Knoten ankommt – welcher Part liegt über welchem.
+ * Drei Anläufe hat es gebraucht, und die ersten beiden sind am selben Punkt
+ * gescheitert: Sie haben die Leine in gestapelte Abschnitte zerlegt. Das klingt
+ * naheliegend – oben liegt, was zuletzt gezeichnet wird –, hat aber einen
+ * Haken, den man erst im fertigen Bild sieht. Jeder Abschnitt bekommt einen
+ * Rand in Hintergrundfarbe, damit er den Part unter sich freistellt. Dieser
+ * Rand schneidet aber auch dort, wo die Leine schlicht weiterläuft, und an
+ * jeder Nahtstelle saß deshalb eine Kerbe. Vierzehn Knoten mit je einem halben
+ * Dutzend Nahtstellen sind vierzehn zerrissene Leinen.
  *
- * Deshalb hier anders herum. Eine Leine ist eine Folge von Punkten auf einem
- * Raster; die Rundung rechnet der Code (Catmull-Rom). Und sie ist in
- * Abschnitte geteilt, die in *Tiefe* geordnet gezeichnet werden: Was zuerst
- * kommt, liegt hinten. Jeder Abschnitt bekommt dabei einen Rand in der
- * Hintergrundfarbe, und der schneidet den darunterliegenden Part sauber weg –
- * dieselbe Art, wie eine Seekarte eine Brücke über einen Fluss legt.
+ * Deshalb jetzt andersherum, und zwar so, wie Knoten seit jeher gezeichnet
+ * werden: Die Leine ist *ein* durchgehender Zug. Aufgetrennt wird sie nur da,
+ * wo sie unter etwas hindurchläuft – und dort gehört die Lücke hin, weil der
+ * darüberliegende Part sie füllt. Eine Lücke ohne Kreuzung kann es damit gar
+ * nicht mehr geben, und das ist der ganze Unterschied.
  *
- * Die Reihenfolge *entlang der Leine* steht getrennt davon in `n`. Danach
- * richtet sich, was in welchem Schritt schon da ist: So wächst dieselbe
- * Zeichnung Schritt für Schritt, statt dass für jeden Schritt ein eigenes Bild
- * gemalt werden müsste – und was am Ende steht, ist genau das, was man in der
- * Hand hält.
+ * Und damit ist auch der Rand in Hintergrundfarbe überflüssig geworden, der in
+ * den ersten Anläufen die ganze Arbeit machen sollte. Er hat nur noch geschadet:
+ * Über einer Spiere ist der Hintergrund nicht die Farbe der Spiere, und so
+ * malte er in jede Lücke einen dunklen Fleck, der aussah wie ein Loch im Holz.
+ * Wo sich nichts überlappt, braucht es auch nichts, das etwas freistellt.
  */
 
 import { svg } from './dom.js';
-
-/**
- * Punkte zu einer runden Kurve.
- *
- * Catmull-Rom durch die Stützpunkte, in kubische Bézier übersetzt. Die Leine
- * geht damit durch jeden angegebenen Punkt hindurch – beim Zeichnen von Hand
- * ist das der Unterschied zwischen „ich lege den Part hierhin“ und „ich hoffe,
- * die Kurve kommt ungefähr dort vorbei“.
- */
-export function smooth(points, spannung = 1) {
-  const p = points.map(([x, y]) => ({ x, y }));
-  if (p.length < 2) return '';
-  if (p.length === 2) return `M${p[0].x} ${p[0].y}L${p[1].x} ${p[1].y}`;
-
-  const at = (i) => p[Math.max(0, Math.min(p.length - 1, i))];
-  let d = `M${p[0].x} ${p[0].y}`;
-  for (let i = 0; i < p.length - 1; i += 1) {
-    const p0 = at(i - 1);
-    const p1 = at(i);
-    const p2 = at(i + 1);
-    const p3 = at(i + 2);
-    const k = spannung / 6;
-    const c1x = p1.x + (p2.x - p0.x) * k;
-    const c1y = p1.y + (p2.y - p0.y) * k;
-    const c2x = p2.x - (p3.x - p1.x) * k;
-    const c2y = p2.y - (p3.y - p1.y) * k;
-    d += `C${c1x.toFixed(2)} ${c1y.toFixed(2)} ${c2x.toFixed(2)} ${c2y.toFixed(2)} ${p2.x} ${p2.y}`;
-  }
-  return d;
-}
+import { sample, stuecke, zuIndex } from './knotgeom.js';
 
 /**
  * Eine Knotenzeichnung bauen.
  *
- * `drawing.strands` ist die Leine in Abschnitten. Jeder Abschnitt hat:
- *   p  – die Stützpunkte im Raster 0…100
- *   n  – der wievielte Abschnitt entlang der Leine (bestimmt den Schritt)
- *   end – 'werk' zeichnet an das Ende eine Spitze: das lose Ende
- *
- * Die Reihenfolge im Feld ist die Tiefe: Der erste Abschnitt liegt hinten,
- * der letzte oben. `bis` sagt, bis zu welchem Schritt gezeichnet wird.
+ * `drawing.lines` sind die Leinen. Jede hat:
+ *   p       – die Stützpunkte im Raster 0…100
+ *   unter   – Stellen, an denen sie unter etwas hindurchläuft (Stützpunktnummer,
+ *             auch krumm: 3.5 liegt zwischen dem vierten und fünften Punkt)
+ *   hinter  – Bereiche [von, bis], die hinter einem Requisit liegen
+ *   leine   – 2 für die zweite Leine in eigener Farbe
+ *   ende    – 'werk' setzt an das Ende das lose Ende
+ *   anfang  – dasselbe für den Anfang
  */
-export function knotFigure(drawing, bis = Infinity, { titel = '' } = {}) {
+export function knotFigure(drawing, { titel = '' } = {}) {
   const el = svg('svg.knot-fig', {
     viewBox: '0 0 100 100',
     role: titel ? 'img' : null,
@@ -72,38 +46,74 @@ export function knotFigure(drawing, bis = Infinity, { titel = '' } = {}) {
     'aria-hidden': titel ? null : 'true',
   });
 
-  const sichtbar = (drawing.strands ?? []).filter((s) => (s.n ?? 0) <= bis);
+  const vorn = [];
+  const hinten = [];
+  const enden = [];
 
-  // Erst alle Ränder, dann alle Kerne? Nein – dann läge jeder Rand über jedem
-  // Kern und die Leine wäre gestrichelt. Rand und Kern gehören paarweise
-  // übereinander, und die Paare in der Tiefe hintereinander.
-  const zeichne = (strand) => {
-    const d = smooth(strand.p, strand.spannung ?? 1);
-    el.appendChild(svg('path.knot-casing', { d }));
-    el.appendChild(svg(`path.knot-core${strand.leine === 2 ? '.knot-core-b' : ''}`, { d }));
-  };
+  (drawing.lines ?? []).forEach((linie) => {
+    const pts = sample(linie.p, linie.spannung ?? 1);
+    const versteckt = (linie.hinter ?? []).map(([a, b]) => [zuIndex(a), zuIndex(b)]);
 
-  // Was hinter dem Rundholz herläuft, gehört unter das Rundholz. Ohne diese
-  // Trennung liefe jeder Törn vor der Spiere entlang, und man sähe nicht, dass
-  // die Leine sie umschlingt.
-  sichtbar.filter((s) => s.hinter).forEach(zeichne);
-  (drawing.props ?? []).forEach((prop) => el.appendChild(requisit(prop, bis)));
-  sichtbar.filter((s) => !s.hinter).forEach(zeichne);
+    stuecke(pts, linie.unter ?? []).forEach(([a, b]) => {
+      // Ein Stück, das hinter einem Requisit durchläuft, zerfällt noch einmal:
+      // Was dahinter liegt, wird vor dem Requisit gezeichnet und damit von ihm
+      // verdeckt. Ohne diese Trennung liefe jeder Törn vor der Spiere entlang,
+      // und man sähe nicht, dass die Leine sie umschlingt.
+      teilen([a, b], versteckt).forEach(([von, bis, dahinter]) => {
+        if (bis - von < 2) return;
+        (dahinter ? hinten : vorn).push({ d: pfad(pts, von, bis), linie });
+      });
+    });
 
-  // Das lose Ende bekommt einen Abschluss: Ohne ihn sieht ein abgeschnittener
-  // Part aus wie ein Part, der hinter etwas verschwindet.
-  const letzte = sichtbar.filter((s) => s.end === 'werk');
-  letzte.forEach((strand) => {
-    const [x, y] = strand.p[strand.p.length - 1];
-    el.appendChild(svg('circle.knot-tip', { cx: x, cy: y, r: 3.2 }));
+    // Das lose Ende bekommt einen Abschluss: Ohne ihn sieht ein abgeschnittener
+    // Part aus wie ein Part, der hinter etwas verschwindet.
+    if (linie.anfang === 'werk') enden.push({ tip: pts[0], linie });
+    if (linie.ende === 'werk') enden.push({ tip: pts[pts.length - 1], linie });
   });
+
+  const male = (liste) => liste.forEach(({ d, linie }) => el.appendChild(
+    svg(`path.knot-core${linie.leine === 2 ? '.knot-core-b' : ''}`, { d }),
+  ));
+
+  male(hinten);
+  (drawing.props ?? []).forEach((prop) => el.appendChild(requisit(prop)));
+  male(vorn);
+  enden.forEach(({ tip, linie }) => el.appendChild(
+    svg(`circle.knot-tip${linie.leine === 2 ? '.knot-tip-b' : ''}`, {
+      cx: rund(tip.x), cy: rund(tip.y), r: 2.75,
+    }),
+  ));
 
   return el;
 }
 
+const rund = (n) => Math.round(n * 100) / 100;
+
+/** Ein Stück der aufgelösten Kurve als Pfad. */
+function pfad(pts, von, bis) {
+  let d = `M${rund(pts[von].x)} ${rund(pts[von].y)}`;
+  for (let i = von + 1; i <= bis; i += 1) d += `L${rund(pts[i].x)} ${rund(pts[i].y)}`;
+  return d;
+}
+
+/** Ein Stück an den verdeckten Bereichen auftrennen. */
+function teilen([a, b], versteckt) {
+  const grenzen = [a, b];
+  versteckt.forEach(([v, w]) => {
+    if (v > a && v < b) grenzen.push(v);
+    if (w > a && w < b) grenzen.push(w);
+  });
+  grenzen.sort((x, y) => x - y);
+  const raus = [];
+  for (let i = 0; i < grenzen.length - 1; i += 1) {
+    const mitte = (grenzen[i] + grenzen[i + 1]) / 2;
+    raus.push([grenzen[i], grenzen[i + 1], versteckt.some(([v, w]) => mitte > v && mitte < w)]);
+  }
+  return raus;
+}
+
 /** Poller, Ring, Rundholz, Klampe – das, woran der Knoten sitzt. */
-function requisit(prop, bis) {
-  if ((prop.n ?? 0) > bis) return svg('g');
+function requisit(prop) {
   if (prop.art === 'rund') {
     return svg('circle.knot-prop', { cx: prop.x, cy: prop.y, r: prop.r });
   }
@@ -116,9 +126,18 @@ function requisit(prop, bis) {
     });
   }
   if (prop.art === 'klampe') {
-    const g = svg('g.knot-prop-g');
+    // Eine Klampe von vorn: ein Fuß, darauf der Körper mit zwei Hörnern.
+    const g = svg('g');
     g.appendChild(svg('rect.knot-prop', {
-      x: prop.x, y: prop.y, width: prop.w, height: prop.h, rx: 3,
+      x: prop.x - prop.w / 2, y: prop.y - 3, width: prop.w, height: 9, rx: 4,
+    }));
+    [-1, 1].forEach((s) => g.appendChild(svg('path.knot-prop', {
+      d: `M${prop.x + s * (prop.w / 2 - 2)} ${prop.y + 2}`
+        + `q${s * 9} -1 ${s * 11} -7`
+        + `q${s * 1} 5 ${s * -3} 8Z`,
+    })));
+    g.appendChild(svg('rect.knot-prop', {
+      x: prop.x - 5, y: prop.y + 5, width: 10, height: prop.h ?? 10, rx: 2,
     }));
     return g;
   }
