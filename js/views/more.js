@@ -28,11 +28,13 @@ const ICONS = {
   karte: '▤',
   nacht: '☾',
   logbuch: '▤',
+  regeln: '⇄',
   knoten: '∞',
   setup: '⚙',
 };
 
 const HINTS = {
+  regeln: 'more.rulesHint',
   knoten: 'more.knotsHint',
   setup: 'more.settingsHint',
 };

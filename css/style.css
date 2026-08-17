@@ -1913,3 +1913,72 @@ body.chart-open { overflow: hidden; }
 }
 
 [data-theme="night"] .buoy-band { filter: saturate(0) brightness(.4) sepia(1) hue-rotate(-30deg); }
+
+/* ========================================================= Ausweichregeln */
+
+.rule-card .rule { font-family: var(--mono); font-size: .7rem; flex: none; }
+
+/*
+ * Die Lage von oben.
+ *
+ * Der Grund ist ruhiges Blau statt Weiß: Es ist Wasser, und im Nachtmodus
+ * darf davon nichts übrigbleiben als langwelliges Rot auf Schwarz.
+ */
+.rule-plan-frame {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin: 10px 0;
+  overflow: hidden;
+}
+
+.rule-plan { display: block; width: 100%; height: auto; }
+
+/* Das ausweichpflichtige Fahrzeug ist hervorgehoben – es ist das, um das es
+   geht. Das kurshaltende bleibt ruhig; es tut ja nichts. */
+.plan-hull { fill: var(--surface); stroke: var(--text-dim); stroke-width: 1.6; }
+.plan-sail { fill: none; stroke: var(--text-dim); stroke-width: 1.6; }
+.plan-boat.weicht .plan-hull { stroke: var(--danger); stroke-width: 2.2; }
+.plan-boat.weicht .plan-sail { stroke: var(--danger); stroke-width: 2.2; }
+
+.plan-course line { stroke: var(--text-dim); stroke-width: 1.6; stroke-dasharray: 4 3; }
+.plan-course .plan-head { fill: var(--text-dim); stroke: none; }
+.plan-course.weicht line { stroke: var(--danger); }
+.plan-course.weicht .plan-head { fill: var(--danger); }
+
+.plan-channel { stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 6 5; }
+.plan-wind path { stroke: var(--accent); stroke-width: 1.8; fill: none; stroke-linecap: round; }
+.plan-wind-label { fill: var(--accent); font-size: 6px; font-family: var(--font); }
+
+/* Wer was tut – zwei Zeilen, nicht ein Absatz. Auf See sucht man seine
+   eigene Rolle, statt zu lesen. */
+.rule-roles { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+
+.rule-role {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.rule-role-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex: none;
+  border: 2px solid var(--text-dim);
+}
+
+.rule-role.weicht { border-color: var(--danger); }
+.rule-role.weicht .rule-role-dot { border-color: var(--danger); background: var(--danger); }
+.rule-role-who { display: block; font-weight: 650; }
+.rule-role-what { display: block; font-size: .82rem; color: var(--text-dim); }
+.rule-role.weicht .rule-role-what { color: var(--danger); font-weight: 600; }
+
+.rank-list { margin: 0; padding-left: 22px; }
+.rank-list li { margin-bottom: 8px; }
+.rank-name { display: block; font-weight: 650; }
+.rank-hint { display: block; font-size: .82rem; color: var(--text-dim); }

@@ -26,6 +26,7 @@ const ICONS = {
   karte: iconMap,
   nacht: iconMoon,
   logbuch: iconBook,
+  regeln: iconGiveWay,
   knoten: iconKnot,
   setup: iconGear,
   mehr: iconMore,
@@ -257,6 +258,14 @@ function iconContrast() {
 function iconGear() {
   const el = icon('M11 3h2l.4 2.2a7 7 0 0 1 1.8.75l1.9-1.2 1.4 1.4-1.2 1.9c.33.55.58 1.16.75 1.8L20.3 11v2l-2.2.4a7 7 0 0 1-.75 1.8l1.2 1.9-1.4 1.4-1.9-1.2c-.55.33-1.16.58-1.8.75L13 20.3h-2l-.4-2.2a7 7 0 0 1-1.8-.75l-1.9 1.2-1.4-1.4 1.2-1.9a7 7 0 0 1-.75-1.8L3.7 13v-2l2.2-.4c.17-.64.42-1.25.75-1.8L5.45 6.9l1.4-1.4 1.9 1.2c.55-.33 1.16-.58 1.8-.75z');
   el.appendChild(svg('circle', { cx: '12', cy: '12', r: '2.8' }));
+  return el;
+}
+
+function iconGiveWay() {
+  // Zwei kreuzende Kurse mit Pfeilspitzen – die Lage, um die es geht.
+  const el = icon('M4 18 L20 6', 'M4 6 L20 18');
+  el.appendChild(svg('path', { d: 'M20 6 l-4 0 M20 6 l0 4' }));
+  el.appendChild(svg('path', { d: 'M20 18 l-4 0 M20 18 l0 -4' }));
   return el;
 }
 
