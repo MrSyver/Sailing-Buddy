@@ -1399,12 +1399,16 @@ check('Sein Beginn steht als Ablegen im Logbuch',
 check('Und die Liste zeigt nur noch diesen Törn',
   !(await page.locator('main').innerText()).includes('Mensch über Bord'));
 
-await page.getByRole('button', { name: 'Alles', exact: true }).click();
+// Der Ausschnitt hängt an der Spur, nicht an einer Chipwand weiter oben:
+// Man sieht eine Spur an und will genau die umschalten.
+await page.locator('[data-scope="logbuch"]').selectOption({ index: 0 });
 await page.waitForTimeout(250);
 check('„Alles“ zeigt wieder das ganze Logbuch',
   (await page.locator('main').innerText()).includes('Mensch über Bord'));
-await page.getByRole('button', { name: 'Ostsee 2026', exact: true }).first().click();
+await page.locator('[data-scope="logbuch"]').selectOption({ index: 1 });
 await page.waitForTimeout(250);
+check('Und zurück auf den Törn nur noch dessen Einträge',
+  !(await page.locator('main').innerText()).includes('Mensch über Bord'));
 
 // --- Ereignisse mit einem Griff --------------------------------------------
 await page.getByRole('button', { name: /Anker fällt/ }).click();
@@ -1485,9 +1489,12 @@ page.off('dialog', aufDialogEt);
 check('Die Etappe läuft',
   (await page.locator('.turn-row').innerText()).includes('Kiel – Marstal'),
   (await page.locator('.turn-row').innerText()).replace(/\n/g, ' | '));
-check('Sie steht im Umschalter unter ihrem Törn',
-  (await page.locator('.chip-sub').first().innerText()).includes('Kiel – Marstal'),
-  await page.locator('.chip-sub').first().innerText());
+check('Sie steht in der Auswahlliste unter ihrem Törn, eingerückt',
+  (await page.locator('[data-scope="logbuch"] option').nth(2).innerText()).startsWith('↳ Kiel – Marstal'),
+  await page.locator('[data-scope="logbuch"] option').nth(2).innerText());
+check('Und was gerade läuft, ist gekennzeichnet',
+  (await page.locator('[data-scope="logbuch"]').innerText()).includes('läuft'),
+  (await page.locator('[data-scope="logbuch"]').innerText()).replace(/\n/g, ' | '));
 
 const inEtappe = await page.locator('.log-item').count();
 await page.getByRole('button', { name: /Motor an/ }).click();
@@ -1506,12 +1513,12 @@ const inTrip = await page.evaluate(() => {
   const d = JSON.parse(localStorage.getItem('sailing-buddy-log'));
   return d.entries.filter((e) => e.tripId === d.currentTripId).length;
 });
-await page.locator('[data-scope="wahl"] button').nth(1).click();
+await page.locator('[data-scope="logbuch"]').selectOption({ index: 1 });
 await page.waitForTimeout(400);
 check('Auf den Törn umgeschaltet stehen mehr Einträge da',
   await page.locator('.log-item').count() === inTrip,
   `Törn: ${await page.locator('.log-item').count()}, erwartet ${inTrip}`);
-await page.locator('.chip-sub').first().click();
+await page.locator('[data-scope="logbuch"]').selectOption({ index: 2 });
 await page.waitForTimeout(400);
 check('Und auf die Etappe zurück nur ihre eigenen',
   await page.locator('.log-item').count() < inTrip,
@@ -1542,6 +1549,12 @@ check('Motorstunden werden aus „an“ und „aus“ gerechnet',
   !/motor gelaufen\s*\n\s*–/i.test(await page.locator('.readout-fest').innerText()),
   (await page.locator('.readout-fest').innerText()).replace(/\n/g, ' | ').slice(0, 200));
 
+// Die Spur mit ihrer Auswahlliste – das Bild, auf das es hier ankommt.
+await page.locator('[data-scope="logbuch"]').scrollIntoViewIfNeeded();
+await page.evaluate(() => window.scrollBy(0, -90));
+await page.waitForTimeout(400);
+await shot('06c-spur');
+await page.evaluate(() => window.scrollTo(0, 0));
 await shot('06b-etappen');
 
 // --- Ausgabe als Datei -----------------------------------------------------
@@ -1550,7 +1563,7 @@ await shot('06b-etappen');
 //
 // Ausgegeben wird, was gerade gewählt ist – hier der ganze Törn, damit auch
 // die Ereignisse der ersten Etappe mit hineinkommen.
-await page.locator('[data-scope="wahl"] button').nth(1).click();
+await page.locator('[data-scope="logbuch"]').selectOption({ index: 1 });
 await page.waitForTimeout(400);
 const [gpxDatei] = await Promise.all([
   page.waitForEvent('download'),
@@ -1750,13 +1763,37 @@ const [sicherung] = await Promise.all([
   page.getByRole('button', { name: /Sicherung ablegen/ }).click(),
 ]);
 const sicherungPfad = await sicherung.path();
+
+// Löschen bezieht sich auf das, was man sieht. Solange ein Törn gewählt ist,
+// heißt die Schaltfläche auch so – und trifft nur diesen Törn.
+const eintraegeKarte = () => page.locator('.card').filter({ has: page.locator('.log-item') });
+check('Bei gewähltem Ausschnitt löscht die Schaltfläche nur diesen',
+  await eintraegeKarte().locator('[data-clear="scope"]').count() === 1,
+  await eintraegeKarte().locator('button').first().innerText());
+
+// Wie viele Einträge es insgesamt sind, zählt nur „Alles“.
+const aufAlles = async () => {
+  await page.locator('[data-scope="logbuch"]').selectOption({ index: 0 });
+  await page.waitForTimeout(300);
+};
+await aufAlles();
 const vorLoeschen = await page.locator('.log-item').count();
+
+await page.locator('[data-scope="logbuch"]').selectOption({ index: 1 });
+await page.waitForTimeout(300);
+page.once('dialog', (d) => d.accept());
+await eintraegeKarte().locator('[data-clear="scope"]').click();
+await page.waitForTimeout(400);
+await aufAlles();
+const nachAusschnitt = await page.locator('.log-item').count();
+check('Der gelöschte Ausschnitt ist weg, der Rest steht noch da',
+  nachAusschnitt > 0 && nachAusschnitt < vorLoeschen,
+  `${vorLoeschen} → ${nachAusschnitt}`);
 
 page.once('dialog', (d) => d.accept());
 // Nach dem Inhalt suchen, nicht nach der Überschrift: „Einträge“ steht auch
 // als Beschriftung in den Messwerten über der Spur.
-await page.locator('.card').filter({ has: page.locator('.log-item') })
-  .getByRole('button', { name: 'Alle löschen' }).click();
+await eintraegeKarte().locator('[data-clear="alles"]').click();
 await page.waitForTimeout(400);
 check('Alles löschen leert das Logbuch', await page.locator('.log-item').count() === 0,
   `${await page.locator('.log-item').count()} übrig`);
@@ -1767,7 +1804,8 @@ check('Die Sicherung holt das Logbuch zurück',
   await page.locator('.log-item').count() === vorLoeschen,
   `${vorLoeschen} vorher, ${await page.locator('.log-item').count()} zurück`);
 check('Auch der Törn ist wieder da',
-  (await page.locator('.trip-name, .chip').allInnerTexts()).some((v) => v.includes('Ostsee 2026')));
+  (await page.locator('.trip-name, [data-scope="logbuch"]').allInnerTexts())
+    .some((v) => v.includes('Ostsee 2026')));
 
 // Ein zweites Zurücklesen darf nichts verdoppeln – sonst wächst das Logbuch
 // bei jedem Wiederherstellen.
@@ -1789,6 +1827,64 @@ check('Der Törn lässt sich beenden',
 check('Und das Anlegen steht im Logbuch',
   (await page.locator('.log-item').first().innerText()).includes('Anlegen'),
   (await page.locator('.log-item').first().innerText()).replace(/\n/g, ' | '));
+
+// --- Die Spur auf dem Kartenreiter -----------------------------------------
+// Was auf der Karte liegt, muss man wählen können. Vorher lagen dort immer
+// *alle* Logbucheinträge – auch die von Törns, die längst gelöscht waren, weil
+// deren Einträge liegen blieben. Beides ist behoben: Löschen nimmt die
+// Einträge mit, und was gezeigt wird, sagt dieselbe Auswahlliste wie im
+// Logbuch.
+await goTab('karte');
+await page.waitForSelector('.chart-gross');
+check('Auf der Karte steht, welche Spur gezeigt wird',
+  await page.locator('[data-scope="karte"]').count() === 1);
+const kartenText = () => page.locator('.card', { hasText: 'Die Spur zeigt' }).innerText();
+const spurZahl = async () => Number((await kartenText()).match(/Die Spur zeigt (\d+)/)?.[1] ?? 0);
+const spurAlle = await spurZahl();
+check('Voreingestellt liegt die ganze Spur darauf', spurAlle > 0, `${spurAlle} Punkte`);
+
+await page.locator('[data-scope="karte"]').selectOption({ index: 0 });
+await page.waitForTimeout(400);
+check('„Keine Spur“ nimmt sie von der Karte',
+  await page.locator('.card', { hasText: 'Die Spur zeigt' }).count() === 0);
+
+// Der letzte Eintrag der Liste ist die engste Auswahl – eine Etappe oder das,
+// was zu keinem Törn gehört. Beides muss weniger sein als alles.
+const zahlOptionen = await page.locator('[data-scope="karte"] option').count();
+await page.locator('[data-scope="karte"]').selectOption({ index: zahlOptionen - 1 });
+await page.waitForTimeout(400);
+const spurEng = await spurZahl();
+check('Ein einzelner Ausschnitt zeigt weniger als alles',
+  spurEng > 0 && spurEng < spurAlle,
+  `${spurEng} von ${spurAlle}, ${zahlOptionen} Einträge in der Liste`);
+await shot('04f-karte-spurwahl');
+
+await page.locator('[data-scope="karte"]').selectOption({ index: 1 });
+await page.waitForTimeout(400);
+await goTab('logbuch');
+await page.waitForSelector('.log-item');
+
+// --- Löschen heißt löschen -------------------------------------------------
+// Vorher blieben die Einträge eines weggeworfenen Törns liegen und verloren
+// nur ihre Zuordnung. Der Törn war aus jeder Liste verschwunden, seine Spur
+// lag aber weiter auf der Karte – und niemand kam mehr an sie heran.
+await aufAlles();
+const vorTrip = await page.locator('.log-item').count();
+await page.locator('[data-fold="trips"] summary').click();
+await page.waitForTimeout(300);
+let loeschFrage = '';
+page.once('dialog', (d) => { loeschFrage = d.message(); d.accept(); });
+await page.locator('[data-fold="trips"] .wp-item').first()
+  .locator('button', { hasText: '✕' }).click();
+await page.waitForTimeout(500);
+check('Die Nachfrage nennt, wie viele Einträge mitgehen',
+  /\d+ Einträge/.test(loeschFrage), loeschFrage);
+const nachTrip = await page.locator('.log-item').count();
+check('Ein gelöschter Törn nimmt seine Einträge mit',
+  nachTrip < vorTrip, `${vorTrip} → ${nachTrip}`);
+check('Und steht danach in keiner Auswahlliste mehr',
+  !(await page.locator('[data-scope="logbuch"]').innerText()).includes('Ostsee 2026'),
+  (await page.locator('[data-scope="logbuch"]').innerText()).replace(/\n/g, ' | '));
 
 // --- Notruf ins Logbuch ----------------------------------------------------
 // Bewusst ein eigener Griff und nicht das Kopieren: Text in die

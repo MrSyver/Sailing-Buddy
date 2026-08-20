@@ -227,3 +227,89 @@ test('Ohne Motorereignisse gibt es keine Motorstunden', async () => {
   const { engineTime } = await import('../js/lib/logbook.js');
   assert.equal(engineTime([eintrag(1, 8, 54, 10)]), 0);
 });
+
+/**
+ * Ein Speicher fürs Prüfen.
+ *
+ * Das Logbuch schreibt in `localStorage`. Den gibt es hier nicht, und ohne ihn
+ * greift die Notbremse für den vollen Speicher: Sie halbiert die Einträge, bis
+ * keiner mehr da ist. Im Browser ist das richtig, hier wäre es nur verwirrend –
+ * also bekommt Node einen Speicher, der sich wie einer verhält.
+ */
+if (typeof globalThis.localStorage === 'undefined') {
+  const daten = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (daten.has(k) ? daten.get(k) : null),
+    setItem: (k, v) => daten.set(k, String(v)),
+    removeItem: (k) => daten.delete(k),
+    clear: () => daten.clear(),
+  };
+}
+
+/*
+ * Löschen heißt löschen.
+ *
+ * Vorher blieben die Einträge eines gelöschten Törns liegen und verloren nur
+ * ihre Zuordnung. Auf der Karte lag die Spur damit weiter da, obwohl der Törn
+ * aus jeder Liste verschwunden war – und niemand kam mehr an sie heran. Die
+ * folgenden Prüfungen halten fest, dass das nicht wiederkommt.
+ */
+
+/** Ein Logbuch mit einem Törn, einer Etappe darin und Einträgen überall. */
+async function frischesLogbuch() {
+  const { logbook } = await import('../js/lib/logbook.js');
+  logbook.clear();
+  logbook.trips().forEach((r) => logbook.removeTrip(r.id));
+  logbook.turns().forEach((r) => logbook.removeTurn(r.id));
+
+  const fix = { lat: 54, lon: 10, speed: 5, heading: 90, accuracy: 8 };
+  logbook.add({ fix, note: 'ohne alles' });
+  const trip = logbook.startTrip({ name: 'Ostsee' });
+  logbook.add({ fix, note: 'im Törn' });
+  const turn = logbook.startTurn({ name: 'Kiel – Marstal' });
+  logbook.add({ fix, note: 'in der Etappe' });
+  return { logbook, trip, turn };
+}
+
+test('Ein gelöschter Törn nimmt seine Etappen und Einträge mit', async () => {
+  const { logbook, trip } = await frischesLogbuch();
+  assert.equal(logbook.entries().length, 3);
+
+  logbook.removeTrip(trip.id);
+
+  assert.equal(logbook.trips().length, 0, 'der Törn ist weg');
+  assert.equal(logbook.turns().length, 0, 'seine Etappe auch');
+  // Übrig bleibt nur der Eintrag, der nie zu ihm gehört hat.
+  assert.equal(logbook.entries().length, 1);
+  assert.equal(logbook.entries()[0].note, 'ohne alles');
+  assert.equal(logbook.currentTripId ?? null, null);
+});
+
+test('Eine gelöschte Etappe nimmt ihre Einträge mit, der Törn bleibt', async () => {
+  const { logbook, turn } = await frischesLogbuch();
+
+  logbook.removeTurn(turn.id);
+
+  assert.equal(logbook.trips().length, 1, 'der Törn bleibt stehen');
+  assert.equal(logbook.entries().length, 2);
+  assert.ok(!logbook.entries().some((e) => e.note === 'in der Etappe'));
+});
+
+test('Der Ausschnitt „ohne Zuordnung“ trifft nur, was zu nichts gehört', async () => {
+  const { logbook } = await frischesLogbuch();
+  const ohne = logbook.track({ orphan: true });
+  assert.equal(ohne.length, 1);
+  assert.equal(ohne[0].note, 'ohne alles');
+});
+
+test('Ein Ausschnitt lässt sich für sich löschen', async () => {
+  const { logbook, turn } = await frischesLogbuch();
+
+  logbook.removeEntries({ turnId: turn.id });
+  assert.equal(logbook.entries().length, 2, 'nur die Etappeneinträge sind weg');
+  assert.equal(logbook.turns().length, 1, 'die Etappe selbst steht noch da');
+
+  logbook.removeEntries({ orphan: true });
+  assert.equal(logbook.entries().length, 1);
+  assert.equal(logbook.entries()[0].note, 'im Törn');
+});

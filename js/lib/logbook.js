@@ -140,6 +140,20 @@ function write(next) {
   listeners.forEach((fn) => fn(cache));
 }
 
+/**
+ * Gehört ein Eintrag zu diesem Ausschnitt?
+ *
+ * Ohne Ausschnitt gehört alles dazu. `{ orphan: true }` meint das Gegenteil
+ * jeder Zuordnung: weder Törn noch Etappe.
+ */
+function inScope(entry, scope) {
+  if (!scope) return true;
+  if (scope.orphan) return !entry.tripId && !entry.turnId;
+  if (scope.turnId !== undefined && scope.turnId !== null) return entry.turnId === scope.turnId;
+  if (scope.tripId !== undefined && scope.tripId !== null) return entry.tripId === scope.tripId;
+  return true;
+}
+
 const newId = (prefix) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 let timer = null;
@@ -152,19 +166,12 @@ export const logbook = {
   /**
    * Einträge in zeitlicher Reihenfolge – so wird die Spur gezeichnet.
    *
-   * `scope` ist entweder nichts (alles), `{ tripId }` oder `{ turnId }`.
+   * `scope` ist entweder nichts (alles), `{ tripId }`, `{ turnId }` oder
+   * `{ orphan: true }` für alles, was zu keinem Törn und keiner Etappe gehört.
    */
-  track: (scope = undefined) => {
-    const alle = [...read().entries].sort((a, b) => a.ts - b.ts);
-    if (!scope) return alle;
-    if (scope.turnId !== undefined && scope.turnId !== null) {
-      return alle.filter((e) => e.turnId === scope.turnId);
-    }
-    if (scope.tripId !== undefined && scope.tripId !== null) {
-      return alle.filter((e) => e.tripId === scope.tripId);
-    }
-    return alle;
-  },
+  track: (scope = undefined) => [...read().entries]
+    .sort((a, b) => a.ts - b.ts)
+    .filter((e) => inScope(e, scope)),
 
   intervalMinutes: () => read().intervalMinutes,
   onlyMoving: () => read().onlyMoving,
@@ -246,17 +253,26 @@ export const logbook = {
   },
 
   /**
-   * Wirft einen Törn weg. Seine Einträge bleiben – sie sind das Logbuch, der
-   * Törn nur die Klammer darum.
+   * Wirft einen Törn weg – mitsamt seinen Etappen und seinen Einträgen.
+   *
+   * Früher blieben die Einträge stehen und verloren nur ihre Zuordnung. Das
+   * war als Vorsicht gemeint und hat sich als Ärgernis erwiesen: Der Törn war
+   * aus der Liste verschwunden, seine Spur lag aber weiter auf der Karte, und
+   * niemand kam mehr an sie heran, weil es dafür keinen Ausschnitt mehr gab.
+   * Gelöscht heißt gelöscht; wer die Punkte behalten will, hängt sie vorher
+   * an einen anderen Törn oder gibt sie aus.
    */
   removeTrip(id) {
     const data = read();
+    const etappen = data.turns.filter((r) => r.tripId === id).map((r) => r.id);
+    const weg = new Set(etappen);
     write({
       ...data,
       trips: data.trips.filter((r) => r.id !== id),
       currentTripId: data.currentTripId === id ? null : data.currentTripId,
-      turns: data.turns.map((r) => (r.tripId === id ? { ...r, tripId: null } : r)),
-      entries: data.entries.map((e) => (e.tripId === id ? { ...e, tripId: null } : e)),
+      currentTurnId: weg.has(data.currentTurnId) ? null : data.currentTurnId,
+      turns: data.turns.filter((r) => r.tripId !== id),
+      entries: data.entries.filter((e) => e.tripId !== id && !weg.has(e.turnId)),
     });
   },
 
@@ -316,14 +332,14 @@ export const logbook = {
     write({ ...data, turns: data.turns.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
   },
 
-  /** Wirft eine Etappe weg. Ihre Einträge bleiben und fallen an den Törn. */
+  /** Wirft eine Etappe weg – mitsamt ihren Einträgen. Wie beim Törn. */
   removeTurn(id) {
     const data = read();
     write({
       ...data,
       turns: data.turns.filter((r) => r.id !== id),
       currentTurnId: data.currentTurnId === id ? null : data.currentTurnId,
-      entries: data.entries.map((e) => (e.turnId === id ? { ...e, turnId: null } : e)),
+      entries: data.entries.filter((e) => e.turnId !== id),
     });
   },
 
@@ -378,6 +394,19 @@ export const logbook = {
 
   clear() {
     write({ ...read(), entries: [] });
+  },
+
+  /**
+   * Löscht die Einträge eines Ausschnitts – Törn, Etappe oder das, was zu
+   * keinem von beidem gehört.
+   *
+   * Der letzte Fall ist der wichtige: Wer früher einen Törn gelöscht hat,
+   * dessen Punkte hängen ohne Zuordnung im Logbuch und liegen weiter auf der
+   * Karte. Ohne diesen Weg käme man an sie nur noch mit „Alle löschen“ heran.
+   */
+  removeEntries(scope) {
+    const data = read();
+    write({ ...data, entries: data.entries.filter((e) => !inScope(e, scope)) });
   },
 
   // --------------------------------------------------------------- Automatik

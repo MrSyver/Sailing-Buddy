@@ -21,10 +21,24 @@ import { t, num } from '../lib/i18n.js';
 import { formatPosition, rhumbLine } from '../lib/geo.js';
 import { logbook } from '../lib/logbook.js';
 import { createChart, fullscreenButton } from '../lib/chartview.js';
+import { scopeSelect, scopeFrom, scopeExists } from '../lib/scopeselect.js';
 import { ATTRIBUTION } from '../data/tilesources.js';
 
+/**
+ * Welche Spur auf der Karte liegt.
+ *
+ * Früher stand hier ein schlichtes Ja/Nein für „alle Logbucheinträge“. Das
+ * reicht nicht: Wer drei Törns mitgeschrieben hat, sieht sonst drei Törns
+ * übereinander und kann nur beides oder nichts haben. Jetzt ist es ein
+ * Ausschnitt – derselbe Begriff wie im Logbuch, damit beide Reiter dasselbe
+ * meinen, wenn sie „Spur“ sagen.
+ *
+ * `'aus'` heißt keine Spur; alles andere wird von `scopeFrom` gelesen.
+ */
 const state = {
-  showTrack: true,   // Spur aus dem Logbuch
+  trackScope: 'alles',
+  /** Wohin der Schnellschalter zurückspringt, wenn man ihn wieder einschaltet. */
+  letzte: 'alles',
 };
 
 let container = null;
@@ -62,12 +76,16 @@ function collect() {
     name: wp.name,
     id: wp.id,
   }));
-  const track = state.showTrack ? logbook.track() : [];
+  const track = state.trackScope === 'aus'
+    ? []
+    : logbook.track(scopeFrom(state.trackScope));
   return { marks, track };
 }
 
 function draw() {
   if (!container) return;
+  // Ein gelöschter Törn darf die Karte nicht leer stehen lassen.
+  if (state.trackScope !== 'aus' && !scopeExists(state.trackScope)) state.trackScope = 'alles';
   const { marks, track } = collect();
 
   chart?.destroy();
@@ -82,6 +100,7 @@ function draw() {
 
     chart.note,
     marks.length > 0 && h('p.small.muted.chart-credit', ATTRIBUTION),
+    trackCard(),
     legend(marks, track),
   );
 
@@ -114,18 +133,47 @@ function draw() {
           title: t('map.fitAll'),
           onclick: () => chart.fit(),
         }, '⤢'),
+        // Der Schnellschalter bleibt: Ein Griff, und die Spur ist weg, wenn
+        // sie im Weg liegt. *Welche* Spur, sagt die Liste unter der Karte.
         h('button.chart-btn', {
           type: 'button',
-          'aria-pressed': String(state.showTrack),
+          'aria-pressed': String(state.trackScope !== 'aus'),
           'aria-label': t('map.trackToggle'),
           title: t('map.trackToggle'),
-          onclick: () => { state.showTrack = !state.showTrack; draw(); },
+          onclick: () => {
+            if (state.trackScope === 'aus') state.trackScope = state.letzte;
+            else { state.letzte = state.trackScope; state.trackScope = 'aus'; }
+            draw();
+          },
         }, '〜'),
       ),
     );
   }
 
   chart.paint();
+}
+
+/**
+ * Welche Spur gezeigt wird.
+ *
+ * Nur, wenn überhaupt etwas mitgeschrieben ist – sonst wäre es eine
+ * Auswahlliste mit einem Eintrag, und die erklärt nichts.
+ */
+function trackCard() {
+  if (logbook.entries().length === 0) return null;
+  return h('div.card', { style: { 'margin-top': '12px' } },
+    scopeSelect({
+      value: state.trackScope,
+      name: 'karte',
+      label: t('log.scope'),
+      extra: [{ value: 'aus', label: t('map.trackOff') }],
+      onPick: (wert) => {
+        state.trackScope = wert;
+        if (wert !== 'aus') state.letzte = wert;
+        draw();
+      },
+    }),
+  );
 }
 
 // ------------------------------------------------------------------ Legende
