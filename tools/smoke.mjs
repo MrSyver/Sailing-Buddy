@@ -898,6 +898,47 @@ check('Reiterleiste bleibt beim Scrollen liegen', barAfter === barBefore.top,
   `vorher ${barBefore.top}, nachher ${barAfter}`);
 await page.evaluate(() => window.scrollTo(0, 0));
 
+// Sie klebt, statt festzustehen. `position: fixed` verankert am
+// Anzeigebereich, und genau den rechnet Safari während des Scrollens um –
+// beim Hochscrollen stand die Leiste dadurch eine Zeit lang mitten im Bild.
+const leiste = await page.locator('nav.tabs').evaluate((el) => ({
+  art: getComputedStyle(el).position,
+  huelle: getComputedStyle(el.parentElement).paddingBottom,
+}));
+check('Die Leiste klebt am unteren Rand, statt festzustehen',
+  leiste.art === 'sticky', leiste.art);
+check('Und die Hülle hält keinen Platz mehr für sie frei',
+  parseFloat(leiste.huelle) === 0, leiste.huelle);
+
+// Damit ist auch der Scheinweg weg: Vorher war jede Seite 72 Pixel höher als
+// der Bildschirm, weil die Hülle den Platz für die Leiste freihielt. Es gab
+// also überall etwas zu scrollen – und jedes bisschen Scrollen fährt in
+// Safari die Adressleiste ein und aus.
+await goTab('mehr');
+await page.waitForSelector('.more-item');
+const platz = await page.evaluate(() => ({
+  doc: document.documentElement.scrollHeight,
+  sicht: window.innerHeight,
+}));
+check('Eine Seite, die auf den Schirm passt, lässt sich nicht scrollen',
+  platz.doc <= platz.sicht + 1, `Dokument ${platz.doc}, Schirm ${platz.sicht}`);
+await goTab('position');
+await page.waitForTimeout(200);
+
+// Am Seitenende darf nichts unter der Leiste liegen bleiben. Den Platz hielt
+// vorher die Hülle frei; jetzt bringt ihn die Leiste selbst mit, weil sie im
+// Fluss steht.
+await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+await page.waitForTimeout(300);
+const seitenende = await page.evaluate(() => ({
+  inhalt: Math.round(document.querySelector('main').lastElementChild.getBoundingClientRect().bottom),
+  leiste: Math.round(document.querySelector('nav.tabs').getBoundingClientRect().top),
+}));
+check('Am Seitenende steht der letzte Inhalt über der Leiste, nicht darunter',
+  seitenende.inhalt <= seitenende.leiste, JSON.stringify(seitenende));
+await page.evaluate(() => window.scrollTo(0, 0));
+await page.waitForTimeout(200);
+
 // Sechs Reiter auf einem schmalen Gerät: Kein Wort darf abgeschnitten werden.
 const tabFit = await page.locator('nav.tabs button').evaluateAll((els) => els.map((el) => {
   const span = el.querySelector('span');
