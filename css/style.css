@@ -121,12 +121,23 @@ body {
   transition: opacity .2s ease;
 }
 
+/*
+ * Die Hülle ist genau einen Bildschirm hoch – nicht einen Bildschirm plus
+ * Leiste.
+ *
+ * Vorher stand hier zusätzlich ein `padding-bottom` in Höhe der Reiterleiste,
+ * damit der Inhalt nicht unter ihr verschwindet. Das hatte eine Nebenwirkung,
+ * die man erst auf dem Telefon sieht: Jede Seite war damit 72 Pixel höher als
+ * der Bildschirm, auch eine mit drei Zeilen Inhalt. Es gab also überall etwas
+ * zu scrollen, und jedes bisschen Scrollen fährt in Safari die Adressleiste
+ * ein und aus. Die Leiste braucht den Platz nicht mehr – sie steht jetzt im
+ * Fluss und bringt ihn selbst mit.
+ */
 .app {
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding-bottom: calc(72px + env(safe-area-inset-bottom));
 }
 
 /* ------------------------------------------------------------------ Kopfzeile */
@@ -440,15 +451,25 @@ a.btn { text-decoration: none; }
 
 /* ----------------------------------------------------------- Untere Reiter */
 
+/*
+ * Die Leiste klebt, statt festzustehen.
+ *
+ * `position: fixed` verankert ein Element am Anzeigebereich, und genau den
+ * rechnet Safari auf dem iPhone während einer Scrollbewegung um: Fährt beim
+ * Hochscrollen die Adressleiste wieder aus, hängt die Leiste noch am alten,
+ * größeren Bereich und steht sichtbar zu hoch – mitten im Bild – bis die
+ * Bewegung zu Ende ist. Zwei Anläufe haben versucht, das nachzuführen; beide
+ * haben es schlimmer gemacht, weil man einer Umrechnung nicht hinterherrechnen
+ * kann, von der man erst hinterher erfährt.
+ *
+ * `position: sticky` stellt die Frage gar nicht erst. Die Leiste liegt im
+ * Fluss, als letztes Kind der Hülle, und wird beim Scrollen am unteren Rand
+ * festgehalten. Damit bewegt sie sich mit der Seite statt gegen sie – und am
+ * Ende des Dokuments steht sie ohnehin an ihrem eigenen Platz.
+ */
 nav.tabs {
-  position: fixed;
+  position: sticky;
   bottom: 0;
-  left: 0;
-  right: 0;
-  /* Ohne Kunstgriff: Safari setzt eine unten verankerte feste Leiste von
-     selbst an den sichtbaren Rand. Ein früherer Versuch, das mit
-     translateY(100dvh - 100vh) nachzuhelfen, schob sie bei jeder Bewegung
-     der Adressleiste sichtbar nach oben. */
   z-index: 50;
   display: flex;
   background: var(--surface);
