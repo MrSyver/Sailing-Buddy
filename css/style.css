@@ -1848,7 +1848,6 @@ body.chart-open { overflow: hidden; }
 }
 
 /* Etappen im Umschalter sind dem Törn untergeordnet und stehen kleiner. */
-.chip.chip-sub { font-size: .8rem; padding: 6px 11px; min-height: 34px; }
 
 /* Fünf Reiter passen nur, wenn die Schrift mitgeht. */
 .seg.seg-eng button { font-size: .78rem; padding-left: 4px; padding-right: 4px; }

@@ -20,6 +20,7 @@ import { t, locale, num } from '../lib/i18n.js';
 import { formatPosition, formatDuration, formatLat, formatLon } from '../lib/geo.js';
 import { shareFile, downloadFile, stamped } from '../lib/share.js';
 import { createChart, fullscreenButton } from '../lib/chartview.js';
+import { scopeSelect, scopeFrom, scopeValue, scopeExists } from '../lib/scopeselect.js';
 import { ATTRIBUTION } from '../data/tilesources.js';
 import { buildMilesPdf } from '../lib/miles.js';
 import { ROLES, QUALIFICATIONS, OTHER } from '../data/milesfields.js';
@@ -97,6 +98,7 @@ export function view(root) {
 /** Die Einträge, die gerade gezeigt werden – neueste zuerst. */
 function selection() {
   const all = logbook.entries();
+  if (scope.orphan) return all.filter((e) => !e.tripId && !e.turnId);
   if (scope.turnId) return all.filter((e) => e.turnId === scope.turnId);
   if (scope.tripId) return all.filter((e) => e.tripId === scope.tripId);
   return all;
@@ -112,6 +114,7 @@ function scopeName() {
     const trip = logbook.trip(scope.tripId);
     return trip?.name || t('log.tripUnnamed');
   }
+  if (scope.orphan) return t('log.scopeNone');
   return '';
 }
 
@@ -126,6 +129,9 @@ const offen = new Set();
 
 function draw() {
   if (!container) return;
+  // Zeigt die Auswahl ins Leere – etwa weil der Törn gelöscht wurde –, dann
+  // zurück auf alles. Sonst stünde der Reiter leer da, ohne zu sagen warum.
+  if (!scopeExists(scopeValue(scope))) scope = {};
   const entries = selection();
   const track = [...entries].sort((a, b) => a.ts - b.ts);
 
@@ -137,7 +143,10 @@ function draw() {
   render(container,
     tripCard(),
     recorderCard(),
-    track.length > 0 && trackCard(track),
+    // Auch wenn im gewählten Ausschnitt nichts steht: Die Karte trägt die
+    // Auswahlliste, und ohne sie käme man aus einem leeren Törn nicht mehr
+    // heraus.
+    logbook.entries().length > 0 && trackCard(track),
     entriesCard(entries),
     outputCard(track),
   );
@@ -211,36 +220,6 @@ function tripCard() {
         : h('button.btn.small', { type: 'button', onclick: startTurn }, t('log.turnStart')),
     ),
 
-    // Umschalten, worauf sich Liste, Spur, Kennzahlen und Ausgabe beziehen.
-    h('div.filter-chips', { style: { 'margin-top': '12px' }, 'data-scope': 'wahl' },
-      h('button.chip', {
-        type: 'button',
-        'data-scope': 'alles',
-        'aria-pressed': String(!scope.tripId && !scope.turnId),
-        onclick: () => { scope = {}; draw(); },
-      }, t('log.tripAll')),
-      ...trips.flatMap((r) => [
-        h('button.chip', {
-          type: 'button',
-          'aria-pressed': String(scope.tripId === r.id),
-          onclick: () => { scope = { tripId: r.id }; draw(); },
-        }, r.name || whenShort(r.startTs)),
-        // Die Etappen eines Törns direkt darunter, eingerückt – sonst weiß
-        // niemand, wozu sie gehören.
-        ...logbook.turns(r.id).map((et) => h('button.chip.chip-sub', {
-          type: 'button',
-          'aria-pressed': String(scope.turnId === et.id),
-          onclick: () => { scope = { turnId: et.id }; draw(); },
-        }, `↳ ${et.name || whenShort(et.startTs)}`)),
-      ]),
-      // Etappen ohne Törn stehen für sich.
-      ...logbook.turns(null).map((et) => h('button.chip.chip-sub', {
-        type: 'button',
-        'aria-pressed': String(scope.turnId === et.id),
-        onclick: () => { scope = { turnId: et.id }; draw(); },
-      }, `↳ ${et.name || whenShort(et.startTs)}`)),
-    ),
-
     trips.length > 0 && h('details.foldout', { 'data-fold': 'trips', style: { 'margin-top': '12px', 'margin-bottom': 0 } },
       h('summary', t('log.tripList', { v: trips.length })),
       h('div',
@@ -259,7 +238,11 @@ function tripCard() {
 function verwaltungsZeile(eintrag, istEtappe) {
   const name = eintrag.name || t(istEtappe ? 'log.turnUnnamed' : 'log.tripUnnamed');
   const umbenennen = t(istEtappe ? 'log.turnRename' : 'log.tripRename');
-  const nachfrage = t(istEtappe ? 'log.turnConfirmDelete' : 'log.tripConfirmDelete');
+  // Wie viele Einträge mit weggehen, muss in der Nachfrage stehen. „Löschen?“
+  // beantwortet man anders, wenn dahinter zweihundert Positionen hängen.
+  const wieviele = logbook.track(istEtappe ? { turnId: eintrag.id } : { tripId: eintrag.id }).length;
+  const nachfrage = t(istEtappe ? 'log.turnConfirmDelete' : 'log.tripConfirmDelete',
+    { v: wieviele });
 
   return h('div.wp-item',
     h('div.grow',
@@ -546,11 +529,23 @@ function trackCard(track) {
       name && h('span.rule', name),
     ),
 
-    spurAnsicht(track),
+    // Die Auswahl steht direkt über der Spur, nicht drei Karten weiter oben:
+    // Man sieht eine Spur an und will *diese* umschalten. Sie zieht Liste,
+    // Kennzahlen und Ausgabe mit – der ganze Reiter zeigt danach denselben
+    // Ausschnitt, nicht die Karte den einen und die Zahlen den anderen.
+    scopeSelect({
+      scope,
+      name: 'logbuch',
+      onPick: (wert) => { scope = scopeFrom(wert); draw(); },
+    }),
+
+    track.length === 0
+      ? h('div.empty', { style: { 'margin-top': '12px' } }, t('log.scopeEmpty'))
+      : spurAnsicht(track),
 
     // Immer dieselben Kästchen, immer gleich groß – wie im Ergebnis auf der
     // Positionsseite. Was fehlt, steht als Strich da.
-    h('div.readout.readout-fest', { style: { 'margin-top': '12px' } },
+    track.length > 0 && h('div.readout.readout-fest', { style: { 'margin-top': '12px' } },
       cell(t('log.distance'), num(k.distance, k.distance < 10 ? 2 : 1), 'sm', t('log.distanceSub')),
       cell(t('log.duration'), formatDuration(k.seconds), null, t('log.durationSub')),
       cell(t('log.speedOverGround'),
@@ -575,7 +570,7 @@ function trackCard(track) {
       ),
     ),
 
-    h('p.small.muted', { style: { margin: '11px 0 0' } }, t('log.plotHint')),
+    track.length > 0 && h('p.small.muted', { style: { margin: '11px 0 0' } }, t('log.plotHint')),
   );
 }
 
@@ -672,18 +667,28 @@ function entriesCard(entries) {
   }
 
   const symbols = new Map(LOG_EVENTS.map((e) => [e.key, e.sym]));
+  const ausschnitt = Boolean(scope.tripId || scope.turnId || scope.orphan);
 
   return h('div.card',
     h('div.row', { style: { 'margin-bottom': '6px' } },
       h('h2.grow', { style: { margin: 0 } }, t('log.entries')),
+      // Löschen bezieht sich auf das, was man sieht. Wer eine Etappe
+      // ausgewählt hat und auf „Löschen“ tippt, meint diese Etappe – nicht
+      // die Saison. Steht „Alles“, ist es auch alles.
       h('button.btn.small', {
         type: 'button',
+        'data-clear': ausschnitt ? 'scope' : 'alles',
         onclick: () => {
-          if (!confirm(t('log.confirmClear'))) return;
-          logbook.clear();
+          if (ausschnitt) {
+            if (!confirm(t('log.confirmClearScope', { v: entries.length, n: scopeName() }))) return;
+            logbook.removeEntries(scope);
+          } else {
+            if (!confirm(t('log.confirmClear'))) return;
+            logbook.clear();
+          }
           draw();
         },
-      }, t('common.deleteAll')),
+      }, ausschnitt ? t('log.scopeDelete') : t('common.deleteAll')),
     ),
 
     ...entries.map((entry) => h('div.log-item',

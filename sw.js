@@ -15,7 +15,7 @@
  * funktioniert (etwa unter …github.io/Sailing-Buddy/).
  */
 
-const VERSION = 'v36';
+const VERSION = 'v37';
 const CACHE = `sailing-buddy-${VERSION}`;
 
 const ASSETS = [
@@ -35,6 +35,7 @@ const ASSETS = [
   './js/lib/modules.js',
   './js/lib/knotdraw.js',
   './js/lib/knotgeom.js',
+  './js/lib/scopeselect.js',
   './js/lib/offline.js',
   './js/lib/packs.js',
   './js/lib/pdf.js',
